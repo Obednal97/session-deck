@@ -1,0 +1,902 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<title>Session Deck</title>
+<link rel=manifest href=manifest.webmanifest><link rel=icon href=icons/192.png><link rel=apple-touch-icon href=icons/180.png><meta name=apple-mobile-web-app-title content="Session Deck">
+<meta name=theme-color content="#0e1118" media="(prefers-color-scheme: dark)"><meta name=theme-color content="#f3f5f8" media="(prefers-color-scheme: light)">
+<script>const ACC=[['Blue','#7d9bff','#2f5bd8'],['Purple','#b197fc','#7048e8'],['Pink','#f783ac','#d6336c'],['Red','#ff8787','#e03131'],['Orange','#ffa94d','#e8590c'],['Yellow','#ffd43b','#f2c200','#1a1a1a'],['Green','#69db7c','#2b8a3e'],['Teal','#63e6be','#0c8599'],['Graphite','#ced4da','#495057']];function setAcc(n){const a=ACC.find(x=>x[0]==n)||ACC[0],st=document.documentElement.style;st.setProperty('--cd',a[1]);st.setProperty('--cl',a[2]);a[3]?st.setProperty('--onl',a[3]):st.removeProperty('--onl')}
+try{const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t;setAcc(localStorage.getItem('accent'))}catch(e){}
+// column mode: this page inside one column of the desktop split view (the outer page adds ?col=<id>)
+const COL=parent!==window&&new URLSearchParams(location.search).get('col');if(COL)document.documentElement.classList.add('col')</script>
+<style>
+:root{color-scheme:dark;--bg:#0e1118;--s:#171b25;--r:#1f2430;--l:#2b3242;--fg:#e7ebf3;--m:#8c97ab;--c:var(--cd,#7d9bff);--o:#f0b25e;--g:#4cc47f;--on:#0e1118}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){color-scheme:light;--bg:#f3f5f8;--s:#fff;--r:#eaeef4;--l:#d6dce6;--fg:#161b26;--m:#5b6677;--c:var(--cl,#2f5bd8);--o:#a8650a;--g:#1f8a4c;--on:var(--onl,#fff)}}
+:root[data-theme=light]{color-scheme:light;--bg:#f3f5f8;--s:#fff;--r:#eaeef4;--l:#d6dce6;--fg:#161b26;--m:#5b6677;--c:var(--cl,#2f5bd8);--o:#a8650a;--g:#1f8a4c;--on:var(--onl,#fff)}
+[hidden]{display:none!important}*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+header{display:flex;gap:10px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--l)}
+header h1{font-size:16px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button{font:inherit;color:inherit;cursor:pointer}
+.back{border:0;background:none;color:var(--c);font-size:15px;padding:0}
+main{flex:1;overflow-y:auto;min-height:0}
+.row{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--l);background:none;padding:12px 16px}
+.row b{display:block}.row small{color:var(--m);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pill{font:600 11px ui-monospace,monospace;padding:2px 7px;border-radius:99px;background:var(--r);margin-right:6px}
+.pill.local{color:var(--o)}.pill.rotate{color:var(--c)}.work{color:var(--g)}
+.h{padding:10px 16px;color:var(--m);font:600 11px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em}
+.chat{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.u{border-left:2px solid var(--l);padding-left:10px;white-space:pre-wrap;overflow-wrap:anywhere}
+.a{white-space:pre-wrap;overflow-wrap:anywhere}
+.t{border:1px solid var(--l);border-radius:10px;background:var(--s);overflow:hidden;font:12px ui-monospace,monospace}
+.t>button{width:100%;text-align:left;border:0;background:none;padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.t pre{margin:0;padding:8px 10px;border-top:1px solid var(--l);overflow-x:auto;color:var(--m);max-height:260px}
+footer{border-top:1px solid var(--l);padding:8px 12px calc(10px + env(safe-area-inset-bottom));background:var(--s)}
+/* with the keyboard up, the home-indicator inset is dead space under the box: drop it */
+body.kb footer{padding-bottom:10px}
+.sug{display:block;width:100%;text-align:left;border:1px dashed var(--c);color:var(--c);background:none;border-radius:12px;padding:8px 12px;margin-bottom:8px;font-size:14px}
+.sug i{font:600 10px ui-monospace,monospace;opacity:.8;margin-right:6px;font-style:normal;text-transform:uppercase}
+.chips{display:flex;gap:6px;margin-bottom:8px;overflow-x:auto}
+.chip{border:1px solid var(--l);background:none;border-radius:99px;padding:4px 10px;font:12px ui-monospace,monospace;white-space:nowrap}
+.in{display:flex;gap:8px;align-items:flex-end}
+textarea{flex:1;min-width:0;resize:none;background:var(--r);border:0;color:var(--fg);border-radius:18px;padding:9px 14px;font:inherit;max-height:140px}
+.send{border:0;background:var(--c);color:var(--on);border-radius:99px;padding:9px 16px;font-weight:600}
+pre.scr{margin:0;padding:12px 16px;font:11px/1.35 ui-monospace,monospace;overflow-x:auto;white-space:pre}
+.grp{padding:10px 16px 6px;display:flex;align-items:center;gap:8px;color:var(--m);font:600 11px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em;background:var(--bg);position:sticky;top:0;border:0;width:100%;text-align:left}
+.grp span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sheet input,.sheet select{width:100%;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px;font:inherit}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:5}
+.sheet[hidden]{display:none}
+.sheet>div{background:var(--s);width:100%;max-height:88%;overflow-y:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px}
+.sheet h2{margin:0;font-size:16px}.lbl{font:600 11px ui-monospace,monospace;text-transform:uppercase;color:var(--m);letter-spacing:.06em}
+.eng{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.eng button{border:1px solid var(--l);background:none;border-radius:12px;padding:10px;text-align:left}
+.eng button[aria-pressed=true]{border:2px solid var(--c);padding:9px}
+.eng button.l[aria-pressed=true]{border-color:var(--o)}
+.go{border:0;background:var(--c);color:var(--on);font-weight:600;border-radius:12px;padding:13px}
+.pick{border:1px solid var(--l);background:none;border-radius:10px;padding:8px 10px;text-align:left;display:block;width:100%}
+.pick[aria-pressed=true]{border-color:var(--c);background:var(--r)}
+.pick small{display:block;color:var(--m);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+mark{background:none;color:var(--o)}
+textarea,input,select{font-size:16px!important}
+body{position:fixed;left:0;right:0;top:0;height:100%;overscroll-behavior:none}
+.cmd{align-self:flex-start;font:600 13px ui-monospace,monospace;color:var(--c);background:var(--r);border-radius:8px;padding:4px 10px}
+.cmdout{margin:0;font:12px/1.4 ui-monospace,monospace;color:var(--m);white-space:pre-wrap;overflow-wrap:anywhere;border-left:2px solid var(--l);padding-left:10px}
+.status{padding:6px 16px;font:12px ui-monospace,monospace;color:var(--o);border-top:1px solid var(--l);display:flex;gap:8px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--o);flex:none;animation:pulse 1s infinite alternate}
+@keyframes pulse{to{opacity:.25}}
+.imgs{display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px;border-top:1px solid var(--l)}
+.imgs img,.chat>img{max-width:100%;max-height:320px;border-radius:8px;border:1px solid var(--l);display:block}
+.sub{display:block;width:100%;text-align:left;border:0;border-top:1px solid var(--l);background:var(--r);color:var(--c);padding:8px 10px;font:600 12px ui-monospace,monospace}
+.u{align-self:flex-end;max-width:88%;background:var(--c);color:var(--on);border:0;border-radius:16px 16px 4px 16px;padding:8px 12px;white-space:pre-wrap}
+.u.q{opacity:.7}.u.q::after{content:" · queued";font-size:11px}
+.a{white-space:normal}.a p{margin:.4em 0}.a :first-child{margin-top:0}.a :last-child{margin-bottom:0}
+.a pre{background:var(--s);border:1px solid var(--l);border-radius:8px;padding:8px 10px;overflow-x:auto;font:12px/1.45 ui-monospace,monospace;white-space:pre}
+.a code{font:12.5px ui-monospace,monospace;background:var(--r);border-radius:4px;padding:1px 4px}.a pre code{background:none;padding:0}
+.a table{border-collapse:collapse;display:block;overflow-x:auto;font-size:13px}.a th,.a td{border:1px solid var(--l);padding:4px 8px;text-align:left}
+.a ul,.a ol{padding-left:22px;margin:.4em 0}.a h1,.a h2,.a h3{font-size:15px;margin:.8em 0 .3em}.a a{color:var(--c)}
+.more{align-self:center;border:1px solid var(--l);background:none;border-radius:99px;padding:6px 14px;font-size:13px;color:var(--m)}
+.menu{padding:10px 12px;border-top:1px solid var(--l);background:var(--bg);display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow-y:auto}
+.menu .mq{font-size:13px;color:var(--m)}
+.menu button{text-align:left;border:1px solid var(--l);background:var(--s);border-radius:12px;padding:9px 12px;font-size:14px}
+.menu button small{display:block;color:var(--m);font-size:12px}
+.menu button.sel{border-color:var(--c)}
+.cmp{border-top:1px dashed var(--l);border-bottom:1px dashed var(--l);padding:8px 0;color:var(--m);font-size:13px}.cmp summary{cursor:pointer;text-align:center}.cmp .a{margin-top:8px;max-height:60vh;overflow:auto}
+.now{align-self:flex-end;margin-top:-6px;border:1px solid var(--l);background:var(--s);color:var(--c);border-radius:14px;padding:4px 12px;font-size:13px}
+.tg{border:1px solid var(--l);border-radius:10px;background:var(--s);overflow:hidden}
+.tgh{display:block;width:100%;text-align:left;border:0;background:none;padding:9px 12px;font:12px ui-monospace,monospace;color:var(--m)}
+.tgh b{color:var(--fg);font-weight:600}.tgh span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.tgh::before{content:"\25B8  ";color:var(--m)}.tg:has(.tgb:not([hidden])) .tgh::before{content:"\25BE  "}
+.tgb{display:flex;flex-direction:column;gap:6px;padding:0 8px 8px}
+html{overscroll-behavior:none;height:100%;overflow:hidden}header{touch-action:none}
+.status{width:100%;box-sizing:border-box;min-width:0;border:0;background:var(--bg);text-align:left;color:var(--m)}.status.on{color:var(--o)}
+.status::before{background:var(--m);animation:none}.status.on::before{background:var(--o);animation:pulse 1s infinite alternate}
+.stx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status::after{content:"\25B4";flex:none;margin-left:auto;color:var(--m)}.status.open::after{content:"\25BE"}
+.stats{padding:4px 16px 10px;background:var(--bg);display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font:12.5px ui-monospace,monospace;max-height:45vh;overflow-y:auto}
+.stats dt{color:var(--m)}.stats dd{margin:0;min-width:0;overflow-wrap:anywhere}.stats .bar{display:inline-block;width:70px;height:6px;border-radius:3px;background:var(--r);vertical-align:middle;margin-right:6px;overflow:hidden}
+.stats .bar i{display:block;height:100%;background:var(--g)}.stats .bar i.w{background:var(--o)}.stats .bar i.c{background:#e5484d}
+.stats h4{grid-column:1/-1;margin:6px 0 0;font:600 10.5px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--m)}
+.slash{display:flex;flex-direction:column;max-height:40vh;overflow-y:auto;margin-bottom:8px;border:1px solid var(--l);border-radius:12px;background:var(--s)}
+.slash button{display:flex;gap:10px;align-items:baseline;border:0;border-bottom:1px solid var(--l);background:none;text-align:left;padding:9px 12px}
+.slash button:last-child{border-bottom:0}.slash code{font:600 13px ui-monospace,monospace;color:var(--c);min-width:84px}.slash span{color:var(--m);font-size:13px}
+.send.stop{background:#e5484d;color:#fff}
+.info{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:0;font-size:14px}.info dt{color:var(--m)}.info dd{margin:0;min-width:0;overflow-wrap:anywhere}.info code{font:12px ui-monospace,monospace}
+header h1{cursor:pointer}
+.ck{display:flex;gap:10px;align-items:center;font-size:14px}.ck input{width:18px;height:18px}
+.cyc{border:1px solid var(--l);background:none;border-radius:99px;padding:1px 9px;font:11px ui-monospace,monospace;margin-left:6px;color:var(--c)}
+.ic{border:0;background:none;color:var(--fg);padding:6px;margin:-6px;display:grid;place-items:center;border-radius:10px;flex:none}.ic svg{width:22px;height:22px}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:3;opacity:0;pointer-events:none;transition:opacity .2s}.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;bottom:0;left:0;width:min(86vw,340px);z-index:4;background:var(--bg);border-right:1px solid var(--l);transform:translateX(-102%);transition:transform .22s ease;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top);visibility:hidden}
+.drawer.on{transform:none;visibility:visible;box-shadow:8px 0 30px rgba(0,0,0,.3)}
+.dh{display:flex;gap:10px;align-items:center;padding:12px 14px 6px}
+.qs{flex:1;min-width:0;display:flex;align-items:center;gap:8px;background:var(--r);border-radius:99px;padding:0 12px;color:var(--m)}.qs svg{width:17px;height:17px;flex:none}
+.dh input{flex:1;min-width:0;background:none;border:0;padding:8px 0;color:var(--fg);outline:none}
+.dl{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 12px 12px}
+.sec{position:sticky;top:0;z-index:2;background:var(--bg);display:flex;justify-content:space-between;align-items:baseline;padding:14px 6px 6px;font-weight:600;font-size:12.5px;color:var(--m);letter-spacing:.02em}.sec span{font-weight:500;font-size:12px}
+.card{background:var(--s);border-radius:16px;padding:4px}
+.prow,.crow{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;text-align:left;padding:9px 10px;position:relative;border-radius:12px;color:var(--fg)}
+.card>button+button::before{content:'';position:absolute;top:0;right:10px;left:56px;border-top:1px solid var(--l);opacity:.7}.card>.crow+.crow:not(.lv)::before{left:10px}.card>.lv+.lv::before{left:34px}.card>.cur::before,.card>.cur+button::before,.card>:active::before,.card>:active+button::before{display:none}
+.prow span,.crow span{flex:1;min-width:0}
+.prow b,.crow b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prow small,.crow small{display:block;color:var(--m);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.crow.cur{background:var(--r)}.prow:active,.crow:active{background:var(--r)}
+.tl{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font:700 13px system-ui,sans-serif;font-style:normal;letter-spacing:.02em;background:color-mix(in srgb,var(--h) 20%,transparent);color:color-mix(in srgb,var(--h) 78%,var(--fg))}
+.tl.big{width:46px;height:46px;border-radius:13px;font-size:17px}
+small .tl{display:inline-grid;vertical-align:-3px;width:16px;height:16px;border-radius:5px;font-size:8.5px;margin-right:5px}
+.sc{flex:none;width:10px;height:10px;border-radius:50%;box-sizing:border-box;margin:0 2px 0 4px}.sc.idle{border:1.5px solid var(--m);opacity:.7}.sc.work{background:var(--g);animation:pulse 1s infinite alternate}.sc.done{background:var(--c)}.sc.needs{background:var(--o);box-shadow:0 0 0 3px color-mix(in srgb,var(--o) 25%,transparent)}
+.ap{flex:none;font:600 11.5px system-ui,sans-serif;font-style:normal;padding:3px 9px;border-radius:99px}.ap.a2{background:color-mix(in srgb,var(--o) 20%,transparent);color:var(--o)}.ap.a1{background:color-mix(in srgb,var(--c) 18%,transparent);color:var(--c)}
+.lvp{flex:none;font:600 11.5px system-ui,sans-serif;font-style:normal;padding:3px 9px;border-radius:99px;background:color-mix(in srgb,var(--g) 18%,transparent);color:var(--g)}
+.crow .pill{margin:0 6px 0 0;padding:0 6px;font-size:10px}
+.dback{border:0;background:none;color:var(--c);padding:6px 4px;font-size:15px}
+.ph{display:flex;align-items:center;gap:12px;padding:4px 4px 2px}.ph h3{margin:0;font-size:20px}.ph small{color:var(--m);font-size:12.5px}
+.none{padding:12px;color:var(--m);font-size:13.5px}
+.pnew{display:block;margin:14px 0 4px;border:0;background:color-mix(in srgb,var(--c) 14%,transparent);border-radius:12px;padding:11px 12px;color:var(--c);font-weight:600;width:100%;text-align:center}
+.dl .more{display:block;margin:10px auto 0}
+.df{border-top:1px solid var(--l);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;font-size:13px;color:var(--m)}
+.seg{display:flex;flex:1;background:var(--r);border-radius:9px;padding:2px}.seg button{flex:1;border:0;background:none;border-radius:7px;padding:5px 0;font-size:13px;color:var(--m)}
+.seg button[aria-pressed=true]{background:var(--s);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.note{align-self:center;font-size:12.5px;color:var(--m);background:var(--r);border-radius:99px;padding:4px 12px;text-align:center}
+.agr{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--l);background:none;padding:8px 2px}.agr:last-child{border-bottom:0}.agr b{display:block;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.agr small{display:block;color:var(--m);font-size:12.5px}
+.agn{position:relative}.agr{position:relative;padding-right:56px!important}.agc{position:absolute;right:2px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:4px;font:600 12px system-ui,sans-serif;font-style:normal;color:var(--m);background:var(--r);border-radius:99px;padding:3px 9px}.agc span{font-size:10px}.agc .dot{margin:0}
+.agn+.agn{border-top:1px solid var(--l)}.agk .agn{border-top:0!important}.agk{margin-left:10px}.agk>.agn{padding-left:18px}.agk>.agn::before{content:'';position:absolute;left:0;top:0;height:22px;width:12px;border-left:1.5px solid var(--l);border-bottom:1.5px solid var(--l);border-bottom-left-radius:8px}.agk>.agn:not(:last-child)::after{content:'';position:absolute;left:0;top:22px;bottom:0;border-left:1.5px solid var(--l)}.agk .agr{border-bottom:0}
+.agw{grid-column:1/-1;font:14px system-ui,sans-serif}.sub2{color:var(--m);margin-top:-8px}.more2 summary{color:var(--c);cursor:pointer;margin-bottom:8px}
+.u{white-space:normal}.u p{margin:.35em 0}.u>:first-child{margin-top:0}.u>:last-child{margin-bottom:0}.u code{font:13px ui-monospace,monospace;background:rgba(0,0,0,.15);border-radius:4px;padding:1px 4px}.u pre{white-space:pre;overflow-x:auto;background:rgba(0,0,0,.15);border-radius:8px;padding:6px 8px}.u pre code{background:none;padding:0}.u a{color:inherit}.u ul,.u ol{padding-left:20px;margin:.35em 0}.u h1,.u h2,.u h3{font-size:15px;margin:.4em 0}
+pre a,.cmdout a{color:var(--c)}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));z-index:6;background:var(--fg);color:var(--bg);border-radius:12px;padding:10px 14px;font-size:14px;text-align:center}
+.art{display:flex!important;align-items:center;gap:12px;margin:6px 0;padding:10px 12px;border:1px solid var(--l);border-radius:14px;background:var(--s);color:var(--fg)!important;text-decoration:none;max-width:420px}.art span{flex:1;min-width:0}.art b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.art small{display:block;color:var(--m);font-size:12.5px}.art em{font-style:normal;font-size:13px;font-weight:600;color:var(--c);padding:5px 12px;border-radius:99px;background:var(--r)}.arti{flex:none;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 18%,transparent);color:var(--c)}.arti svg{width:20px;height:20px}
+.kbar{display:flex;gap:6px;overflow-x:auto;margin-bottom:8px;scrollbar-width:none}.kbar::-webkit-scrollbar{display:none}
+.kbar button{flex:none;border:1px solid var(--l);background:var(--r);border-radius:8px;padding:5px 11px;font:600 12px ui-monospace,monospace}.kbar button.arm{background:#e5484d;border-color:#e5484d;color:#fff}
+.kbt{border:0;background:none;color:var(--m);padding:8px 0;flex:none;display:grid}.kbt svg{width:22px;height:22px}.kbt[aria-pressed=true]{color:var(--c)}
+#at span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#at code{min-width:0;font-weight:500}
+.bang{display:inline-block;margin-bottom:6px;border:1px solid var(--o);color:var(--o);border-radius:99px;padding:2px 10px;font:600 11px ui-monospace,monospace}textarea.sh{font-family:ui-monospace,monospace}
+.sg{display:flex;flex-direction:column;gap:6px}.srow{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--r);border:0;border-radius:12px;padding:11px 12px;width:100%;text-align:left;color:var(--fg);font-size:15px}.srow.col{flex-direction:column;align-items:flex-start}.srow.red{color:#e5484d}.srow i{font-style:normal;color:var(--m)}.srow small{color:var(--m)}.srow .seg{flex:none;width:220px;background:var(--bg)}
+.sw{display:flex;flex-wrap:wrap;gap:12px}.sw button{width:30px;height:30px;border-radius:50%;border:0;padding:0}.sw button[aria-pressed=true]{box-shadow:0 0 0 2px var(--r),0 0 0 4px var(--fg)}
+.sheet .pf{border:0;background:var(--r);border-radius:12px;padding:11px 12px;font-size:15px;color:var(--fg)}.sheet .pf .seg{flex:none;width:140px;margin-left:auto;background:var(--bg)}
+.drawer{touch-action:pan-y}
+.drawer.rp{left:auto;right:0;border-right:0;border-left:1px solid var(--l);transform:translateX(102%)}.drawer.rp.on{transform:none;box-shadow:-8px 0 30px rgba(0,0,0,.3)}
+.rph{display:flex;align-items:baseline;gap:8px;padding:14px 14px 4px}.rph h3{margin:0;font-size:18px}.rph small{flex:1;color:var(--m);font-size:12.5px}.rph .ic{align-self:center;font-size:15px;color:var(--m)}
+.agc2{padding:4px 8px}.agc2 .agr{border-bottom:0}
+.sab{position:relative;margin-right:2px}.sbn{position:absolute;top:-3px;right:-7px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--g);color:#0e1118;font:700 10.5px/16px system-ui,sans-serif;text-align:center}
+.lbx{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;opacity:0;transition:opacity .18s;cursor:zoom-out;padding:24px}.lbx.on{opacity:1}
+.lbx img{max-width:100%;max-height:calc(100% - 30px);object-fit:contain;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5);transform:scale(.96);transition:transform .22s var(--ez,ease)}.lbx.on img{transform:none}.lbx small{color:#ddd;font-size:13px}
+#main img{cursor:zoom-in}
+.empty{height:100%;display:flex;flex-direction:column;justify-content:center;gap:10px;padding:24px;max-width:360px;margin:auto;text-align:center;color:var(--m)}
+pre.dif{margin:0;padding:6px 0;color:var(--fg);font:12px/1.5 ui-monospace,monospace;white-space:pre;overflow:auto;max-height:60vh}
+.dx{display:inline-block;min-width:100%}.dx>span{display:block;padding:0 10px}
+pre.dif{--db:var(--s)}.sheet pre.dif{--db:var(--bg)}.hk{margin-top:4px}.dx>.hk:first-child,.dx>:first-child+.hk{margin-top:0}
+.gn{position:sticky;left:0;display:inline-flex;gap:6px;margin:0 8px 0 -10px;padding:0 6px 0 4px;background:var(--db);border-right:1px solid var(--l);color:var(--m);font-style:normal;-webkit-user-select:none;user-select:none}
+.gn b{font-weight:400;min-width:var(--w);text-align:right}.ln-a .gn{background:color-mix(in srgb,#4cc47f 17%,var(--db))}.ln-r .gn{background:color-mix(in srgb,#e5484d 17%,var(--db))}
+.ln{color:var(--m)}.ln-a{background:rgba(76,196,127,.17)}.ln-r{background:rgba(229,72,77,.17)}.ln-h{color:var(--m);font-style:italic}.ln-e{display:block;padding:4px 10px;color:#e5484d;white-space:pre-wrap}
+.dfh{display:flex;gap:8px;align-items:baseline}.t>button.dfh{display:flex}.dfh>span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dn{flex:none;font:600 12px ui-monospace,monospace}.dn b{color:var(--g)}.dn i{color:#e5484d;font-style:normal}
+.dfm{display:block;margin:6px 10px 2px;border:1px solid var(--l);background:var(--s);border-radius:99px;padding:4px 12px;color:var(--c)}
+.sheet pre.dif{border:1px solid var(--l);border-radius:10px;background:var(--bg);max-height:none;overflow-y:visible;flex:none}
+.chl{display:flex;flex-direction:column;gap:6px}.chl small{white-space:normal}
+.off{padding:3px 16px;font:600 12px ui-monospace,monospace;background:var(--o);color:var(--on);text-align:center}
+.jw{position:relative;height:0;flex:none}.jump{position:absolute;right:16px;bottom:12px;z-index:2;border:1px solid var(--l);background:var(--s);color:var(--c);border-radius:99px;padding:6px 14px;font-size:13px;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.cb{position:relative}.cpy{position:absolute;top:5px;right:5px;border:1px solid var(--l);background:var(--r);color:var(--m);border-radius:6px;padding:2px 8px;font:11px ui-monospace,monospace}
+.acts{display:flex;gap:6px;margin-top:8px}.acts button{border:1px solid var(--l);background:var(--s);color:var(--fg);border-radius:99px;padding:3px 10px;font-size:12.5px}
+#mb{position:relative}.bdg{position:absolute;top:-3px;right:-7px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--c);color:var(--on);font:700 11px/17px system-ui,sans-serif;text-align:center}.bdg.w{background:var(--o)}
+.nd{color:var(--o);font-weight:600}.nr{color:var(--c);font-weight:600}.crow.at2{box-shadow:inset 3px 0 var(--o)}.crow.at1{box-shadow:inset 3px 0 var(--c)}
+.pf{border-top:1px solid var(--l);padding:10px 14px 0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:13px;color:var(--m)}.pf+.df{border-top:0}.pf small{flex-basis:100%;font-size:12px}
+.clip{border:0;background:none;color:var(--m);padding:8px 2px;flex:none;display:grid}.clip svg{width:22px;height:22px}.send:disabled{opacity:.5}
+.att{display:flex;gap:8px;align-items:center;overflow-x:auto;margin-bottom:8px;padding-top:2px}
+.ach{position:relative;flex:none;width:64px;height:64px;border-radius:10px;border:1px solid var(--l);background:var(--r);overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--m);font:10px ui-monospace,monospace}
+.ach img{width:100%;height:100%;object-fit:cover}.ach svg{width:22px;height:22px;flex:none}.ach span{max-width:60px;padding:0 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ach b{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.45);color:#fff;font:600 12px ui-monospace,monospace}.ach i{position:absolute;left:0;bottom:0;height:3px;background:var(--c)}
+.ach button{position:absolute;top:3px;right:3px;width:20px;height:20px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:14px;line-height:20px;padding:0;z-index:1}
+.anote{flex:none;max-width:150px;font-size:11.5px;color:var(--m)}
+.fch{display:flex;gap:8px;align-items:center;background:rgba(0,0,0,.15);border-radius:10px;padding:6px 10px;margin-top:6px;font-size:13px}.fch svg{width:18px;height:18px;flex:none}.fch b{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fch small{opacity:.75;flex:none}
+.chat>img.user{align-self:flex-end;max-width:75%}
+.lock{position:fixed;inset:0;z-index:7;background:var(--bg);display:flex;padding-top:env(safe-area-inset-top)}.lock h2{color:var(--fg);margin:0}
+.lock input{width:100%;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px;font:inherit}.lock .enr{display:flex;flex-direction:column;gap:10px}
+.pkr{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--l);padding:8px 0}.pkr span{flex:1;min-width:0}.pkr b{display:block;font-weight:500}.pkr small{color:var(--m);font-size:12.5px}
+.bgp{display:flex;flex-direction:column;gap:6px}.bgp .sub2{margin:-4px 0 0;font-size:12.5px}.bgp .pick small{white-space:normal}
+.bgr{border:1px solid var(--l);border-radius:10px;background:var(--bg);overflow:hidden}
+.bgh{display:flex;gap:8px;align-items:center;padding:8px 10px}.bgh>button:first-child{flex:1;min-width:0;border:0;background:none;text-align:left;padding:0}
+.bgh code{display:block;font:12.5px ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bgh small{display:block;color:var(--m);font-size:12px}.lng{color:var(--o);font-weight:600}
+.kill{flex:none;border:1px solid var(--l);background:var(--s);color:#e5484d;border-radius:99px;padding:4px 12px;font-size:12.5px}.kill.arm{background:#e5484d;border-color:#e5484d;color:#fff}
+.bgx{border-top:1px solid var(--l);padding:8px 10px;display:flex;flex-direction:column;gap:6px;font:11.5px/1.4 ui-monospace,monospace;color:var(--m);overflow-wrap:anywhere}
+.bgx pre{margin:0;white-space:pre-wrap;color:var(--fg);max-height:30vh;overflow:auto}.bgx button{align-self:flex-start;border:1px solid var(--l);background:var(--s);color:var(--c);border-radius:99px;padding:3px 10px;font:12.5px system-ui,sans-serif}
+.bgs{flex:none;color:var(--o)}.bgm{color:var(--o)}
+.dtg,.ttag{font:600 10.5px ui-monospace,monospace;border-radius:99px;padding:0 6px;border:1px solid var(--o);color:var(--o)}.ttag{border-color:var(--c);color:var(--c);margin-left:4px}.stats dt.cur{color:var(--c);font-weight:600}
+/* motion: iOS timing; only transform and opacity move. Sheets and the drawer are CSS states, see showSheet() and drag() */
+:root{--ez:cubic-bezier(.32,.72,0,1)}html{-webkit-tap-highlight-color:transparent}body{overflow:hidden}
+main,.dl{position:relative;isolation:isolate;background:var(--bg)}.gh{pointer-events:none!important;animation:none!important}
+.drawer{transform:translateX(calc(-100% - 40px));transition:transform .34s var(--ez),visibility 0s .34s;overflow:hidden;touch-action:pan-y;box-shadow:8px 0 30px rgba(0,0,0,.3)}
+.drawer.on{transition:transform .34s var(--ez)}.drawer:not(.on):not(.drag){pointer-events:none}.drawer.drag{visibility:visible;transition:none}
+.scrim{transition:opacity .34s var(--ez)}.scrim.drag{transition:none}
+.sheet{background:none}.sheet:not(.on){pointer-events:none}
+.sheet::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.5);opacity:0;transition:opacity .36s var(--ez)}.sheet.on::before{opacity:var(--bk,1)}
+/* the panel runs 50vh past the bottom edge so a drag or a shrinking step never shows a gap under it */
+.sheet>div{position:relative;margin-bottom:-50vh;padding-bottom:calc(50vh + 16px + env(safe-area-inset-bottom));max-height:calc(88% + 50vh);overscroll-behavior:contain;transform:translateY(calc(100% - 50vh));transition:transform .36s var(--ez)}
+.sheet.on>div{transform:none}.sheet.drag::before,.sheet.drag>div{transition:none}
+.sheet>div::before{content:'';flex:none;align-self:center;width:36px;height:5px;border-radius:3px;background:var(--l);margin:-8px 0 -4px}
+.u{transform-origin:100% 100%}
+button{-webkit-touch-callout:none;transition:opacity .25s,transform .25s var(--ez)}button:active{transition:none;opacity:.55}
+:is(.prow,.crow,.row,.pick,.agr,.tgh,.t>button,.slash button,.menu button,.status,.bgh>button,.eng button):active{opacity:1;background:var(--r)}.srow:active{opacity:1;background:var(--l)}
+:is(.go,.send,.pnew,.sw button):active{opacity:.85;transform:scale(.96)}
+@media(prefers-reduced-motion:no-preference){
+@keyframes mup{from{opacity:0;transform:translateY(10px)}}@keyframes mfade{from{opacity:0}}@keyframes mpop{from{opacity:0;transform:scale(.9)}}@keyframes mdown{from{opacity:0;transform:translateY(-100%)}}
+.toast:not([hidden]){animation:mup .34s var(--ez)}.jump:not([hidden]){animation:mpop .24s var(--ez)}.off:not([hidden]){animation:mdown .3s var(--ez)}.lock:not([hidden]){animation:mfade .3s ease-out}
+:is(.slash,.kbar,.sug,.att,.menu,.stats,.bang):not([hidden]),.acts{animation:mup .26s var(--ez)}.status:not([hidden]){animation:mfade .2s ease-out}}
+@media(prefers-reduced-motion:reduce){.drawer,.drawer.on,.scrim,.sheet::before,.sheet>div{transition:none}}
+/* computers and tablets: from 700px a centred reading column, a floating composer and sheets as centred dialogs; from 1000px the chat list is docked on the left. Phones are untouched */
+:root{--side:0px}
+@media(min-width:700px){
+:root{--col:780px;--gut:max(16px,calc((100% - var(--col))/2 + 16px))}
+header,.status,.stats,.menu{padding-left:var(--gut);padding-right:var(--gut)}
+.chat{max-width:var(--col);margin:0 auto}.u{max-width:76%}.chat>img.user{max-width:60%}.jump{right:var(--gut)}
+footer{align-self:center;width:calc(min(var(--col),100%) - 32px);margin-bottom:calc(14px + env(safe-area-inset-bottom));padding:8px 10px 10px;border:1px solid var(--l);border-radius:20px;box-shadow:0 8px 28px rgba(0,0,0,.18);transition:border-color .2s}
+footer:focus-within{border-color:color-mix(in srgb,var(--c) 50%,var(--l))}footer textarea{background:none;padding-left:6px}
+.toast{left:calc(var(--side) + 16px);margin:auto;width:fit-content;max-width:440px;bottom:110px}
+.sheet{align-items:center;justify-content:center;padding:32px 24px}
+.sheet>div{width:min(560px,100%);max-height:100%;margin:0;padding:20px 22px;border-radius:16px;border:1px solid var(--l);box-shadow:0 24px 70px rgba(0,0,0,.45);transform:translateY(10px) scale(.97);opacity:0}
+.sheet.on>div{transform:none;opacity:1}.sheet>div::before{content:none}}
+@media(min-width:700px) and (prefers-reduced-motion:no-preference){.sheet>div{transition:transform .32s var(--ez),opacity .2s ease-out}}
+@media(min-width:1000px){
+:root{--side:320px}body{padding-left:var(--side)}
+#drawer{width:var(--side);transform:none!important;visibility:visible!important;pointer-events:auto!important;box-shadow:none!important;transition:none;z-index:2}
+#mb,#eo{display:none!important}body:not(:has(#rp.on,#rp.drag)) .scrim{display:none}}
+/* a mouse and keyboard: hover, focus rings, shortcut keys */
+@media(hover:hover) and (pointer:fine){
+:is(.prow,.crow,.row,.pick,.agr,.tgh,.t>button,.slash button,.menu button,.bgh>button,.eng button,.status,.sub,button.srow):hover{background:var(--r)}
+.crow.cur:hover{background:var(--l)}.card>:hover::before,.card>:hover+button::before{display:none}
+.ic:hover{background:var(--r)}:is(.kbt,.clip):hover,.seg button:hover{color:var(--fg)}:is(.go,.send,.pnew):hover{filter:brightness(1.1)}
+:is(.chip,.more,.now,.acts button,.cpy,.kill,.cyc,.dfm,.jump,.kbar button):hover{border-color:var(--m)}
+:is(.back,.dback,.more2 summary):hover,.a a:hover{text-decoration:underline}summary{cursor:pointer}
+:focus-visible{outline:2px solid var(--c);outline-offset:2px}
+:is(.prow,.crow,.pick,.agr,.t>button,.tgh,.slash button,.menu button,.srow,.status):focus-visible{outline-offset:-2px}
+:is(textarea,input,select,#sbody):focus-visible{outline:0}.qs:focus-within{box-shadow:0 0 0 2px var(--c)}:is(.sheet,.lock) :is(input,select):focus{border-color:var(--c)}}
+kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bottom-width:2px;border-radius:6px;padding:2px 7px;background:var(--s)}
+.keys{background:var(--r);border-radius:12px;padding:12px}.keys dt{white-space:nowrap}.keys dd{color:var(--fg)}
+/* desktop split view: from 1000px with a mouse, 1 to 4 chats side by side. Each column is an iframe of this page in column mode */
+#cols,.ncol,#sct{display:none}.split #cols{display:flex;flex:1;min-height:0}.split #sct{display:grid}
+.split>:is(header,main,.jw,footer,.status,.stats,.menu){display:none!important}
+.colw{flex:1 1 0;min-width:0;position:relative;display:flex}.colw+.colw{border-left:1px solid var(--l)}.colw iframe{flex:1;width:100%;border:0;background:var(--bg)}
+.colw.on::after{content:'';position:absolute;left:0;right:0;top:0;height:2px;background:var(--c);pointer-events:none}
+.split.s0{--side:0px}
+/* list hidden: it peeks out over the chats when the mouse rests on the left edge, and tucks away when it leaves */
+.split.s0 #drawer{width:320px;z-index:30;transform:translateX(-102%)!important;visibility:hidden!important;transition:transform .2s var(--ez,ease),visibility 0s .2s}
+.split.s0.peek #drawer{transform:none!important;visibility:visible!important;box-shadow:12px 0 40px rgba(0,0,0,.35)!important;transition:transform .26s var(--ez,ease)}
+.peekzone{position:fixed;left:0;top:0;bottom:0;width:18px;z-index:29;display:none}.split.s0 .peekzone{display:block}
+.sopen{position:fixed;top:8px;left:10px;z-index:31;display:none;background:var(--bg);border-radius:9px;padding:6px;margin:0}.split.s0 .sopen{display:grid}.split.s0.peek .sopen{display:none}
+.split.room .crow:hover .ncol{display:grid}.ncol{flex:none;width:26px;height:26px;margin:-4px 0;border-radius:7px;place-items:center;color:var(--m)}.ncol:hover{background:var(--l);color:var(--fg)}.ncol svg{width:16px;height:16px}
+:root.col{--side:0px}.col :is(#drawer,#mb,#eo,#off,#title .work){display:none!important}.col.rail header{padding-left:max(var(--gut),54px)}.col.rail #eo{display:block!important}
+.ptag{flex:none;max-width:34%;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--m);overflow:hidden;white-space:nowrap}.ptag span{overflow:hidden;text-overflow:ellipsis}.ptag .tl{width:18px;height:18px;border-radius:6px;font-size:9px}
+.col #cdot{margin:0 -2px 0 0}.cx{font-size:15px;color:var(--m)!important}.col.solo .cx,.col.nosplit .csp{display:none}
+</style>
+<header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class=chip id=tv hidden>Terminal</button></header>
+<div class=off id=off hidden>Reconnecting…</div>
+<main id=main></main><div id=cols></div>
+<div class=jw><button class=jump id=jump hidden></button></div>
+<div class=scrim id=scrim></div>
+<div class=lbx id=lbx hidden><img id=lbi alt=""><small id=lbn></small></div>
+<nav class="drawer rp" id=rp><div class=rph><h3>Subagents</h3><small id=rps></small><button class=ic id=rpx aria-label=Close>✕</button></div><div class=dl id=rpl></div></nav>
+<nav class=drawer id=drawer><div class=dh><label class=qs><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><circle cx=11 cy=11 r=6.5 /><path d="M20 20l-4.2-4.2"/></svg><input id=q type=search placeholder="Search all chats" autocomplete=off></label><button class=ic id=set aria-label=Settings><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r=3 /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button class=ic id=nc aria-label="New chat"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M18.4 2.6a2 2 0 0 1 2.9 2.9L12 14.8l-4 1 1-4z"/></svg></button></div>
+ <div class=dl id=dl></div>
+ </nav>
+<div class=sheet id=sheet hidden><div id=sbody></div></div>
+<button class=status id=status hidden></button>
+<div class=stats id=stats hidden></div>
+<div class=menu id=menu hidden></div>
+<div class=toast id=toast hidden></div>
+<div class=lock id=lock hidden><div class=empty><h2>Session Deck</h2><p id=lkm></p><button class=go id=lku>Unlock with Face ID</button>
+ <div class=enr id=lke><input id=lkt type=password placeholder="Setup code or deck token" autocomplete=off><input id=lkn type=text placeholder="Name for this passkey" autocomplete=off><button class=go id=lkr>Set up Face ID</button></div>
+ <button class=pick id=lks style="text-align:center">Set up Face ID on this device</button></div></div>
+<footer id=foot hidden>
+  <button class=sug id=sug hidden></button>
+  <div class=slash id=slash hidden></div>
+  <div class=slash id=at hidden></div>
+  <div class=kbar id=kbar hidden><button data-k=Escape>Esc</button><button data-k=Tab>Tab</button><button data-k=BTab>&#8679;Tab</button><button data-k=Up aria-label=Up>&#8593;</button><button data-k=Down aria-label=Down>&#8595;</button><button data-k=Enter>Enter</button><button data-k=C-c>Ctrl-C</button><button data-k=C-o>Ctrl-O</button><button data-k=C-b>Ctrl-B</button></div>
+  <span class=bang id=bang hidden>Shell command</span>
+  <div class=att id=att hidden></div>
+  <input type=file id=fi multiple hidden accept="image/*,.heic,.pdf,.txt,.csv,.tsv,.json,.md,.log,.xml,.yaml,.yml,.docx,.xlsx,.pptx,.zip">
+  <div class=in><button class=kbt id=kbt aria-label="Terminal keys"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linecap=round><rect x=2.5 y=6 width=19 height=12 rx=2.5 /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg></button><button class=clip id=clip aria-label="Attach files"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg></button><textarea id=ta rows=1 placeholder="Message" enterkeyhint=enter></textarea><button class=send id=send>Send</button></div>
+</footer>
+<script src="vendor/marked.min.js"></script>
+<script src="vendor/purify.min.js"></script>
+<script>
+const clean=t=>(t||'').replace(/[\u2010-\u2015\u2212]/g,'-').replace(/[^A-Za-z0-9_-]/g,'');
+if(!location.pathname.endsWith('/'))location.replace(location.pathname+'/'+location.search);
+let TOK=clean(localStorage.getItem('deck')),TS=null;// TS: on the Tailscale route (passkeys); null until boot() knows
+const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// connection state: 2+ failed rounds show the banner; timers wait out a growing backoff (see tick)
+let fails=0,retryAt=0;const net=ok=>{if(ok){fails=0;retryAt=0}else if(Date.now()>=retryAt){fails++;retryAt=Date.now()+[1,2,5,10,15][Math.min(fails,5)-1]*1e3}$('off').hidden=fails<2};
+async function api(p,b){let r;try{r=await fetch(p.replace(/^\//,''),{method:b?'POST':'GET',headers:{'X-Deck-Token':TOK,'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout?AbortSignal.timeout(2e4):undefined})}catch(e){net(0);throw Object.assign(e,{st:0})}
+ if(r.status>=502&&r.status<=504){net(0);throw Object.assign(new Error(r.status),{st:r.status})}net(1);if(r.status==401){if(TS!==false){if(TS)lock();throw new Error('401')}localStorage.removeItem('deck');alert('Token not accepted. Paste it again.');location.reload()}if(r.status==409){const e=new Error('409');e.reason=(await r.json().catch(()=>({}))).error||'The screen changed.';throw e}if(!r.ok)throw Object.assign(new Error(r.status),{st:r.status});return r.json()}
+let cur=null,term=false,live=[],timer;
+let inSplit=false,OPEN=new Set();// the outer page: split view on, and the panes and sessions open in its columns
+// a column always takes the computer layout (floating composer, dialogs), however narrow it is
+if(COL)for(const r of document.styleSheets[0].cssRules)if(r.media&&/^\(min-width: ?700px\)$/.test(r.conditionText))r.media.appendMedium('all');
+const ago=t=>{const m=Math.round((Date.now()/1000-t)/60);return m<2?'now':m<90?m+'m':m<2000?Math.round(m/60)+'h':Math.round(m/1440)+'d'};
+let CFG={home:'~',root:'~',engines:[]};// replaced by /api/config
+const rel=c=>c.replace(CFG.home+'/projects/','~/projects/').replace(CFG.home+'/','~/');
+let hist=[],nav={v:'root'},dOpen=false,dKey='';
+const proj0=c=>{const e=c.match(/^-Users-[^-]+-(?:projects|development)(?:-0-archive)?(?:-(.+))?$/);if(e)return e[1]||'projects';const m=c.match(/^\/Users\/[^/]+\/(?:projects|development)\/(?:0\.archive\/)?([^/]+)/);if(m)return m[1];if(/^\/Users\/[^/]+\/(projects|development)\/?$/.test(c))return'projects';return'Other'};  // home, /tmp and deleted tool worktrees are not projects
+// names that differ only by '.' and '-' (an old example.com folder, today's example-com) are one project, named after the latest
+let PN={};const pnk=p=>p.replace(/\./g,'-'),proj=c=>{const p=proj0(c);return PN[pnk(p)]||p};
+const root=p=>[...live,...hist].map(x=>x.cwd).filter(c=>proj(c)==p&&c.startsWith(CFG.home+'/')).sort((a,b)=>(proj0(a)!=p)-(proj0(b)!=p)||a.length-b.length)[0]||CFG.root;
+const sub=(c,r)=>c==r?'':c.startsWith(r+'/')?c.slice(r.length+1):rel(c);
+const HUES=['#7d9bff','#4cc47f','#f0b25e','#e5729c','#a78bfa','#38bdf8','#f97362','#2dd4bf'];
+const hue=p=>HUES[[...p].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,7)%HUES.length];
+const ini=p=>{const w=p.replace(/^[^A-Za-z0-9]+/,'').split(/[-_. ]+/).filter(Boolean);return(w.length>1?w[0][0]+w[1][0]:(w[0]||'?')[0]).toUpperCase()};
+const tile=(p,big)=>`<i class="tl${big?' big':''}" style="--h:${hue(p)}">${esc(ini(p))}</i>`;
+function groups(a){const g={};a.forEach(x=>{const p=proj(x.cwd),o=g[p]??={p,n:0,t:0,w:0};o.n++;o.t=Math.max(o.t,x.mtime);if(x.working)o.w++});return Object.values(g).sort((a,b)=>(a.p=='Other')-(b.p=='Other')||b.t-a.t)}
+const prow=g=>{const lv=live.filter(x=>proj(x.cwd)==g.p).length;return`<button class=prow data-p="${esc(g.p)}">${tile(g.p)}<span><b>${esc(g.p)}</b><small>${g.n} chat${g.n>1?'s':''} · ${ago(g.t)}</small></span>${lv?`<em class=lvp>${lv} live</em>`:''}</button>`};
+const stc=s=>['','done','needs'][rank(s)]||(s.working?'work':'idle');
+const SPL='<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><rect x=3 y=4 width=18 height=16 rx=2.5 /><path d="M12 4v16"/></svg>';
+const crowL=(s,r)=>{const k=rank(s);return`<button class="crow lv${cur&&cur.pane==s.pane||OPEN.has(s.pane)?' cur':''}" data-pane="${esc(s.pane)}"><i class="sc ${stc(s)}"></i><span><b>${esc(s.title||s.name)}</b><small>${r==null?tile(proj(s.cwd))+esc(proj(s.cwd))+' · ':sub(s.cwd,r)?esc(sub(s.cwd,r))+' · ':''}${bgMark(s)}${s.engine!='rotate'?`<span class="pill ${s.engine}">${s.engine}</span>`:''}${s.working?'<span class=work>working</span>':ago(s.mtime)}</small></span>${k?`<em class="ap a${k}">${k==2?'Needs you':'New'}</em>`:''}${inSplit&&!OPEN.has(s.pane)?`<i class=ncol title="Open in a new column">${SPL}</i>`:''}</button>`};
+const crowH=(h,r,snip)=>`<button class="crow${cur&&cur.session==h.session||OPEN.has(h.session)?' cur':''}" data-h="${esc(h.session)}" data-c="${esc(h.cwd)}"><span><b>${esc(h.title||h.session.slice(0,8))}</b><small>${snip?esc(snip)+' · ':''}${r?(sub(h.cwd,r)?esc(sub(h.cwd,r))+' · ':''):esc(proj(h.cwd))+' · '}${ago(h.mtime)}</small></span></button>`;
+function drawMenu(force){const q=$('q').value.trim();if(nav.v=='root'&&q.length>=3)return;let h;
+ if(nav.v=='root'){const A=[...live].sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),H=groups(hist);
+  h=`<section><div class=sec>Active<span>${A.length||''}</span></div><div class=card>`+(A.map(s=>crowL(s,null)).join('')||'<div class=none>Nothing running. Start a chat with the pencil above.</div>')+`</div></section><section><div class=sec>History<span>${H.length} projects</span></div><div class=card>`+H.map(prow).join('')+'</div></section>'}
+ else{const r=root(nav.p),f=x=>proj(x.cwd)==nav.p&&(!q||(x.title||'').toLowerCase().includes(q.toLowerCase())),A=live.filter(f),P=hist.filter(f),n=nav.n||40;
+  h=`<button class=dback>‹ Chats</button><div class=ph>${tile(nav.p,1)}<span><h3>${esc(nav.p)}</h3><small>${esc(rel(r))}</small></span></div>`+
+   (A.length?`<section><div class=sec>Running<span>${A.length}</span></div><div class=card>${A.map(s=>crowL(s,r)).join('')}</div></section>`:'')+
+   `<section><div class=sec>History<span>${P.length||''}</span></div><div class=card>`+(P.slice(0,n).map(x=>crowH(x,r)).join('')||'<div class=none>'+(q?'No matches':'No past chats')+'</div>')+'</div></section>'+
+   (P.length>n?'<button class=more id=dmore>Show more</button>':'')+`<button class=pnew data-c="${esc(r)}">+ New chat in ${esc(nav.p)}</button>`}
+ if(h===dKey&&!force)return;dKey=h;$('dl').innerHTML=h}
+async function list(){const d=await api('/api/sessions');live=d.live;hist=d.history;PN={};[...hist,...live].sort((a,b)=>a.mtime-b.mtime).forEach(x=>{const p=proj0(x.cwd);PN[pnk(p)]=p});attnUI();if(dOpen)drawMenu()}
+const setQ=()=>{$('q').value='';$('q').placeholder=nav.v=='root'?'Search all chats':'Filter '+nav.p+' chats';$('dl').scrollTop=0};
+function openMenu(){dOpen=true;$('drawer').classList.add('on');$('scrim').classList.add('on');drawMenu(1);list()}
+function closeMenu(){dOpen=false;$('drawer').classList.remove('on');$('scrim').classList.remove('on');$('q').blur()}
+$('mb').onclick=openMenu;$('scrim').onclick=()=>rOpen?closeRP():closeMenu();document.addEventListener('keydown',e=>{if(e.key=='Escape'){if(rOpen)closeRP();else if(dOpen)closeMenu()}});
+/* subagents of the open chat: a right-hand panel (swipe in from the right edge, or the header button), running first */
+let rOpen=false,rpAll=[],rpT=0,rpS=null;
+function rpDraw(){const top=kidsOf(rpAll,null),R=top.filter(a=>a.running),F=top.filter(a=>!a.running);$('rps').textContent=rpAll.length?`${rpAll.filter(a=>a.running).length} running of ${rpAll.length}`:'';
+ $('rpl').innerHTML=rpAll.length?`<section><div class=sec>Running<span>${R.length||''}</span></div><div class="card agc2">${agentRows(R,rpAll)||'<div class=none>Nothing running now.</div>'}</div></section>`+
+  (F.length?`<section><div class=sec>Finished<span>${F.length}</span></div><div class="card agc2">${agentRows(F,rpAll)}</div></section>`:''):'<div class=none>No subagents in this chat yet.</div>'}
+async function rpLoad(){if(!cur||!cur.session)return;const me=cur;let d;try{d=await api('/api/info/'+cur.session)}catch(e){return}if(cur!==me)return;rpS=me.session;rpAll=d.agents||[];rpBadge();if(rOpen)rpDraw()}
+function rpBadge(){const n=rpAll.filter(a=>a.running).length,b=$('sbn');$('sab').hidden=!cur||!cur.session||cur.agent||!rpAll.length;b.hidden=!n;b.textContent=n}
+const rpReset=()=>{const r=$('rp'),c=$('scrim');r.classList.remove('drag');c.classList.remove('drag');r.style.transform=c.style.opacity=''};// never leave a half-finished drag behind
+function openRP(){if(!cur||!cur.session)return;rpReset();rOpen=true;rpDraw();$('rp').classList.add('on');$('scrim').classList.add('on');rpLoad()}
+function closeRP(){rpReset();rOpen=false;$('rp').classList.remove('on');$('scrim').classList.remove('on')}
+$('sab').onclick=openRP;$('rpx').onclick=closeRP;
+$('rpl').addEventListener('click',e=>agTap(e,rpDraw));
+setInterval(()=>{if(!cur||!cur.session){$('sab').hidden=true;return}if(cur.session!==rpS){rpS=cur.session;rpAll=[];rpT=0}if(!document.hidden&&(rOpen?Date.now()-rpT>3e3:Date.now()-rpT>15e3)){rpT=Date.now();rpLoad()}rpBadge()},1e3);
+$('dl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
+ if(b.dataset.p){nav={v:'proj',p:b.dataset.p};setQ();return drawMenu(1)}
+ if(b.classList.contains('dback')){nav={v:'root'};setQ();return drawMenu(1)}
+ if(b.id=='dmore'){nav.n=(nav.n||40)+40;return drawMenu(1)}
+ if(inSplit&&(e.metaKey||e.ctrlKey||e.target.closest('.ncol'))&&!OPEN.has(b.dataset.pane)&&!colSplit())return;// a new column first, then as usual
+ if(b.classList.contains('pnew')){closeMenu();return newChat(b.dataset.c)}
+ stack=[];if(b.dataset.pane){const s=live.find(x=>x.pane==b.dataset.pane);closeMenu();if(s)open_(s);return}
+ if(b.dataset.h){closeMenu();pickup(b.dataset.h,b.dataset.c,b.querySelector('b').textContent)}};
+function settings(){closeMenu();let a='Blue';try{a=localStorage.getItem('accent')||'Blue'}catch(e){}const lt=document.documentElement.dataset.theme=='light'||(!document.documentElement.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);
+ sb.innerHTML=`<h2>Settings</h2><div class=sg><div class=lbl>Appearance</div><div class=srow><span>Theme</span><div class=seg id=seg><button data-t="">System</button><button data-t=light>Light</button><button data-t=dark>Dark</button></div></div>
+ <div class="srow col"><span>Accent colour</span><div class=sw id=sw>${ACC.map(x=>`<button data-a="${x[0]}" aria-label="${x[0]}" title="${x[0]}" aria-pressed=${x[0]==a} style="background:${lt?x[2]:x[1]}"></button>`).join('')}</div></div></div>
+ <div class=sg><div class=lbl>Notifications</div><div class=pf id=pf></div></div>`+(TS?`<div class=sg><div class=lbl>Security</div><button class=srow id=spk><span>Passkeys and Face ID</span><i>›</i></button><button class="srow red" id=sso><span>Sign out</span></button></div>`:'')+
+ `<div class=sg><div class=lbl>About</div><div class=srow><span>Session Deck</span><small>${esc(location.host)}</small></div></div>`;showSheet(-1);theme(document.documentElement.dataset.theme||'');pushUI()}
+$('set').onclick=settings;
+$('sbody').addEventListener('click',e=>{const t=e.target,th=t.closest('#seg [data-t]');if(th){theme(th.dataset.t);const de=document.documentElement,lt=de.dataset.theme=='light'||(!de.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);return $('sw')&&$('sw').querySelectorAll('button').forEach(b=>{const x=ACC.find(a=>a[0]==b.dataset.a);b.style.background=lt?x[2]:x[1]})}
+ const ac=t.closest('#sw [data-a]');if(ac){try{ac.dataset.a=='Blue'?localStorage.removeItem('accent'):localStorage.setItem('accent',ac.dataset.a)}catch(x){}setAcc(ac.dataset.a);return $('sw').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===ac))}
+ if(t.closest('#pf'))return pfClick(e);if(t.closest('#spk'))return passkeys(1);if(t.closest('#pkb'))return settings();if(t.closest('#sso'))au('logout',{}).then(()=>au('state')).then(lock)});
+$('nc').onclick=()=>{closeMenu();newChat(nav.v=='proj'?root(nav.p):cur&&cur.cwd||here())};
+let qt;$('q').oninput=()=>{clearTimeout(qt);const v=$('q').value.trim();if(nav.v=='proj'||v.length<3)return drawMenu(1);qt=setTimeout(async()=>{const d=await api('/api/search?q='+encodeURIComponent(v));if($('q').value.trim()!==v)return;
+ dKey='';$('dl').innerHTML=`<div class=sec>${d.results.length} chats mention "${esc(v)}"</div><div class=card>`+d.results.map(r=>crowH(r,null,r.snippet)).join('')+'</div>'},350)};
+const theme=t=>{try{t?localStorage.setItem('theme',t):localStorage.removeItem('theme')}catch(e){}t?document.documentElement.dataset.theme=t:delete document.documentElement.dataset.theme;$('seg')&&$('seg').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t==t))};
+theme(document.documentElement.dataset.theme||'');
+function home(){cur=null;$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
+ $('main').innerHTML='<div class=empty><p>Pick a chat from the menu, or start a new one.</p><button class=go id=eo>Open menu</button><button class=pick id=en style="text-align:center">New chat</button></div>'}
+/* sheets */
+const sh=$('sheet'),sb=$('sbody');sh.onclick=e=>{if(e.target===sh&&getSelection().isCollapsed)hideSheet()};// not when a text selection drag ends on the backdrop
+function engines(){eng=CFG.engines[0].id;return`<div class=lbl>Run on</div><div class=eng>${CFG.engines.map((e,i)=>`<button${e.id=='local'?' class=l':''} data-e="${esc(e.id)}" aria-pressed=${!i}><b>${esc(e.label)}</b><br><small>${esc(e.sub)}</small></button>`).join('')}</div>`}
+let eng='';sb.onclick=e=>{const b=e.target.closest('[data-e]');if(b){eng=b.dataset.e;sb.querySelectorAll('[data-e]').forEach(x=>x.setAttribute('aria-pressed',x===b))}};
+async function launch(cwd,resume,o){const d=await api('/api/new',{cwd,engine:eng,resume,...o});hideSheet();if(!d.pane)return alert('Could not start');setTimeout(async()=>{await list(1);const s=live.find(x=>x.pane==d.pane);if(s)open_(s)},2500)}
+function pickup(id,cwd,title){sb.innerHTML=`<h2>${esc(title)}</h2><div class=lbl>${esc(rel(cwd))}</div>${engines()}<button class=go id=gor>Resume in a new live session</button><button class=pick id=gov>Just read it</button><button class=pick id=gofk>Fork into a new chat<small>A copy with its own session ID; the original stays as it is</small></button>`;showSheet();
+ $('gor').onclick=()=>launch(cwd,id);$('gofk').onclick=()=>launch(cwd,id,{fork:1});$('gov').onclick=()=>{hideSheet();open_({session:id,title,ro:1,cwd})}}
+async function newChat(cwd){const f=(await api('/api/folders')).folders;cwd=cwd||CFG.root;
+ const opts=[...new Set([cwd,...live.map(s=>s.cwd),...f])];
+ sb.innerHTML=`<h2>New chat</h2><div class=lbl>Folder</div><select id=nf>${opts.map(o=>`<option ${o==cwd?'selected':''} value="${esc(o)}">${esc(rel(o))}</option>`).join('')}</select>${engines()}${chatOpts()}<button class=go id=gof>Start fresh</button><div class=lbl>Or resume one from this folder</div><input id=rf type=search placeholder="Filter past chats"><div id=rl></div>`;showSheet();
+ const draw=()=>{const c=$('nf').value,t=$('rf').value.toLowerCase();$('rl').innerHTML=hist.filter(h=>h.cwd==c&&(h.title||'').toLowerCase().includes(t)).slice(0,25).map(h=>`<button class=pick data-r="${esc(h.session)}">${esc(h.title||h.session.slice(0,8))}<small>${ago(h.mtime)}</small></button>`).join('')||'<small>No past chats here.</small>'};
+ const git=()=>api('/api/git?cwd='+encodeURIComponent($('nf').value)).then(r=>{$('ow').disabled=!r.git;if(!r.git)$('ow').checked=false});
+ draw();git();$('nf').onchange=()=>{draw();git()};$('rf').oninput=draw;$('rl').onclick=e=>{const b=e.target.closest('[data-r]');if(b)launch($('nf').value,b.dataset.r,optVals())};$('gof').onclick=()=>launch($('nf').value,null,optVals())}
+const sel=(id,l,o)=>`<div><div class=lbl>${l}</div><select id=${id}>${o.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></div>`;
+function chatOpts(){return`<details class=more2><summary>Options</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">`+
+ sel('op','Permissions',[['bypass','Bypass (current)'],['default','Ask first'],['acceptEdits','Accept edits'],['plan','Plan'],['auto','Auto']])+
+ sel('om','Model (cloud)',[['','Default'],['opus','Opus'],['sonnet','Sonnet'],['haiku','Haiku']])+
+ sel('oe','Effort',[['','Default'],['low','Low'],['medium','Medium'],['high','High'],['xhigh','Extra high'],['max','Max']])+
+ `<div><div class=lbl>Name</div><input id=on type=text maxlength=60 autocomplete=off placeholder="Optional"></div></div><label class=ck style="margin-top:8px"><input type=checkbox id=ow disabled> New git worktree (fresh chats only)</label></details>`}
+const optVals=()=>({perm:$('op').value,model:$('om').value,effort:$('oe').value,name:$('on').value.trim(),worktree:$('ow').checked});
+function open_(s){if(term&&cur)termOff(cur.pane);cur=s;term=false;$('back').hidden=!stack.length;$('mb').hidden=!!stack.length;agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro;$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';draw()}
+let stack=[];$('back').onclick=()=>{$('menu').hidden=true;menuKey='';const p=stack.pop();if(p)open_(p)};
+const tok=n=>(n=n||0)>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
+const dur=(a,b)=>{const s=Math.max(0,Math.round(((b?new Date(b):Date.now())-new Date(a))/1000));return s<60?s+'s':s<3600?Math.floor(s/60)+'m '+s%60+'s':s<172800?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':Math.round(s/86400)+' days'};
+const when=t=>t?new Date(t).toLocaleString([],{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'unknown';
+const mb=b=>b>1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB';
+const drow=(k,v)=>v==null||v===''?'':`<dt>${k}</dt><dd>${v}</dd>`;
+const kidsOf=(all,pid)=>all.filter(a=>(a.parent||null)==pid).sort((x,y)=>(y.running-x.running)||(y.first||'').localeCompare(x.first||''));
+let agOpen=new Set();
+/* subagents as a collapsed tree: a row with children expands on the first tap and opens on the next; the count pill toggles */
+const agentRows=(list,all)=>list.map(a=>{const k=kidsOf(all,a.id),o=agOpen.has(a.id),r=k.filter(x=>x.running).length;
+ return`<div class=agn><button class=agr data-a="${esc(a.id)}" data-d="${esc(a.desc||'')}" data-k=${k.length}${o?' data-o=1':''}><b>${a.running?'<i class=dot></i>':''}${esc(a.desc||a.id)}</b><small>${tok(a.total)} tokens · ${dur(a.first,a.running?null:a.last)} · ${a.tools} tool call${a.tools==1?'':'s'}</small>${k.length?`<em class=agc data-t=1 title="Subagents">${r?'<i class=dot></i>':''}${k.length}<span>${o?'▾':'▸'}</span></em>`:''}</button>${k.length&&o?`<div class=agk>${agentRows(k,all)}</div>`:''}</div>`}).join('');
+function agTap(e,redraw){const ag=e.target.closest('.agr');if(!ag)return false;const id=ag.dataset.a,k=+ag.dataset.k;
+ if(k&&(e.target.closest('[data-t]')||!agOpen.has(id))){agOpen.has(id)?agOpen.delete(id):agOpen.add(id);redraw();return true}
+ openAgent(id,ag.dataset.d);return true}
+function openAgent(id,desc){hideSheet();if(rOpen)closeRP();stack.push(cur);open_({session:cur.session,agent:id,title:'Subagent: '+desc,ro:1})}
+sb.addEventListener('click',e=>agTap(e,()=>{if(info&&$('agl'))$('agl').innerHTML=agentsBlock(info.agents||[],agFull)}));
+function agentsBlock(all,full){const t=kidsOf(all,null),n=all.filter(a=>a.running).length,show=full?t:t.slice(0,6);
+ return all.length?`<button class=srow id=agopen><span>Subagents</span><small>${n?n+' running of ':''}${all.length} ›</small></button>`:''}
+let info=null,agFull=false;
+async function showInfo(){if(!cur||(!cur.session&&!cur.pane))return;if(cur.agent){statsOpen=!statsOpen;$('stats').hidden=!statsOpen;$('status').classList.toggle('open',statsOpen);return}const me=cur;
+ const d=cur.session?await api('/api/info/'+cur.session+(cur.pane?'?pane='+cur.pane:'')):{session:'(not saved yet)',file:'(created on first message)',agents:[]};if(cur!==me)return;info=d;agFull=false;
+ sb.innerHTML=`<h2>${esc(cur.title||'Chat')}</h2><small class=sub2>${esc(rel(d.cwd||cur.cwd||''))}${d.branch?' · '+esc(d.branch):''}</small><dl class=info>`+
+  drow('Model',esc(cur.model||d.model||''))+drow('Plan',esc(cur.plan||''))+drow('Context',esc(cur.ctx||''))+drow(d.running?'Running for':'Age',esc(d.running||(d.first&&d.last?dur(d.first,d.last):'')))+
+  drow('Messages',d.prompts!=null?`${d.prompts} from you · ${d.replies} replies · ${d.tools} tool calls`:'')+`</dl><div id=agl>${agentsBlock(d.agents||[])}</div>
+ <details class=more2><summary>More details</summary><dl class=info>`+drow('Started',when(d.first))+drow('Last activity',when(d.last))+drow('Size',d.bytes?mb(d.bytes):'')+
+  drow('Engine',esc(cur.engine||''))+drow('Claude Code',esc(d.version||''))+drow('Window',esc(d.pane||''))+drow('Session ID',`<code>${esc(d.session)}</code>`)+drow('Transcript',`<code>${esc(d.file)}</code>`)+`</dl></details>
+ <button class=pick id=chg style="text-align:center">Changes</button><button class=pick id=rnb style="text-align:center">Rename…</button>`;showSheet(-1);
+ $('rnb').onclick=renameStep;$('chg').onclick=changesSheet;lifeButtons(d);procsUI()}
+function lifeButtons(d){const p=cur.pane,id=cur.session,cwd=d.cwd||cur.cwd,t=cur.title;
+ sb.insertAdjacentHTML('beforeend',(id?'<button class=pick id=fkb style="text-align:center">Fork into a new chat</button>':'')+(p?'<button class=pick id=endb style="text-align:center;color:#e5484d">End chat</button>':''));
+ if(id)$('fkb').onclick=()=>{sb.innerHTML=`<button class=dback id=fback style="padding:0;text-align:left">‹ Chat info</button><h2>Fork into a new chat</h2><small class=sub2>A copy of “${esc(t||'this chat')}” with its own session ID, in ${esc(rel(cwd))}. The original stays as it is.</small>${engines()}<button class=go id=fgo>Start the fork</button>`;showSheet(1);
+  $('fback').onclick=showInfo;$('fgo').onclick=()=>launch(cwd,id,{fork:1})};
+ if(p)twice($('endb'),'Tap again to end this chat',()=>endChat(p))}
+function twice(b,label,fn){const t=b.textContent;b.onclick=()=>{if(b.dataset.armed){delete b.dataset.armed;return fn()}b.dataset.armed=1;b.textContent=label;setTimeout(()=>{if(b.dataset.armed){delete b.dataset.armed;b.textContent=t}},4000)}}
+async function endChat(p){const b=$('endb'),gone=()=>!live.find(x=>x.pane==p),done=m=>{hideSheet();toast(m);if(cur&&cur.pane==p)home()};
+ b.onclick=null;b.textContent='Ending…';if((await api('/api/end',{pane:p})).gone)return done('Chat already ended');
+ for(let i=0;i<8;i++){await new Promise(r=>setTimeout(r,1000));await list();if(gone())return done('Chat ended');
+  const s=live.find(x=>x.pane==p);if(s.menu&&i>1){hideSheet();if(!cur||cur.pane!=p)open_(s);return toast('Claude asks before it exits. Answer below.')}}
+ b.textContent='Still running: close window';twice(b,'Tap again to close the window',async()=>{b.onclick=null;await api('/api/end',{pane:p,kill:true});await list();done('Window closed')})}
+function renameStep(){sb.innerHTML=`<button class=dback id=rback style="padding:0;text-align:left">‹ Chat info</button><h2>Rename</h2><input id=rn type=text value="${esc(cur.title||'')}" autocomplete=off>
+ <label class=ck><input type=checkbox id=rc checked> Claude session name</label>
+ <label class=ck><input type=checkbox id=rt ${cur.pane?'checked':'disabled'}> tmux window name${cur.pane?'':' (only for live chats)'}</label>
+ <button class=go id=rgo>Save</button>`;showSheet(1);$('rback').onclick=showInfo;
+ $('rgo').onclick=async()=>{const name=$('rn').value.trim();if(!name)return;const r=await api('/api/rename',{session:cur.session,pane:cur.pane||'',name,claude:$('rc').checked,tmux:$('rt').checked});
+  if(r.done&&r.done.length){cur.title=name;$('title').textContent=name;hideSheet()}}}
+$('title').onclick=showInfo;
+sb.addEventListener('click',e=>{if(e.target.closest('#agopen')){hideSheet();rpAll=(info&&info.agents)||rpAll;openRP()}});
+setInterval(async()=>{if(sh.hidden||!$('agl')||!cur||!cur.session||cur.agent)return;const me=cur;let d;try{d=await api('/api/info/'+cur.session)}catch(e){return}if(cur!==me||!$('agl'))return;info.agents=d.agents;$('agl').innerHTML=agentsBlock(d.agents||[],agFull)},3000);
+let agT=0;async function agentPoll(){if(Date.now()-agT<2500)return;agT=Date.now();const me=cur;let d;try{d=await api('/api/info/'+cur.session)}catch(e){return}if(cur!==me)return;
+ const all=d.agents||[],a=all.find(x=>x.id==cur.agent);if(!a)return;const st=$('status'),kids=kidsOf(all,a.id);st.hidden=false;st.classList.toggle('on',a.running);
+ st.innerHTML='<span class=stx>'+(a.running?'Running':'Finished')+' · '+esc(dur(a.first,a.running?null:a.last))+' · '+tok(a.total)+' tokens</span>';
+ $('stats').innerHTML='<h4>This subagent</h4>'+drow('Task',esc(a.desc||''))+drow('Type',esc(a.type||''))+drow('Model',esc(a.model||''))+drow('Started',when(a.first))+drow(a.running?'Running for':'Took',dur(a.first,a.running?null:a.last))+
+  drow('Tokens',`${tok(a.ctx)} context · ${tok(a.out)} output`)+drow('Tool calls',a.tools)+(kids.length?`<h4>Subagents it started · ${kids.filter(k=>k.running).length} running</h4><div class=agw>${agentRows(kids,all)}</div>`:'')}
+/* terminal view: size the tmux window to this screen so Claude Code redraws to fit (as Termius does); released on leaving */
+const termDims=()=>{const m=$('main'),p=document.createElement('pre');p.className='scr';p.style.cssText='position:absolute;visibility:hidden;padding:0';p.textContent='M'.repeat(50);m.append(p);
+ const w=p.getBoundingClientRect().width/50,h=parseFloat(getComputedStyle(p).lineHeight)||14;p.remove();return`?cols=${Math.max(20,Math.floor((m.clientWidth-28)/w))}&rows=${Math.max(5,Math.floor((m.clientHeight-24)/h))}`};
+const termOff=p=>{if(p)api('/api/screen/'+p+'?release=1').catch(()=>{})};
+$('tv').onclick=()=>{term=!term;$('tv').textContent=term?'Chat':'Terminal';if(!term)termOff(cur.pane);draw()};
+const imgSrc=x=>cur.session+(cur.agent?'/'+cur.agent:'');
+const md=t=>window.marked?DOMPurify.sanitize(marked.parse(t,{breaks:true})):lk(t);
+const ART=/https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+/;
+const artCard=(u,t)=>`<a class=art href="${u}" target=_blank rel="noopener noreferrer"><i class=arti><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linejoin=round><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg></i><span><b>${esc(t||'Artifact')}</b><small>Artifact · open in Claude</small></span><em>Open</em></a>`;
+const artItem=x=>{if(x.kind!='tool'||x.name!='Artifact')return'';const u=((x.result||'')+' '+(x.detail||'')).match(ART);let t='';try{const i=JSON.parse(x.detail||'{}');t=i.title||(i.file_path||'').split('/').pop().replace(/\.html?$/,'')}catch(e){}return u?artCard(u[0],t||x.summary):''};
+const lk=t=>esc(t).replace(/https?:\/\/[^\s<>"'`]+/g,u=>{const v=u.replace(/[.,;:!?)\]]+$/,'');return`<a href="${v}" target=_blank rel="noopener noreferrer">${v}</a>${u.slice(v.length)}`});
+if(window.DOMPurify)DOMPurify.addHook('afterSanitizeAttributes',n=>{if(n.tagName=='A'&&ART.test(n.getAttribute('href')||'')&&!n.classList.contains('art')){const t=n.textContent.trim();n.className='art';n.innerHTML=artCard(n.getAttribute('href').match(ART)[0],ART.test(t)?'':t).replace(/^<a[^>]*>|<\/a>$/g,'')}if(n.tagName=='A'&&n.getAttribute('href')){n.setAttribute('target','_blank');n.setAttribute('rel','noopener noreferrer')}});
+const FILE='<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linejoin=round><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+// a user message: "Attached: <path> (<name>, <size>)" lines from /api/send become file chips
+const ub=t=>{const fs=[];t=(t||'').replace(/^Attached: (\/\S+) \((.*), ([\d.]+ [KM]B)\)$/gm,(m,p,n,s)=>{fs.push(`<span class=fch title="${esc(p)}">${FILE}<b>${esc(n)}</b><small>${esc(s)}</small></span>`);return''}).trim();return(t?md(t):'')+fs.join('')};
+function item(x){const ac=artItem(x);if(ac)return ac;
+ if(x.kind=='image')return x.img.map(i=>`<img class=${x.role} data-src="api/img/${imgSrc()}/${i}" alt="">`).join('');if(x.kind=='tool'&&x.diff!=null)return diffItem(x);
+ if(x.kind=='tool')return`<div class=t><button>${esc(x.name)} · ${esc(x.summary)}</button><pre hidden>${lk(x.detail)}${x.result?'\n\n→ '+lk(x.result):''}</pre>${x.img?'<div class=imgs>'+x.img.map(i=>`<img data-src="api/img/${imgSrc()}/${i}" alt="">`).join('')+'</div>':''}${x.agent?`<button class=sub data-agent="${esc(x.agent)}" data-desc="${esc(x.summary)}">Open subagent ›</button>`:''}</div>`;
+ if(x.kind=='compact')return`<details class=cmp><summary>Context compacted · tap to read the summary</summary><div class=a>${window.marked?DOMPurify.sanitize(marked.parse(x.text)):esc(x.text)}</div></details>`;if(x.kind=='pend')return`<div class="u q">${ub(x.text)}</div>`;if(x.kind=='cmd')return`<div class=cmd>${esc(x.text)}</div>`;if(x.kind=='note')return`<div class=note>${esc(x.text)}</div>`;if(x.kind=='cmdout')return`<pre class=cmdout>${lk(x.text)}</pre>`;if(x.kind=='text'&&x.role!='user'&&window.marked)return`<div class=a>${DOMPurify.sanitize(marked.parse(x.text))}</div>`;if(x.kind=='text'&&x.role=='user')return`<div class="u${x.queued?' q':''}">${ub(x.text)}</div>`+(x.queued&&cur.pane?'<button class=now>Send now</button>':'');if(x.kind=='text')return`<div class=${x.role=='user'?'u':'a'}>${esc(x.text)}</div>`;
+ return`<div class=t><button>${esc(x.name)} · ${esc(x.summary)}</button><pre hidden>${lk(x.detail)}${x.result?'\n\n→ '+lk(x.result):''}</pre></div>`}
+function render(items,raw){let out=[],run=[];const flush=()=>{if(run.length>1){const names=[...new Set(run.map(x=>x.name))];const last=run[run.length-1];
+  out.push({h:`<div class=tg data-g="${esc(run[0].id||'')}"><button class=tgh><b>${run.length} tool calls</b> · ${esc(names.slice(0,4).join(', '))}${names.length>4?'…':''}<span>${esc(last.summary||'')}</span></button><div class=tgb hidden>${run.map(item).join('')}</div></div>`})}
+  else if(run.length)out.push({h:item(run[0]),x:run[0]});run=[]};
+ for(const x of items){if(x.kind=='tool'&&!artItem(x))run.push(x);else{flush();out.push({h:item(x),x})}}flush();return raw?out:out.map(o=>o.h).join('')}
+async function draw(){if(!cur)return;const me=cur;
+ if(term){const d=await api('/api/screen/'+cur.pane+termDims());$('main').innerHTML='<pre class=scr>'+esc(d.screen)+'</pre>'}
+ else if(!cur.session){$('main').innerHTML='<div class=h>No messages yet</div>';if(!cur.ro)await list2()}
+ else{const d=await api(cur.agent?'/api/agent/'+cur.session+'/'+cur.agent:'/api/session/'+cur.session+'?n='+(cur.n||60)),m=$('main'),atEnd=m.scrollHeight-m.scrollTop-m.clientHeight<80;
+  if(cur!==me)return;if(cur.pend){const p=cur.pend.t.trim();if(Date.now()-cur.pend.at>6e5||(d.items||[]).slice(-15).some(x=>x.role=='user'&&(x.text||'').trim()==p))cur.pend=null}const key=JSON.stringify(d.items)+(cur.pend?cur.pend.t:'');if(key===cur.key&&cur.box&&m.contains(cur.box)){if(!cur.ro)await list2();return}
+  if(paint(m,render((d.items||[]).concat(cur.pend?[{kind:'pend',role:'user',text:cur.pend.t}]:[]),1),(d.items||[]).length>=(cur.n||60)&&!cur.agent,atEnd))cur.key=key;jumpUI()}
+ if(cur===me&&!cur.ro){await list2()}}
+async function list2(){await list();if(!cur)return;const s=live.find(x=>x.pane==cur.pane);if(!s)return;if(s.session&&s.session!==cur.session){cur.session=s.session;cur.key='';cur.n=0};
+ $('title').innerHTML=esc(s.title||s.name)+(s.working?' <span class=work>●</span>':'');}
+/* chat painting: blocks that didn't change keep their DOM (selection, open details, loaded images).
+   Line up the new blocks with the longest identical run of old ones and redo only what follows it.
+   Old blocks in front of that run stay even after they slide out of the server's last-n window. */
+function paint(m,B,more,atEnd){const box=cur.box&&m.contains(cur.box)&&!cur.grew,A=box?cur.bl:[];let s=0,j=0,k=0;
+ for(let q=0;q<2&&q<B.length;q++)for(let i=0;i<A.length;i++){let n=0;while(i+n<A.length&&q+n<B.length&&A[i+n].h===B[q+n].h)n++;if(n>k){s=i;j=q;k=n}}
+ const gone=A.slice(k?s+k:0).flatMap(b=>b.n),sl=getSelection();
+ if(sl.rangeCount&&!sl.isCollapsed&&gone.some(n=>n.contains(sl.anchorNode)||n.contains(sl.focusNode)))return false;// copying: wait
+ const open=[...m.querySelectorAll('.t pre:not([hidden])')].map(p=>p.previousSibling.textContent),h0=m.scrollHeight,t0=m.scrollTop;
+ if(!box){m.innerHTML='<div class=chat><button class=more id=more>Load earlier</button></div>';cur.box=m.firstChild}
+ gone.forEach(n=>n.remove());const add=(k?B.slice(j+k):B).map(b=>{const t=document.createElement('template');t.innerHTML=b.h;b.n=[...t.content.childNodes];const e=b.n.find(n=>n.nodeType==1);if(e&&b.x)e._x=b.x;return b});
+ cur.bl=(k?A.slice(0,s+k):[]).concat(add);cur.box.append(...add.flatMap(b=>b.n));cur.box.firstChild.hidden=!more;
+ const els=add.flatMap(b=>b.n).filter(n=>n.nodeType==1),q=sel=>els.flatMap(e=>[...(e.matches(sel)?[e]:[]),...e.querySelectorAll(sel)]);
+ q('.t').forEach(t=>{if(open.includes(t.firstChild.textContent))t.querySelector('pre').hidden=false});
+ q('.tg').forEach(g=>{if((cur.og||new Set()).has(g.dataset.g))g.lastChild.hidden=false});
+ q('img[data-src]').forEach(loadImg);
+ q('.a pre').forEach(p=>{const w=document.createElement('div');w.className='cb';p.replaceWith(w);w.append(p);w.insertAdjacentHTML('beforeend','<button class=cpy>Copy</button>')});
+ if(cur.grew){m.scrollTop=m.scrollHeight-h0+t0;cur.grew=0;m.dataset.s=1}
+ cur.unseen=box&&k&&!atEnd?(cur.unseen||0)+Math.max(0,add.length-(A.length-(k?s+k:0))):0;
+ if(atEnd||!m.dataset.s){m.scrollTop=m.scrollHeight;m.dataset.s=1}return true}
+function jumpUI(){const m=$('main'),j=$('jump'),far=m.scrollHeight-m.scrollTop-m.clientHeight,on=!!(cur&&cur.box&&m.contains(cur.box));if(on&&far<80)cur.unseen=0;
+ j.hidden=!on||far<=m.clientHeight;if(on)j.textContent='↓ '+(cur.unseen?cur.unseen+' new':'Latest')}
+$('main').addEventListener('scroll',jumpUI,{passive:true});$('jump').onclick=()=>{const m=$('main');m.scrollTo({top:m.scrollHeight,behavior:'smooth'})};
+function copyText(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).catch(()=>{const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;top:0;opacity:0';document.body.append(a);a.select();a.setSelectionRange(0,t.length);document.execCommand('copy');a.remove()}).then(()=>toast('Copied'))}
+// tap a message for Copy (and Edit and resend on your own); code blocks get their own Copy
+$('main').addEventListener('click',e=>{const c=e.target.closest('.cpy');if(c)return copyText(c.previousSibling.textContent);
+ const a=e.target.closest('[data-act]');if(a){const el=a.closest('.chat>*'),t=((el._x||{}).text||'').trim();a.parentNode.remove();if(a.dataset.act=='copy')return copyText(t);$('ta').value=t;grow();sendBtn();slashUI();return $('ta').focus()}
+ const el=e.target.closest('.chat>.a,.chat>.u');if(!el||e.target.closest('a,button')||!getSelection().isCollapsed)return;
+ const o=el.querySelector(':scope>.acts');$('main').querySelectorAll('.acts').forEach(x=>x.remove());if(o)return;
+ el.insertAdjacentHTML('beforeend','<div class=acts><button data-act=copy>Copy</button>'+(el.matches('.u')&&!cur.ro?'<button data-act=edit>Edit and resend</button>':'')+'</div>')});
+const dk=()=>cur&&cur.pane?'draft:'+cur.pane:'';
+function keepDraft(){const k=dk(),v=$('ta').value;if(k)try{v.trim()?localStorage.setItem(k,v):localStorage.removeItem(k)}catch(e){}}
+function loadDraft(){let v='';try{v=dk()&&localStorage.getItem(dk())||''}catch(e){}$('ta').value=v;grow();sendBtn()}
+// timers: skip while hidden, during backoff, or while the same call is still in flight
+const inF=new Set();function tick(f){if(document.hidden||Date.now()<retryAt||inF.has(f))return;inF.add(f);Promise.resolve().then(f).catch(()=>{}).finally(()=>inF.delete(f))}
+const wake=()=>{if(document.hidden)return;retryAt=0;if(cur){tick(poll);tick(draw)}if(!cur||cur.ro)tick(list)};
+document.addEventListener('visibilitychange',wake);addEventListener('online',wake);
+addEventListener('unhandledrejection',e=>{const x=e.reason;if(x&&x.st!=null)toast(x.st&&x.st<502?'That didn\'t work (error '+x.st+').':'Can\'t reach the Mac right now. Try again in a moment.')});
+$('main').addEventListener('click',async e=>{if(e.target.id=='eo')return openMenu();if(e.target.id=='en')return newChat();if(e.target.classList.contains('now')){e.target.disabled=true;e.target.textContent='Sending…';await api('/api/key',{pane:cur.pane,key:'SendNow'});return setTimeout(draw,800)}if(e.target.id=='more'){cur.n=(cur.n||60)+100;cur.grew=1;return draw()}const sa=e.target.closest('.sub');if(sa)return openAgent(sa.dataset.agent,sa.dataset.desc);const gh=e.target.closest('.tgh');if(gh){const g=gh.parentNode,body=g.lastChild;body.hidden=!body.hidden;cur.og=cur.og||new Set();body.hidden?cur.og.delete(g.dataset.g):cur.og.add(g.dataset.g);if(!body.hidden)body.querySelectorAll('img[data-src]').forEach(loadImg);return}const b=e.target.closest('.t>button:not(.sub)');if(b)b.nextSibling.hidden=!b.nextSibling.hidden});
+$('sug').onclick=()=>{$('ta').value=$('sug').dataset.t;grow();$('sug').hidden=true;$('ta').focus()};
+/* images open large on click, tap or Space (like Quick Look); arrows step through the chat's images; Space, Esc or a click closes.
+   In a split-view column the outer window shows them, so they fill the screen rather than the column */
+let lbL=[],lbI=0,hovImg=null;
+function lbShow(list,i){lbL=list;lbI=(i+list.length)%list.length;$('lbi').src=lbL[lbI];$('lbn').textContent=lbL.length>1?`${lbI+1} of ${lbL.length}`:'';const L=$('lbx');if(L.hidden){L.hidden=false;L.offsetWidth}L.classList.add('on')}
+function lbHide(){const L=$('lbx');L.classList.remove('on');setTimeout(()=>{if(!L.classList.contains('on'))L.hidden=true},180)}
+window.lbOpen=(list,i)=>COL&&parent.lbOpen?parent.lbOpen(list,i):lbShow(list,i);
+const lbFrom=im=>{const all=[...$('main').querySelectorAll('img')].filter(x=>x.src&&x.src.startsWith('blob:'));window.lbOpen(all.map(x=>x.src),Math.max(0,all.indexOf(im)))};
+$('main').addEventListener('click',e=>{const im=e.target.closest('img');if(im&&im.src){e.stopPropagation();lbFrom(im)}},true);
+$('main').addEventListener('mouseover',e=>{hovImg=e.target.closest('img')});$('main').addEventListener('mouseout',e=>{if(e.target===hovImg)hovImg=null});
+$('lbx').onclick=lbHide;
+window.lbKey=e=>{if($('lbx').hidden)return false;if(e.key=='Escape'||e.key==' '){e.preventDefault();e.stopPropagation();lbHide()}else if(e.key=='ArrowRight'||e.key=='ArrowLeft'){e.preventDefault();lbShow(lbL,lbI+(e.key=='ArrowRight'?1:-1))}return true};
+document.addEventListener('keydown',e=>{if(COL&&parent.lbKey?parent.lbKey(e):lbKey(e))return;// keys typed in a column reach the viewer in the outer window
+ if(e.key==' '&&hovImg&&hovImg.src&&!/^(TEXTAREA|INPUT|SELECT)$/.test(document.activeElement.tagName)){e.preventDefault();lbFrom(hovImg)}},true);
+const imgCache={};async function loadImg(im){const u=im.dataset.src;if(!imgCache[u])imgCache[u]=fetch(u,{headers:{'X-Deck-Token':TOK}}).then(r=>r.ok?r.blob():null).then(b=>b&&URL.createObjectURL(b));const o=await imgCache[u];if(o)im.src=o}
+/* diffs: lines start with ' ', '+', '-' or '@' (a note or a gap); '@@@ -a,b +c,d @@' starts a hunk and turns on the line number gutter */
+const HK=/^@@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+const fullDiff={},dlines=d=>{const L=d.split('\n'),H=L.map(l=>l.match(HK)),w=Math.max(0,...H.map(h=>h?String(Math.max(+h[1]+(+h[2]||0),+h[3]+(+h[4]||0))).length:0));let o=0,n=0;
+ const gn=(a,b)=>w?`<i class=gn><b>${a}</b><b>${b}</b></i>`:'';
+ return`<span class=dx style="--w:${w}ch">`+L.map((l,i)=>{const c=l[0],h=H[i];if(h){o=+h[1];n=+h[3];return`<span class="ln-h hk">${gn('','')}${esc(l.slice(1))}</span>`}
+  const g=c=='@'||c=='\\'?gn('',''):c=='+'?gn('',n++):c=='-'?gn(o++,''):gn(o++,n++);
+  return`<span class=${c=='+'?'ln-a':c=='-'?'ln-r':c=='@'?'ln-h':'ln'}>${g}${esc(c=='@'?l.slice(1)||'⋯':l)}</span>`}).join('')+'</span>'};
+const cnt=(a,d)=>a==null?'':`<span class=dn><b>+${a}</b> <i>−${d}</i></span>`;
+function diffItem(x){const d=fullDiff[x.id];return`<div class=t><button class=dfh><span>${esc(x.name)} · ${esc(x.summary.split('/').pop())}</span>${cnt(x.add,x.del)}</button><pre class=dif hidden>${dlines('@'+x.summary+'\n'+(d||x.diff))}${x.result?`<span class=ln-e>${esc(x.result)}</span>`:''}${x.more&&!d?`<button class=dfm data-id="${esc(x.id)}">Load full diff (${x.more} lines)</button>`:''}</pre></div>`}
+$('main').addEventListener('click',async e=>{const b=e.target.closest('.dfm');if(!b)return;b.disabled=true;b.textContent='Loading…';const id=b.dataset.id,dx=b.parentNode.querySelector('.dx');
+ const d=await api('/api/diff/'+cur.session+(cur.agent?'/'+cur.agent:'')+'/'+id);if(d.diff==null){b.textContent='Not found';return}fullDiff[id]=d.diff;dx.outerHTML=dlines('@'+dx.firstChild.textContent+'\n'+d.diff);b.remove()});
+const ST={M:'modified',A:'added',D:'deleted',R:'renamed',C:'copied',U:'conflict',T:'type changed','?':'new, untracked'},stName=s=>(ST[(s.trim()||'?')[0]]||s)+(s[0]!=' '&&s[0]!='?'?', staged':'');
+const bk=t=>`<button class=dback id=cback style="padding:0;text-align:left">‹ ${t}</button>`;
+async function changesSheet(dir){const me=cur;sb.innerHTML=bk('Chat info')+'<h2>Changes</h2><div id=chw class=lbl>Loading…</div>';showSheet(dir==-1?-1:1);$('cback').onclick=showInfo;
+ const d=await api('/api/changes/'+(cur.pane||cur.session));if(cur!==me||!$('chw'))return;
+ $('chw').outerHTML=d.error?`<small class=sub2>${esc(d.error)}</small>`:`<small class=sub2>${esc(rel(d.root))}${d.branch?' · '+esc(d.branch):''}</small><div class=chl>`+
+  (d.files.map(f=>{const i=f.path.lastIndexOf('/');return`<button class="pick chf" data-f="${esc(f.path)}"><span class=dfh><span>${esc(f.path.slice(i+1))}</span>${cnt(f.add,f.del)}</span><small>${esc(stName(f.st)+(f.from?' from '+f.from:'')+(i>0?' · '+f.path.slice(0,i):''))}</small></button>`}).join('')||'<small>No uncommitted changes.</small>')+(d.more?`<small>And ${d.more} more files</small>`:'')+'</div>'}
+async function changeFile(p){const me=cur;sb.innerHTML=bk('Changes')+`<h2>${esc(p.split('/').pop())}</h2>${p.includes('/')?`<small class=sub2>${esc(p)}</small>`:''}<div id=chw class=lbl>Loading…</div>`;showSheet(1);$('cback').onclick=()=>changesSheet(-1);
+ const d=await api('/api/changes/'+(cur.pane||cur.session)+'?file='+encodeURIComponent(p));if(cur!==me||!$('chw'))return;
+ $('chw').outerHTML=d.error?`<small>${esc(d.error)}</small>`:(cur.pane?'<button class=go id=cask>Ask about this</button>':'')+`<pre class=dif>${dlines(d.diff||'@no text changes')}${d.cut?'<span class=ln-e>Cut short: this diff is too long to show in full.</span>':''}</pre>`;
+ if($('cask'))$('cask').onclick=()=>{hideSheet();const t=$('ta');t.value=(t.value.trim()?t.value.trimEnd()+'\n':'')+'In '+p+': ';t.dispatchEvent(new Event('input'));t.focus();t.setSelectionRange(t.value.length,t.value.length)}}
+sb.addEventListener('click',e=>{const b=e.target.closest('.chf');if(b)changeFile(b.dataset.f)});
+const bar=p=>{const v=parseFloat(p)||0;return`<span class=bar><i class="${v>=85?'c':v>=60?'w':''}" style="width:${Math.min(v,100)}%"></i></span>${esc(p)}`};
+let statsOpen=false;$('stats').addEventListener('click',async e=>{if(agTap(e,()=>{agT=0;agentPoll()}))return;if(e.target.id=='cyc'){await api('/api/key',{pane:cur.pane,key:'BTab'});setTimeout(poll,400)}});
+$('status').onclick=()=>{statsOpen=!statsOpen;$('stats').hidden=!statsOpen;$('status').classList.toggle('open',statsOpen)};
+async function poll(){if(!cur||term||document.hidden)return;if(cur.agent)return agentPoll();if(cur.ro)return;const me=cur;let s;try{s=await api('/api/status/'+cur.pane)}catch(e){return}if(cur!==me)return;
+ busy=s.working;cur.ctx=s.ctx;cur.model=s.model;cur.plan=s.plan;sendBtn();const st=$('status');st.hidden=!!s.menu;st.classList.toggle('on',s.working);st.innerHTML='<span class=stx>'+esc(s.working?(s.status||'Working…'):'Idle'+(s.ctx?' · context '+s.ctx:''))+'</span>';
+ renderMenu(s.menu);const b=$('sug');b.hidden=!s.suggestion||!!$('ta').value||s.working;if(s.suggestion)b.innerHTML='<i>suggested</i>'+esc(s.suggestion);b.dataset.t=s.suggestion||'';
+ const d=s.device||{};$('stats').innerHTML=`<h4>This chat</h4><dt>Model</dt><dd>${esc(s.model||'unknown')}</dd>${s.plan?`<dt>Plan</dt><dd>${esc(s.plan)}</dd>`:''}<dt>Context</dt><dd>${s.ctx?bar(s.ctx.split(' ')[0])+' '+esc(s.ctx.split(' ').slice(1).join(' ')):'unknown'}</dd><dt>Permissions</dt><dd>${esc(s.perm||'unknown')} <button class=cyc id=cyc>Change</button></dd>`+
+  ((s.accounts||[]).length?'<h4>Plans (rclaude)</h4>'+s.accounts.map(a=>`<dt${a.name==s.plan?' class=cur':''}>${esc(a.name)}</dt><dd>5h ${bar(a.h5)} · week ${bar(a.week)}${a.status!='available'?' · '+esc(a.status)+(a.until?' until '+esc(a.until):''):''}${a.name==s.plan?'<span class=ttag>this chat</span>':''}</dd>`).join(''):'')+
+  `<h4>Mac Mini</h4><dt>CPU</dt><dd>${bar(d.cpu+'%')} · load ${esc(d.load)} (${d.cores} cores)</dd><dt>Memory</dt><dd>${bar(d.mem+'%')}</dd><dt>Disk</dt><dd>${bar(d.disk+'%')}</dd>`}
+setInterval(()=>tick(poll),1000);
+/* background processes and running subagents of a live chat: info sheet section, status line count, chat list marker */
+const secs=s=>s<60?s+'s':s<3600?Math.floor(s/60)+'m':s<86400?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':Math.floor(s/86400)+'d '+Math.floor(s%86400/3600)+'h';
+const rss=k=>k>=1048576?(k/1048576).toFixed(1)+' GB':k>=1024?Math.round(k/1024)+' MB':k+' KB';
+const bgMark=s=>{const p=s.procs;return p&&(p.longest>=1800||p.cpu>=50)?`<span class=bgm>⧗ ${p.procs} running ${secs(p.longest).split(' ')[0]}${p.cpu>=50?' · '+p.cpu+'% CPU':''}</span> · `:''};
+const poll0=poll;poll=async()=>{await poll0();const st=$('status'),s=cur&&cur.pane&&!cur.ro&&live.find(x=>x.pane==cur.pane),n=s&&s.procs?s.procs.procs:0;let b=st.querySelector('.bgs');
+ if(!n)return b&&b.remove();if(!b){st.insertAdjacentHTML('beforeend','<span class=bgs></span>');b=st.lastChild}b.textContent=n+' background'};
+let bgD=null,bgArm='',bgAT;const bgOpen=new Set();
+async function procsUI(){if(!cur||!cur.pane||cur.ro)return;let el=$('bgp');if(!el){el=document.createElement('div');el.id='bgp';el.className='bgp';const a=$('agl')||$('chg');a?a[a.id=='agl'?'after':'before'](el):sb.append(el)}
+ const me=cur;let d;try{d=await api('/api/procs/'+cur.pane)}catch(e){return}if(cur!==me||!el.isConnected)return;bgD=d;bgDraw()}
+function bgDraw(){const d=bgD,el=$('bgp');if(!d||!el)return;const n=d.procs.length,a=d.agents.length,hc=d.helpers.reduce((s,h)=>s+h.cpu,0),hm=d.helpers.reduce((s,h)=>s+h.mem,0);
+ el.innerHTML=`<div class=lbl>Background · ${n?n+' process'+(n==1?'':'es'):'nothing running'}</div>`+(d.shells&&d.shells!=d.procs.filter(p=>!p.detached).length?`<small class=sub2>Claude Code counts ${d.shells} background shell${d.shells>1?'s':''}.</small>`:'')+
+  d.procs.map(p=>{const k=String(p.pid),c=p.kids.length;return`<div class=bgr><div class=bgh><button data-x=${k}><code>${esc(p.cmd.split('\n')[0])}</code><small>${p.detached?'<span class=dtg>detached</span> ':''}<span class=${p.secs>=3600?'lng':''}>${secs(p.secs)}</span> · ${p.cpu}% CPU · ${rss(p.mem)}${c?' · '+c+(c>1?' processes':' process')+' under it':''}</small></button><button class="kill${bgArm==k?' arm':''}" data-k=${k}>${bgArm==k?'Tap to stop':'Stop'}</button></div>`+
+   (bgOpen.has(k)?`<div class=bgx><pre>${esc(p.cmd)}</pre>${p.kids.map(x=>`<div>${x.pid} · ${secs(x.secs)} · ${x.cpu}% · ${esc(x.cmd)}</div>`).join('')}<button data-ask=${k}>Ask Claude to stop it</button></div>`:'')+'</div>'}).join('')+
+  (d.helpers.length?`<div class=bgr><div class=bgh><button data-x=h><small>${d.helpers.length} helper${d.helpers.length>1?'s':''} Claude runs itself (MCP servers, tools) · ${Math.round(hc*10)/10}% CPU · ${rss(hm)}</small></button></div>`+
+   (bgOpen.has('h')?`<div class=bgx>${d.helpers.map(h=>`<div>${h.pid} · ${secs(h.secs)} · ${h.cpu}% · ${rss(h.mem)} · ${esc(h.cmd)}</div>`).join('')}</div>`:'')+'</div>':'')}
+sb.addEventListener('click',async e=>{const b=e.target.closest('#bgp button');if(!b)return;const D=b.dataset;
+ if(D.x){bgOpen.has(D.x)?bgOpen.delete(D.x):bgOpen.add(D.x);return bgDraw()}
+ if(D.ga)return openAgent(D.ga,D.gd);
+ if(D.ask){const p=bgD.procs.find(x=>x.pid==D.ask),c=p?p.cmd.split('\n')[0]:'';hideSheet();const t=$('ta');t.value=(t.value.trim()?t.value.trimEnd()+'\n':'')+`Please stop the background task running \`${c.length>200?c.slice(0,200)+'…':c}\` (pid ${D.ask}).`;t.dispatchEvent(new Event('input'));return t.focus()}
+ if(!D.k)return;clearTimeout(bgAT);if(bgArm!=D.k){bgArm=D.k;bgAT=setTimeout(()=>{bgArm='';bgDraw()},4000);return bgDraw()}
+ bgArm='';b.disabled=true;b.textContent='Stopping…';let r;try{r=await api('/api/procs/kill',{pane:cur.pane,pid:+D.k})}catch(x){toast(x.reason||'Couldn\'t stop it.');return procsUI()}
+ toast(r.gone?(r.forced?'Stopped. It had to be forced after 3 seconds.':'Stopped.'):'Asked it to stop, but it is still running.');procsUI();list()});
+setInterval(()=>{if(!sh.hidden&&$('bgp'))tick(procsUI)},3000);
+let menuKey='';function renderMenu(mn){const el=$('menu');cur.menu=mn;const k=JSON.stringify(mn);if(k===menuKey)return;menuKey=k;el.hidden=!mn;$('ta').placeholder=mn?(mn.amend?'Add a note, then tap Yes or No':'Or type your own answer'):'Message';if(!mn)return;
+ el.innerHTML=(mn.question?`<div class=mq>${esc(mn.question)}</div>`:'')+mn.options.map((o,i)=>`<button data-o=${i} class="${i===mn.selected?'sel':''}">${esc(o.label)}${o.desc?`<small>${esc(o.desc)}</small>`:''}</button>`).join('')+(mn.amend?'<div class=mq>To tell Claude something with your answer, type it below and tap Yes or No. Send adds it to No.</div>':'')}
+const shown=()=>({question:cur.menu.question,labels:cur.menu.options.map(o=>o.label)});
+let tt;function toast(m){const t=$('toast');t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,4000)}
+// a 409 means the screen moved on: say why and redraw the menu, keeping the typed text
+async function tell(p,b){try{return await api(p,b)||true}catch(e){if(!e.reason)throw e;toast(e.reason);menuKey='';poll();return false}}
+$('menu').onclick=async e=>{const b=e.target.closest('[data-o]');if(!b||!cur.menu)return;const q=shown(),t=$('ta').value.trim(),note=cur.menu.amend&&t&&/^(Yes|No)$/.test(q.labels[+b.dataset.o]);$('menu').hidden=true;menuKey='';
+ if(await tell('/api/choose',{pane:cur.pane,index:+b.dataset.o,...q,...(note?{text:t}:{})})){if(note){$('ta').value='';grow();taUI()}setTimeout(draw,700)}};
+async function send(t){const fs=cur.menu?[]:ATT.map(a=>a.path);if(!t.trim()&&!fs.length)return;if(fs.includes(undefined))return toast('Wait for the uploads to finish.');if(cur.menu){if(!await tell('/api/choose',{pane:cur.pane,text:t,...shown()}))return;$('ta').value='';grow();$('menu').hidden=true;menuKey='';return setTimeout(draw,700)}const r=await tell('/api/send',{pane:cur.pane,text:t,files:fs});if(!r)return;t=r.text??t;cur.pend=t.trim()&&t[0]!='!'?{t,at:Date.now()}:null;ATT.splice(0).forEach(a=>a.thumb&&URL.revokeObjectURL(a.thumb));attUI();$('ta').value='';grow();slashUI();taUI();sendBtn();setTimeout(draw,600)}
+$('send').onclick=async()=>{if($('send').classList.contains('stop')){await api('/api/key',{pane:cur.pane,key:'Escape'});return setTimeout(poll,300)}send($('ta').value)};
+const grow=()=>{const t=$('ta');t.style.height='auto';t.style.height=Math.min(t.scrollHeight,140)+'px';keepDraft()};$('ta').addEventListener('input',grow);
+$('ta').onkeydown=e=>{if(e.key=='Enter'&&!e.shiftKey&&!e.isComposing&&!/Mobi/.test(navigator.userAgent)){e.preventDefault();send($('ta').value)}};
+const CMDS=[['/compact','Summarise the chat to free up context'],['/clear','Start fresh in this window'],['/resume','Pick up an earlier chat'],['/model','Switch model or effort'],['/context','Show what is using the context'],['/usage','Plan usage and limits'],['/agents','Manage subagents'],['/memory','Edit memory files'],['/review','Review a pull request'],['/init','Write a CLAUDE.md for this project'],['/mcp','MCP servers'],['/status','Version, account and settings'],['/exit','End this session']];
+function slashUI(){const v=$('ta').value,el=$('slash');if(!/^\/\S*$/.test(v)){el.hidden=true;return}const m=CMDS.filter(c=>c[0].startsWith(v.toLowerCase()));el.hidden=!m.length;
+ el.innerHTML=m.map(c=>`<button data-c="${c[0]}"><code>${c[0]}</code><span>${esc(c[1])}</span></button>`).join('')}
+$('ta').addEventListener('input',slashUI);
+$('slash').onclick=e=>{const b=e.target.closest('[data-c]');if(!b)return;$('slash').hidden=true;if(b.dataset.c=='/resume'){$('ta').value='';grow();return newChat(cur.cwd)}$('ta').value=b.dataset.c;grow();$('ta').focus()};
+/* terminal key bar, @ file suggestions, ! shell mode */
+const kbShow=on=>{$('kbar').hidden=!on;$('kbt').setAttribute('aria-pressed',on);try{localStorage.setItem('kbar',on?1:0)}catch(e){}};
+try{kbShow(localStorage.getItem('kbar')=='1')}catch(e){kbShow(false)}$('kbt').onclick=()=>kbShow($('kbar').hidden);
+['kbar','at'].forEach(i=>$(i).addEventListener('mousedown',e=>e.preventDefault()));// keep the phone keyboard up
+let ccT;$('kbar').onclick=async e=>{const b=e.target.closest('[data-k]');if(!b||!cur||!cur.pane)return;const k=b.dataset.k;
+ if(k=='C-c'){const arm=!b.classList.contains('arm');clearTimeout(ccT);b.classList.toggle('arm',arm);b.textContent=arm?'Tap again':'Ctrl-C';if(arm)return ccT=setTimeout(()=>{b.classList.remove('arm');b.textContent='Ctrl-C'},2500)}// it can interrupt, clear or exit
+ await tell('/api/key',{pane:cur.pane,key:k});setTimeout(()=>{poll();if(term)draw()},300)};
+let atT,atQ=null;function atUI(){const ta=$('ta'),el=$('at'),m=ta.value.slice(0,ta.selectionStart).match(/(?:^|\s)@([^\s@]+)$/);clearTimeout(atT);
+ if(!m||!cur||!cur.pane){el.hidden=true;atQ=null;return}const q=atQ=m[1];
+ atT=setTimeout(async()=>{let d;try{d=await api('/api/files?pane='+encodeURIComponent(cur.pane)+'&q='+encodeURIComponent(q))}catch(e){return}if(atQ!==q)return;
+  el.hidden=!d.files.length;el.innerHTML=d.files.map(f=>{const i=f.slice(0,-1).lastIndexOf('/')+1;return`<button data-f="${esc(f)}"><code>${esc(f.slice(i))}</code><span>${esc(f.slice(0,i))}</span></button>`}).join('')},200)}
+$('at').onclick=e=>{const b=e.target.closest('[data-f]');if(!b)return;const ta=$('ta'),p=ta.selectionStart,f=b.dataset.f,s=ta.value.slice(0,p).replace(/@[^\s@]*$/,()=>'@'+f+(f.endsWith('/')?'':' '));
+ ta.value=s+ta.value.slice(p);ta.setSelectionRange(s.length,s.length);ta.focus();grow();atUI()};
+const taUI=()=>{atUI();const sh=$('ta').value[0]=='!';$('bang').hidden=!sh;$('ta').classList.toggle('sh',sh)};$('ta').addEventListener('input',taUI);
+let busy=false;function sendBtn(){const stop=busy&&!$('ta').value.trim()&&!ATT.length;$('send').textContent=stop?'Stop':'Send';$('send').classList.toggle('stop',stop);$('send').disabled=ATT.some(a=>!a.path)}
+$('ta').addEventListener('input',sendBtn);
+/* attachments: each file uploads as soon as it is picked or pasted; Send waits for all of them */
+const ATT=[];let attN=0;
+function attUI(){const el=$('att');el.hidden=!ATT.length;el.innerHTML=ATT.map(a=>`<div class=ach data-id=${a.id} title="${esc(a.name)}">${a.thumb?`<img src="${a.thumb}" alt="">`:FILE+`<span>${esc(a.name)}</span>`}${a.path?'':`<b>${a.pct}%</b><i style="width:${a.pct}%"></i>`}<button aria-label="Remove">×</button></div>`).join('')+'<small class=anote>Very large files (several GB) are better moved with Syncthing.</small>';
+ el.querySelectorAll('img').forEach(i=>i.onerror=()=>i.outerHTML=FILE+`<span>${esc(i.parentNode.title)}</span>`);sendBtn()}
+function unattach(a,msg){const i=ATT.indexOf(a);if(i<0)return;ATT.splice(i,1);if(a.xhr.readyState<4)a.xhr.abort();if(a.thumb)URL.revokeObjectURL(a.thumb);attUI();if(msg)toast(msg)}
+function attach(files){if(!cur||!cur.pane)return;for(const f of files){const name=f.name||'pasted image';if(f.size>1<<30){toast(name+' is over 1 GB. Move very large files with Syncthing instead.');continue}
+ const a={id:++attN,name,pct:0,thumb:/^image\//.test(f.type)?URL.createObjectURL(f):''},x=a.xhr=new XMLHttpRequest();ATT.push(a);
+ x.open('POST','api/upload?pane='+encodeURIComponent(cur.pane)+'&name='+encodeURIComponent(name));x.setRequestHeader('X-Deck-Token',TOK);
+ x.upload.onprogress=e=>{const c=$('att').querySelector(`[data-id="${a.id}"]`);if(!e.lengthComputable||!c||!c.querySelector('b'))return;a.pct=Math.round(e.loaded*100/e.total);c.querySelector('b').textContent=a.pct+'%';c.querySelector('i').style.width=a.pct+'%'};
+ x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status==200&&r.path){a.path=r.path;attUI()}else unattach(a,r.error||name+': upload failed ('+x.status+').')};
+ x.onerror=()=>unattach(a,name+': upload failed. Check the connection.');x.send(f)}attUI()}
+$('clip').onclick=()=>$('fi').click();$('fi').onchange=()=>{attach([...$('fi').files]);$('fi').value=''};
+$('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
+$('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
+const vv=window.visualViewport;
+if(vv){let lh=0,ft;/* always pin the page to the visible area: newer iOS shrinks innerHeight with the keyboard too, so guessing "keyboard open" from the two heights failed and left the page scrolled up */
+ const top=()=>{document.body.style.top=Math.max(0,vv.offsetTop)+'px'};
+ const fit=()=>{top();document.body.style.height=vv.height+'px';clearTimeout(ft);ft=setTimeout(()=>{top();document.body.style.height=vv.height+'px'},350);
+ if(vv.height!==lh){const m=$('main'),atEnd=m.scrollHeight-m.scrollTop-m.clientHeight<120;lh=vv.height;if(atEnd)requestAnimationFrame(()=>m.scrollTop=m.scrollHeight)}};
+ vv.addEventListener('resize',fit);vv.addEventListener('scroll',top);fit()}
+$('ta').addEventListener('focus',()=>document.body.classList.add('kb'));$('ta').addEventListener('blur',()=>document.body.classList.remove('kb'));
+/* attention badges, Web Push and home-screen install */
+$('mb').insertAdjacentHTML('beforeend','<b class=bdg id=mbn hidden></b>');
+const rank=s=>s.attn=='needs'?2:s.attn=='done'&&!(cur&&cur.pane==s.pane||OPEN.has(s.pane))?1:0;
+const attnTxt=p=>{const a=live.filter(x=>proj(x.cwd)==p),n=a.filter(x=>rank(x)==2).length,r=a.filter(x=>rank(x)==1).length;return(n?`<span class=nd>${n} need${n>1?'':'s'} you</span> · `:'')+(r?`<span class=nr>${r} new repl${r>1?'ies':'y'}</span> · `:'')};
+let badgeN=-1;function attnUI(){live.sort((a,b)=>rank(b)-rank(a));const o=live.filter(s=>rank(s)&&!(cur&&cur.pane==s.pane)),n=o.length,b=$('mbn');
+ b.hidden=!n;b.textContent=n;b.classList.toggle('w',o.some(s=>s.attn=='needs'));
+ if(n!==badgeN&&navigator.setAppBadge&&!COL){badgeN=n;(n?navigator.setAppBadge(n):navigator.clearAppBadge()).catch(()=>{})}}
+// the service worker is only registered once notifications are switched on (an existing one is reused): nothing else needs it
+let SWR=navigator.serviceWorker?navigator.serviceWorker.getRegistration().then(r=>r||null).catch(()=>null):Promise.resolve(null);let pkey;
+const keyBytes=k=>Uint8Array.from(atob(k.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+async function pushUI(msg){const el=$('pf')||document.createElement('div'),r=navigator.serviceWorker&&await SWR,inst=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+ if(!navigator.serviceWorker||!window.PushManager||!window.Notification){el.innerHTML='<small>'+(/iPhone|iPad/.test(navigator.userAgent)&&!inst?'To get notifications, add Session Deck to your Home Screen (Share, then Add to Home Screen) and open it from there.':'This browser can\'t show notifications.')+'</small>';return}
+ if(pkey===undefined)try{pkey=(await api('/api/push/key')).key}catch(e){}
+ const s=r?await r.pushManager.getSubscription():null,on=!!s&&Notification.permission=='granted';
+ if(on&&msg===undefined)api('/api/push/subscribe',{sub:s.toJSON(),quiet:1}).catch(()=>{});
+ if(!msg&&Notification.permission=='denied')msg='Notifications are blocked for this app. Allow them in Settings, then try again.';
+ el.innerHTML=`Notifications<div class=seg><button data-n=1 aria-pressed=${on}>On</button><button data-n=0 aria-pressed=${!on}>Off</button></div>`+(msg?`<small>${esc(msg)}</small>`:'')}
+const pfClick=async e=>{const b=e.target.closest('[data-n]');if(!b)return;
+ if(b.dataset.n=='1'){if(await Notification.requestPermission()!='granted')return pushUI('');if(!pkey)return pushUI('The server has no push key yet.');
+  try{const r=await(SWR=navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready)),s=await r.pushManager.getSubscription()||await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(pkey)});
+   const d=await api('/api/push/subscribe',{sub:s.toJSON()});pushUI(d.test==null||d.test==201?'On. A test notification is on its way.':'Subscribed, but the push service answered '+d.test+'.')}catch(x){pushUI('Could not turn on notifications: '+x.message)}return}
+ const R=await SWR,s=R&&await R.pushManager.getSubscription();if(s){await api('/api/push/unsubscribe',{endpoint:s.endpoint}).catch(()=>{});await s.unsubscribe()}pushUI('')};
+if(!COL)pushUI();
+if(navigator.serviceWorker&&!COL)navigator.serviceWorker.addEventListener('message',e=>{const p=e.data&&e.data.pane;if(p)list().then(()=>{const s=live.find(x=>x.pane==p);if(s){closeMenu();hideSheet();stack=[];open_(s)}})});
+const qp=new URLSearchParams(location.search).get('pane');if(qp){try{localStorage.setItem('last',qp)}catch(e){}history.replaceState(null,'',location.pathname)}
+setInterval(()=>{if(cur)tick(draw);if(!cur||cur.ro)tick(list)},2500);
+/* passkeys: Face ID sign-in on the Tailscale route; direct local use keeps the token */
+const b64u=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),ub64=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+async function au(p,b){const r=await fetch('api/auth/'+p,{method:b?'POST':'GET',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Error '+r.status);return d}
+const devName=()=>(navigator.userAgent.match(/iPhone|iPad|Mac|Android|Windows/)||['This device'])[0];
+const why=e=>e.name=='NotAllowedError'?'Cancelled or timed out. Try again.':e.name=='InvalidStateError'?'This device already has a passkey here.':e.message;
+async function enrol(token,name){const o=await au('register/begin',{token});
+ const c=await navigator.credentials.create({publicKey:{challenge:ub64(o.challenge),rp:o.rp,user:{...o.user,id:ub64(o.user.id)},pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+  authenticatorSelection:{authenticatorAttachment:'platform',userVerification:'required',residentKey:'preferred'},attestation:'none',timeout:120000,excludeCredentials:o.exclude.map(id=>({type:'public-key',id:ub64(id)}))}});
+ return au('register/finish',{clientDataJSON:b64u(c.response.clientDataJSON),attestationObject:b64u(c.response.attestationObject),transports:c.response.getTransports?.()||[],name})}
+async function unlock(){const o=await au('login/begin',{});
+ const c=await navigator.credentials.get({publicKey:{challenge:ub64(o.challenge),rpId:o.rpId,allowCredentials:o.allow.map(x=>({...x,type:'public-key',id:ub64(x.id)})),userVerification:'required',timeout:120000}});
+ return au('login/finish',{id:b64u(c.rawId),clientDataJSON:b64u(c.response.clientDataJSON),authenticatorData:b64u(c.response.authenticatorData),signature:b64u(c.response.signature)})}
+let started=false;
+function lock(s){const L=$('lock');if(!L.hidden&&!s)return;L.hidden=false;hideSheet();closeMenu();const ok=!!window.PublicKeyCredential,has=!s||s.passkeys>0;
+ $('lkm').textContent=!ok?'Face ID needs the secure https:// address of this Mac (tailscale serve with HTTPS).':has?'Locked. Unlock to carry on.':'First time on this device: enter your setup code (or the deck token) to set up Face ID.';
+ $('lku').hidden=!ok||!has;$('lke').hidden=!ok||has;$('lks').hidden=!ok||!has;$('lkn').value=devName()}
+const unlocked=()=>{$('lock').hidden=true;$('lkt').value='';if(!started){started=true;start()}else colWake()};
+$('lku').onclick=async()=>{try{await unlock();unlocked()}catch(e){$('lkm').textContent=why(e)}};
+$('lks').onclick=()=>{$('lke').hidden=false;$('lks').hidden=true;$('lkm').textContent='Paste the deck token once to add a passkey on this device.'};
+$('lkr').onclick=async()=>{try{await enrol($('lkt').value.trim(),$('lkn').value.trim());unlocked()}catch(e){$('lkm').textContent=why(e)}};
+async function passkeys(dir){let d;try{d=await au('passkeys')}catch(e){return lock()}closeMenu();
+ sb.innerHTML='<button class=dback id=pkb style="padding:0;text-align:left">‹ Settings</button><h2>Passkeys</h2>'+d.passkeys.map(p=>`<div class=pkr><span><b>${esc(p.name)}</b><small>Added ${esc(when(p.made*1000))}${p.used?' · used '+ago(p.used):''}${p.current?' · this session':''}</small></span><button class=chip data-del="${esc(p.id)}">Remove</button></div>`).join('')+
+  `<div class=lbl>Add a passkey on this device</div><input id=pkn value="${esc(devName())}" autocomplete=off><button class=go id=pka>Add passkey</button><button class=pick id=pko style="text-align:center">Sign out</button><small class=sub2 id=pkm></small>`;showSheet(dir)}
+sb.addEventListener('click',async e=>{const t=e.target;try{
+ if(t.dataset.del){if(!confirm('Remove this passkey? Anything signed in with it is signed out.'))return;await au('passkeys/delete',{id:t.dataset.del});const s=await au('state');return s.signedIn?passkeys():lock(s)}
+ if(t.id=='pka'){await enrol('',$('pkn').value.trim());return passkeys()}
+ if(t.id=='pko'){await au('logout',{});lock(await au('state'))}}catch(x){if($('pkm'))$('pkm').textContent=why(x)}});
+async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{const s=live.find(x=>x.pane==localStorage.getItem('last'));if(s)open_(s);else openMenu()})}
+async function boot(){const r=await fetch('api/auth/state'),s=await r.json().catch(()=>({}));TS=!!s.ts||r.status==403;
+ if(!TS){if(!TOK){TOK=clean(prompt('Token'));localStorage.setItem('deck',TOK)}started=true;return start()}
+ try{localStorage.removeItem('deck')}catch(e){}TOK='';
+ if(r.status==403){lock(s);$('lkm').textContent=s.error;return['lku','lke','lks'].forEach(i=>$(i).hidden=true)}
+ s.signedIn?unlocked():lock(s)}
+boot();
+/* motion: sheets, drawer drags, page pushes and entrances. WAAPI leaves nothing behind when it ends; ghosts are throwaway clones */
+const RM=matchMedia('(prefers-reduced-motion: reduce)'),DLG=matchMedia(COL?'all':'(min-width:700px)'),EZ='cubic-bezier(.32,.72,0,1)';
+const anim=(el,kf,o)=>RM.matches||!el||!el.animate?null:el.animate(kf,{duration:300,easing:EZ,...o});
+const enter=(el,f,o)=>anim(el,[{...f,offset:0}],o);// from f to whatever CSS says
+const ghost=el=>{const g=el.cloneNode(true);g.removeAttribute('id');g.querySelectorAll('[id]').forEach(n=>n.removeAttribute('id'));g.classList.add('gh');g.hidden=false;return g};
+// iOS push: the new page slides in over a ghost of the old one (dir 1), or the old one slides off it (dir -1)
+function slide(el,dir){if(RM.matches)return;if(el._g)el._g.remove();const g=el._g=ghost(el),st=el.scrollTop,o={duration:380};
+ Object.assign(g.style,{position:'absolute',top:el.offsetTop+'px',left:el.offsetLeft+'px',width:el.offsetWidth+'px',height:el.offsetHeight+'px',margin:0});
+ el[dir>0?'before':'after'](g);g.scrollTop=st;const top=[{transform:'translateX(100%)'},{transform:'none'}],under=[{transform:'none',opacity:1},{transform:'translateX(-28%)',opacity:.4}];
+ const a=dir>0?(anim(el,top,o),anim(g,under,o)):(anim(el,[...under].reverse(),o),anim(g,[...top].reverse(),o));a.onfinish=a.oncancel=()=>{g.remove();if(el._g==g)el._g=null}}
+// sheets: open slides up; called again while open it is a step (dir 1 forward, -1 back); height changes glide (ResizeObserver below)
+let shT,shA,shH=0,shAt=0;
+function showSheet(dir){clearTimeout(shT);if(sh.hidden||!sh.classList.contains('on')){sh.hidden=false;sb.scrollTop=0;sh.offsetWidth;sh.classList.add('on');shH=sb.offsetHeight;shAt=performance.now();return}
+ if(dir){sb.scrollTop=0;[...sb.children].forEach(c=>enter(c,{opacity:0,transform:`translateX(${dir*32}px)`},{duration:300}))}}
+function hideSheet(){if(sh.hidden)return;if(shA)shA.cancel();sh.classList.remove('on','drag');sb.style.transform='';sh.style.removeProperty('--bk');
+ if(sh.contains(document.activeElement))document.activeElement.blur();clearTimeout(shT);shT=setTimeout(()=>{if(!sh.classList.contains('on'))sh.hidden=true},RM.matches?0:380)}
+new ResizeObserver(()=>{const h=sb.offsetHeight,d=h-shH;shH=h;if(!d||sh.hidden||!sh.classList.contains('on')||sh.classList.contains('drag')||performance.now()-shAt<380)return;
+ if(shA)shA.cancel();shA=enter(sb,{transform:`translateY(${Math.max(d,-innerHeight/2)/(DLG.matches?2:1)}px)`},{duration:340})}).observe(sb);
+// a finger-following drag: ok() claims the gesture on its first move, mv() follows, up() settles with the release velocity (px/ms)
+function drag(el,ok,mv,up){let x,y,on=0,px,py,pt,vx,vy;
+ el.addEventListener('touchstart',e=>{const t=e.touches[0];on=e.touches.length==1?-1:0;x=px=t.clientX;y=py=t.clientY;pt=e.timeStamp;vx=vy=0},{passive:true});
+ el.addEventListener('touchmove',e=>{if(!on)return;const t=e.touches[0],dx=t.clientX-x,dy=t.clientY-y;if(on<0&&!(on=ok(dx,dy,x,y,e)?1:0))return;
+  if(e.cancelable)e.preventDefault();const dt=e.timeStamp-pt;if(dt>12){vx=(t.clientX-px)/dt;vy=(t.clientY-py)/dt;px=t.clientX;py=t.clientY;pt=e.timeStamp}mv(dx,dy)},{passive:false});
+ const end=c=>e=>{if(on!=1){on=0;return}on=0;const t=e.changedTouches[0]||{clientX:px,clientY:py},still=e.timeStamp-pt>90;c?up(0,0,0,0):up(t.clientX-x,t.clientY-y,still?0:vx,still?0:vy)};
+ el.addEventListener('touchend',end(0));el.addEventListener('touchcancel',end(1))}
+let shY=0,shV=1;
+drag(sb,(dx,dy,x,y,e)=>{if(!sh.classList.contains('on')||dy<=0||dy<Math.abs(dx))return false;const top=sb.getBoundingClientRect().top;
+  if(y-top>28){if(sb.scrollTop>0)return false;for(let n=e.target;n&&n!=sb;n=n.parentNode)if(n.scrollTop>0)return false}// a scrolled list scrolls; the grabber always drags
+  if(shA)shA.cancel();shV=Math.max(1,innerHeight-top);shY=0;sh.classList.add('drag');return true},
+ (dx,dy)=>{shY=dy>0?dy:dy/4;sb.style.transform=`translateY(${shY}px)`;sh.style.setProperty('--bk',Math.max(0,1-shY/shV))},
+ (dx,dy,vx,vy)=>{sh.classList.remove('drag');sb.style.transform='';sh.style.removeProperty('--bk');if(shY>shV*.3||vy>.5)hideSheet()});
+// drawer: drag it shut, swipe right in a project to go back, or pull it out from the left edge (in a subagent the edge swipe goes back)
+const DR=$('drawer'),SC=$('scrim'),dw=()=>DR.offsetWidth;
+const dSet=x=>{if(!DR.classList.contains('drag')){DR.classList.add('drag');SC.classList.add('drag')}DR.style.transform=`translateX(${x}px)`;SC.style.opacity=Math.max(0,1+x/dw())};
+const dEnd=open=>{const was=DR.classList.contains('drag');DR.classList.remove('drag');SC.classList.remove('drag');DR.style.transform=SC.style.opacity='';if(was&&open!=dOpen)open?openMenu():closeMenu()};
+drag(DR,(dx,dy)=>dOpen&&Math.abs(dx)>Math.abs(dy)*1.2,dx=>{if(dx<0)dSet(dx);else if(DR.classList.contains('drag'))dSet(0)},
+ (dx,dy,vx)=>{if(DR.classList.contains('drag'))return dEnd(!(dx<-dw()*.3||vx<-.35));const b=dx>60&&nav.v=='proj'&&$('dl').querySelector('.dback');if(b)b.click()});
+let edgeBack=false;
+drag(document,(dx,dy,x)=>{if(x>24||dx<=0||dx<Math.abs(dy)*1.2||dOpen||!sh.hidden||!$('lock').hidden)return false;edgeBack=!$('back').hidden;if(!edgeBack&&$('mb').hidden)return false;if(!edgeBack)drawMenu(1);return true},
+ dx=>{if(!edgeBack)dSet(Math.min(0,dx-dw()))},(dx,dy,vx)=>{if(edgeBack){if(dx>70||vx>.4)$('back').click()}else dEnd(dx>dw()*.35||vx>.35)});
+// subagents panel: pull it in from the right edge, drag it back out to close
+const RP=$('rp'),rw=()=>RP.offsetWidth;
+const rSet=x=>{if(!RP.classList.contains('drag')){RP.classList.add('drag');SC.classList.add('drag')}RP.style.transform=`translateX(${x}px)`;SC.style.opacity=Math.max(0,1-x/rw())};
+const rEnd=open=>{const was=RP.classList.contains('drag');RP.classList.remove('drag');SC.classList.remove('drag');RP.style.transform=SC.style.opacity='';if(was&&open!=rOpen)open?openRP():closeRP()};
+drag(document,(dx,dy,x)=>{if(x<innerWidth-24||dx>=0||-dx<Math.abs(dy)*1.2||rOpen||dOpen&&!WIDE.matches||!sh.hidden||!$('lock').hidden||!cur||!cur.session||cur.agent)return false;if(!rpAll.length)rpLoad();rpDraw();return true},
+ dx=>rSet(Math.max(0,rw()+dx)),(dx,dy,vx)=>rEnd(-dx>rw()*.35||vx<-.35));
+// safety net: if the browser takes a gesture over mid-drag, the release never arrives; settle whichever panel is left mid-way
+const settle=()=>setTimeout(()=>{const pos=el=>parseFloat((el.style.transform.match(/-?[\d.]+/)||[0])[0]);
+ if(RP.classList.contains('drag'))rEnd(pos(RP)<rw()*.3);if(DR.classList.contains('drag'))dEnd(pos(DR)>-dw()*.3)},80);
+document.addEventListener('touchend',settle,true);document.addEventListener('touchcancel',settle,true);
+drag(RP,(dx,dy)=>rOpen&&dx>0&&dx>Math.abs(dy)*1.2,dx=>rSet(Math.max(0,dx)),(dx,dy,vx)=>{if(RP.classList.contains('drag'))rEnd(!(dx>rw()*.3||vx>.35))});
+$('drawer').addEventListener('click',e=>{const b=e.target.closest('#dl button');if(b&&(b.dataset.p||b.classList.contains('dback')))slide($('dl'),b.dataset.p?1:-1)},true);
+// chats: a subagent pushes, going back pops; a fresh chat fades in once its first paint lands
+let fresh=null;const open0=open_;
+open_=s=>{const d=cur&&s.session&&s.session==cur.session?(s.agent&&stack[stack.length-1]===cur?1:cur.agent?-1:0):0;if(d)slide($('main'),d);open0(s);fresh=cur;
+ anim($('main').firstChild,[{opacity:0},{opacity:0,offset:.5},{opacity:1}],{duration:500,easing:'linear'});if(d)enter($('title'),{opacity:0,transform:`translateX(${d*24}px)`})};
+// only blocks that are genuinely new animate in: re-rendered ones take the place of dropped ones and stay still
+const paint0=paint;
+paint=(m,B,more,atEnd)=>{const box=cur.box&&m.contains(cur.box)&&!cur.grew,A=box?cur.bl:[],r=paint0(m,B,more,atEnd);if(!r)return r;
+ if(!box){if(fresh===cur){fresh=null;enter(cur.box,{opacity:0},{duration:220,easing:'ease-out'})}return r}
+ const keep=new Set(cur.bl),old=new Set(A),drop=A.filter(b=>!keep.has(b)),add=cur.bl.filter(b=>!old.has(b));if(add.length-drop.length>8)return r;
+ add.forEach((b,i)=>b.n.forEach(e=>{if(e.nodeType!=1)return;if(i<drop.length){if(e.matches('.u:not(.q)')&&drop[i].n.some(o=>o.nodeType==1&&o.matches('.u.q')))enter(e,{opacity:.7},{duration:300});return}
+  const u=e.matches('.u,img.user,.now');enter(e,{opacity:0,transform:u?'translateY(14px) scale(.96)':'translateY(8px)'},{duration:u?360:280})}));return r};
+// expanding things: the revealed part eases in (tool calls, groups, details, the subagent tree, background processes)
+function reveal(root,test,find){root.addEventListener('click',e=>{const k=test(e);if(k==null)return;let n=0;const f=()=>{const el=find(k);if(el)enter(el,{opacity:0,transform:'translateY(-6px)'},{duration:260});else if(++n<60)requestAnimationFrame(f)};requestAnimationFrame(f)},true)}
+reveal(document,e=>{const s=e.target.closest('summary');return s&&!s.parentNode.open?s.parentNode:null},d=>d.open&&d.querySelector(':scope>:not(summary)'));
+reveal($('main'),e=>{const g=e.target.closest('.tgh'),b=e.target.closest('.t>button:not(.sub)'),x=g?g.nextSibling:b&&b.nextSibling;return x&&x.hidden?x:null},x=>!x.hidden&&x);
+[sb,$('stats')].forEach(R=>reveal(R,e=>{const a=e.target.closest('.agr');return a&&+a.dataset.k&&!agOpen.has(a.dataset.a)?a.dataset.a:null},id=>R.querySelector(`.agr[data-a="${CSS.escape(id)}"]+.agk`)));
+reveal(sb,e=>{const b=e.target.closest('#bgp [data-x]');return b&&!bgOpen.has(b.dataset.x)?b.dataset.x:null},x=>{const b=sb.querySelector(`#bgp [data-x="${x}"]`);return b&&b.closest('.bgr').querySelector('.bgx')});
+// exits for things the code just hides: a ghost fades out in their place (entrances are CSS)
+const exitFx=(el,kf,d)=>new MutationObserver(r=>{if(!el.hidden||RM.matches||!r.some(x=>x.oldValue===null))return;const g=ghost(el);el.after(g);const a=anim(g,kf,{duration:d,easing:'ease-in'});a.onfinish=a.oncancel=()=>g.remove()}).observe(el,{attributeFilter:['hidden'],attributeOldValue:true});
+exitFx($('toast'),[{opacity:0,transform:'translateY(10px) scale(.97)'}],200);exitFx($('jump'),[{opacity:0,transform:'scale(.9)'}],160);exitFx($('lock'),[{opacity:0,transform:'scale(1.04)'}],320);
+/* computers: from 1000px the chat list stays open (CSS docks it and drops the scrim); the window title follows the chat; shortcut keys; install */
+const WIDE=matchMedia(COL?'not all':'(min-width:1000px)'),FINE=matchMedia('(hover:hover) and (pointer:fine)'),MAC=/Mac|iP/.test(navigator.platform);
+const close1=closeMenu,start1=start,open1=open_,set1=settings;
+const dock=()=>{if(!WIDE.matches)return close1();dOpen=true;$('drawer').classList.add('on');drawMenu(1)};
+closeMenu=()=>WIDE.matches?$('q').blur():close1();start=()=>{if(WIDE.matches)dock();return start1()};
+open_=s=>{open1(s);if(WIDE.matches)drawMenu()};WIDE.addEventListener('change',dock);
+new MutationObserver(()=>{const t=$('title').textContent.replace(/●/g,'').trim();document.title=!t||t=='Session Deck'?'Session Deck':t+' · Session Deck'}).observe($('title'),{childList:true,subtree:true,characterData:true});
+// the title bar of an installed window takes theme-color: follow the theme picked in Settings, not only the system one
+const tcol=()=>{const c=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();document.querySelectorAll('meta[name=theme-color]').forEach(m=>m.content=c)};
+new MutationObserver(tcol).observe(document.documentElement,{attributeFilter:['data-theme']});matchMedia('(prefers-color-scheme: dark)').addEventListener('change',tcol);tcol();
+function step(d){const p=inSplit?(COLS[FOC].x||{}).pane:cur&&cur.pane,A=[...live].sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),i=A.findIndex(s=>s.pane==p);if(!A.length)return;hideSheet();closeMenu();stack=[];open_(A[i<0?(d>0?0:A.length-1):(i+d+A.length)%A.length])}
+// shortcuts for the whole window; the columns pass these up to the outer page (see deck.key)
+function gkey(e){const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.code,a=e.target;if(!started||!$('lock').hidden)return null;
+ if(m&&!e.shiftKey&&!e.altKey&&c=='KeyK')return()=>{if(s0)side();if(!dOpen)openMenu();$('q').focus();$('q').select()};
+ if(m&&e.shiftKey&&c=='KeyO')return()=>$('nc').click();
+ if(m&&!e.shiftKey&&c=='Comma')return()=>$('set').click();
+ if(e.altKey&&!m&&!e.shiftKey&&/^Arrow(Up|Down)$/.test(e.key)&&!(a&&/^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName)&&a.value))return()=>step(e.key=='ArrowUp'?-1:1);
+ if(!inSplit||!m||e.shiftKey||e.altKey)return null;
+ if(/^Digit[1-4]$/.test(c))return()=>colFocus(+c[5]-1,1);
+ if(c=='KeyW')return()=>sh.classList.contains('on')?hideSheet():colClose();// always taken, so the installed app's window never closes
+ if(c=='Backslash')return()=>colSplit();
+ if(c=='KeyB')return side;
+ return null}
+document.addEventListener('keydown',e=>{const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.code,a=document.activeElement;let f;
+ if(e.key=='Escape'&&sh.classList.contains('on'))f=hideSheet;
+ else if(e.key=='Tab'&&sh.classList.contains('on')){const F=[...sb.querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(x=>!x.disabled&&x.offsetParent),i=F.indexOf(a);// keep Tab inside the dialog
+  if(F.length&&(e.shiftKey?i<=0:i==F.length-1||i<0))f=()=>F[e.shiftKey?F.length-1:0].focus();else return}
+ else if(e.key=='Escape'&&a==$('ta')&&!($('slash').hidden&&$('at').hidden))f=()=>$('slash').hidden=$('at').hidden=true;
+ else if(!started||!$('lock').hidden)return;
+ else if(m&&!e.shiftKey&&c=='Period'&&cur&&cur.session&&!cur.agent)f=()=>rOpen?closeRP():(hideSheet(),openRP());
+ else f=gkey(e);
+ if(f){e.preventDefault();e.stopImmediatePropagation();f()}},true);
+const kb=(...k)=>MAC?`<kbd>${k.join('')}</kbd>`:k.map(x=>`<kbd>${x}</kbd>`).join('+'),[KM,KS,KA]=MAC?['⌘','⇧','⌥']:['Ctrl','Shift','Alt'];
+const KEYS=[[kb(KM,'K'),'Search chats'],[MAC?kb(KS,KM,'O'):kb(KM,KS,'O'),'New chat'],[kb(KM,','),'Settings'],[kb(KM,'.'),'Subagents of this chat'],[kb(KA,'↑')+' &nbsp;'+kb(KA,'↓'),'Previous or next active chat'],[kb('Enter'),'Send'],[kb(KS,'Enter'),'New line'],[kb('Esc'),'Close a dialog']];
+const CKEYS=[[kb(KM,'1')+' to '+kb(KM,'4'),'Focus column 1 to 4'],[kb(KM,'\\'),'Open a new column'],[kb(KM)+' click','Open a chat in a new column'],[kb(KM,'W'),'Close the column (installed app only: in a browser tab it closes the tab)'],[kb(KM,'B'),'Hide or show the chat list']];
+const inst=()=>matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+let bip=null,did=false;addEventListener('beforeinstallprompt',e=>{e.preventDefault();bip=e;installUI()});addEventListener('appinstalled',()=>{bip=null;did=true;installUI()});
+function installUI(){const el=$('ins');if(!el)return;const saf=/Safari/.test(navigator.userAgent)&&!/Chrom|Edg/.test(navigator.userAgent);el.className='srow'+(bip?'':' col');
+ el.innerHTML='<span>Install on this computer</span>'+(did?'<small>Installed. Open Session Deck from the Dock or Launchpad.</small>':bip?'<button class=chip id=insb>Install</button>':`<small>${saf?'In Safari, choose File, then Add to Dock.':'In Chrome or Edge, click the install icon at the right of the address bar.'}</small>`)}
+settings=()=>{set1();if(!FINE.matches)return;const ab=[...sb.querySelectorAll('.sg')].find(g=>g.firstChild.textContent=='About')||sb.lastElementChild;
+ ab.insertAdjacentHTML('beforebegin',`<div class=sg><div class=lbl>Keyboard shortcuts</div><dl class="info keys">${[...KEYS,...inSplit?CKEYS:[]].map(([k,t])=>`<dt>${k}</dt><dd>${t}</dd>`).join('')}</dl></div>`);
+ if(!inst()){ab.insertAdjacentHTML('beforeend','<div id=ins></div>');installUI()}};
+$('set').onclick=()=>settings();
+const show1=showSheet;sb.tabIndex=-1;showSheet=d=>{const was=sh.classList.contains('on');show1(d);if(!was&&FINE.matches)sb.focus({preventScroll:true})};
+sb.addEventListener('click',async e=>{if(e.target.id!='insb'||!bip)return;const p=bip;bip=null;p.prompt();await p.userChoice.catch(()=>{});installUI()});
+// the Dock badge: an occluded or minimised window counts as hidden and the timers above pause, so check the chat list now and then
+setInterval(()=>{if(document.hidden&&started&&inst()&&$('lock').hidden)list().catch(()=>{})},3e4);
+/* split view, the outer page: from 1000px with a mouse, 1 to 4 chats side by side, as many as the width allows (about 530px each).
+   COLS[i].x is a column's chat ({pane}, or {session,title,ro,cwd} to read one; null when empty). Each shown column is an iframe of this
+   page in column mode, so the whole chat UI is reused as it is; columns past what the width allows are parked without one until there is room */
+let COLS=[],FOC=0,cid=0,s0=false,lsP=null,lsAt=0;
+const SPLIT=matchMedia(COL?'not all':'(min-width:1000px) and (hover:hover) and (pointer:fine)');
+const room=()=>Math.max(1,Math.min(4,Math.floor((innerWidth-(s0?0:320))/530))),nvis=()=>Math.min(COLS.length,room()),cwin=c=>c&&c.ready&&c.f.contentWindow,cix=id=>COLS.findIndex(c=>c.id==id);
+const here=()=>{const x=inSplit&&COLS[FOC]&&COLS[FOC].x,s=x&&x.pane&&live.find(l=>l.pane==x.pane);return s?s.cwd:x&&x.cwd};
+// the chat list for every column: one /api/sessions call serves them all for 2.4 s (f: fresh, after starting a chat)
+function shared(f){return(!f&&lsP&&Date.now()-lsAt<2400?lsP:list()).then(()=>({live,hist,PN}))}
+function colSave(){if(inSplit)try{localStorage.setItem('cols',JSON.stringify({c:COLS.map(c=>c.x),f:FOC,s:s0}))}catch(e){}}
+function colLoad(){let d={},l=null;try{d=JSON.parse(localStorage.getItem('cols'))||{};l=localStorage.getItem('last')}catch(e){}s0=!!d.s;document.body.classList.toggle('s0',s0);
+ const L=new Set(live.map(s=>s.pane)),c=d.c||[],f=c[d.f];// chats that have ended since are dropped
+ COLS=c.filter(x=>x&&(!x.pane||L.has(x.pane))).map(x=>({id:++cid,x}));FOC=Math.max(0,COLS.findIndex(k=>k.x===f));
+ if(!COLS.length)COLS=[{id:++cid,x:L.has(l)?{pane:l}:null}]}
+// iframes are only ever added or removed, never moved: moving one reloads it
+function layout(){const n=nvis(),box=$('cols');if(FOC>=n){COLS.splice(n-1,0,...COLS.splice(FOC,1));FOC=n-1}// the focused column stays in view
+ COLS.forEach((c,i)=>{if(i>=n&&c.el){c.el.remove();c.el=c.f=null;c.ready=0}});
+ COLS.slice(0,n).forEach((c,i)=>{if(!c.el){c.el=document.createElement('div');c.el.className='colw';c.f=document.createElement('iframe');c.f.title='Chat';c.f.src='?col='+c.id;c.el.append(c.f)}if(box.children[i]!==c.el)box.insertBefore(c.el,box.children[i]||null)});
+ colUI()}
+function colUI(){const n=nvis(),sp=COLS.length<room();OPEN=new Set(COLS.slice(0,n).flatMap(c=>c.x?[c.x.pane||c.x.session]:[]));document.body.classList.toggle('room',sp);
+ COLS.slice(0,n).forEach((c,i)=>{c.el.classList.toggle('on',i==FOC&&n>1);const w=cwin(c);if(w){const r=w.document.documentElement.classList;r.toggle('rail',s0&&!i);r.toggle('solo',COLS.length<2);r.toggle('nosplit',!sp)}});
+ const c=COLS[FOC],t=c&&c.x&&c.t;document.title=t?t+' · Session Deck':'Session Deck';if(dOpen)drawMenu()}
+const colShow=c=>{const w=cwin(c);if(w)w.colGo(c.x)};
+// a chat picked in the list goes to the focused column, or to the column that already has it
+function colOpen(s){const x=s.pane?{pane:s.pane}:{session:s.session,title:s.title,ro:1,cwd:s.cwd},k=x.pane||x.session,i=COLS.findIndex(c=>c.x&&(c.x.pane||c.x.session)==k);
+ if(i>=0&&i<nvis())return colFocus(i,1);if(i>=0)COLS.splice(i,1);
+ const c=COLS[FOC];c.x=x;c.t=s.title||s.name||'';colShow(c);colSave();colUI()}
+function colFocus(i,ta){const c=COLS[i];if(!c||i>=nvis())return;if(i!=FOC){FOC=i;colSave();colUI()}
+ if(ta&&c.ready){c.f.focus();const t=c.f.contentDocument.getElementById('ta');if(t&&t.offsetParent)t.focus()}}
+function colClose(i=FOC){const c=COLS[i];if(!c)return;if(COLS.length<2){c.x=null;colShow(c)}else{COLS.splice(i,1);if(c.el)c.el.remove();if(i<FOC||FOC>=COLS.length)FOC--}
+ layout();colSave();colFocus(FOC,1)}
+// a new empty column after this one (an empty one already showing is reused); the next chat picked fills it
+function colSplit(at=FOC){if(!COLS[at])return false;const e=COLS.slice(0,nvis()).findIndex(c=>!c.x);if(e>=0){colFocus(e,1);return true}
+ if(COLS.length>=room()){toast('No room for another column. '+(s0?'Widen the window or close one.':'Hide the chat list or close one.'));return false}
+ COLS.splice(at+1,0,{id:++cid,x:null});FOC=at+1;layout();colSave();return true}
+function side(){s0=!s0;document.body.classList.remove('peek');document.body.classList.toggle('s0',s0);layout();colSave()}
+const PZ=document.createElement('div');PZ.className='peekzone';document.body.append(PZ);let pkT;
+const peek=on=>{clearTimeout(pkT);const B=document.body;if(on)pkT=setTimeout(()=>{if(B.classList.contains('s0')){B.classList.add('peek');drawMenu(1)}},25);
+ else pkT=setTimeout(()=>{if($('drawer').matches(':hover')||(document.activeElement===$('q')&&$('q').value))return;B.classList.remove('peek')},320)};
+PZ.addEventListener('mouseenter',()=>peek(1));
+// the list button lives at the window's top-left (the list belongs to the window, not to a chat): hover peeks, click pins it back
+document.body.insertAdjacentHTML('beforeend','<button class="ic sopen" id=sopen aria-label="Show the chat list" title="Show the chat list (⌘B)"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linejoin=round><rect x=3 y=4 width=18 height=16 rx=2.5 /><path d="M9 4v16"/></svg></button>');
+$('sopen').addEventListener('mouseenter',()=>peek(1));$('sopen').onclick=side;PZ.addEventListener('mouseleave',()=>{if(!document.body.classList.contains('peek'))clearTimeout(pkT)});
+$('drawer').addEventListener('mouseenter',()=>clearTimeout(pkT));$('drawer').addEventListener('mouseleave',()=>{if(document.body.classList.contains('peek'))peek(0)});
+$('drawer').addEventListener('click',e=>{if(document.body.classList.contains('peek')&&e.target.closest('[data-pane],[data-h]'))setTimeout(()=>document.body.classList.remove('peek'),120)});
+function colWake(){COLS.forEach(c=>{const w=c.f&&c.f.contentWindow;if(w&&w.colWait)w.location.reload()})}// columns that found the deck locked
+function mode(){if(COL||!started)return;const on=SPLIT.matches;if(on==inSplit)return on&&layout();inSplit=on;document.body.classList.toggle('split',on);
+ if(on){const b=stack[0]||cur;if(term&&cur)termOff(cur.pane);term=false;$('tv').textContent='Terminal';if(rOpen)closeRP();stack=[];home();colLoad();layout();if(b)colOpen(b);return}
+ const x=(COLS[FOC]||{}).x,s=x&&(x.pane?live.find(l=>l.pane==x.pane):{...x});COLS.forEach(c=>c.el&&c.el.remove());COLS=[];OPEN=new Set();document.title='Session Deck';s?open_(s):home();drawMenu(1)}
+if(!COL){
+ window.deck={shared,ready:id=>{const c=COLS[cix(id)];if(c){c.ready=1;colUI();colShow(c)}},foc:id=>colFocus(cix(id)),isFoc:id=>COLS[FOC]&&COLS[FOC].id==id,key:gkey,
+  saw:(id,st)=>{const c=COLS[cix(id)];if(!c||!c.ready)return;const x=st.x&&JSON.parse(JSON.stringify(st.x)),ch=JSON.stringify(x)!=JSON.stringify(c.x);if(!ch&&c.t==st.t)return;c.x=x;c.t=st.t;if(ch)colSave();colUI()},
+  close:id=>colClose(cix(id)),split:id=>colSplit(cix(id)),lock:s=>lock(s),newChat:c=>newChat(c),openMenu:()=>{if(s0)side();$('q').focus()}};
+ const list0=list,open2=open_,start2=start;list=()=>{lsAt=Date.now();return lsP=list0()};open_=s=>inSplit?colOpen(s):open2(s);
+ start=async()=>{if(!SPLIT.matches)return start2();try{CFG=await api('/api/config')}catch(e){}dock();home();await list().catch(()=>{});mode()};
+ SPLIT.addEventListener('change',mode);let rz=0;addEventListener('resize',()=>{if(inSplit&&!rz)rz=requestAnimationFrame(()=>{rz=0;layout()})});
+ $('q').parentNode.insertAdjacentHTML('beforebegin','<button class=ic id=sct aria-label="Hide the chat list" title="Hide the chat list"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linejoin=round><rect x=3 y=4 width=18 height=16 rx=2.5 /><path d="M9 4v16"/></svg></button>');$('sct').onclick=side}
+/* column mode: this page as one column of the split view. The outer page (deck) owns the chat list, settings, sign-in and the window's shortcuts */
+if(COL){const P=parent.deck,me=COL,o=open_,h=home,l2=list2,p1=poll;let pAt=0;
+ list=async f=>{const d=await P.shared(f);live=d.live.map(x=>({...x}));hist=d.hist;PN=d.PN;attnUI()};
+ lock=s=>{if(!started)window.colWait=1;P.lock(s)};openMenu=()=>P.openMenu();newChat=c=>P.newChat(c);$('mb').onclick=openMenu;
+ start=async()=>{try{CFG=await api('/api/config')}catch(e){}P.ready(me)};
+ const st=()=>{const b=stack[0]||cur;return{x:b&&(b.pane?{pane:b.pane}:b.session?{session:b.session,title:b.title,ro:1,cwd:b.cwd}:null),t:$('title').textContent.replace(/●/g,'').trim()}};
+ const head=()=>{const b=stack[0]||cur,s=b&&b.pane&&live.find(x=>x.pane==b.pane),c=b&&(b.cwd||s&&s.cwd);$('cdot').hidden=!s;if(s)$('cdot').className='sc '+stc(s);
+  $('ptag').innerHTML=c?tile(proj(c))+`<span>${esc(proj(c))}</span>`:'';P.saw(me,st())};
+ open_=s=>{o(s);head()};home=()=>{h();$('title').textContent='New column';$('main').querySelector('.empty p').textContent='Pick a chat from the list, or start a new one.';head()};list2=async()=>{await l2();head()};
+ poll=async()=>{if(!P.isFoc(me)&&Date.now()-pAt<2900)return;pAt=Date.now();return p1()};// a column without focus checks its status every 3 s
+ window.colGo=async x=>{x=x&&{...x};hideSheet();if(rOpen)closeRP();stack=[];if(x&&x.pane){await list();const s=live.find(l=>l.pane==x.pane);return s?open_(s):home()}x?open_(x):home()};
+ $('title').insertAdjacentHTML('beforebegin','<i class="sc idle" id=cdot hidden></i>');$('title').insertAdjacentHTML('afterend','<small class=ptag id=ptag></small>');
+ $('tv').insertAdjacentHTML('afterend',`<button class="ic csp" id=csp title="Open a new column" aria-label="Open a new column">${SPL}</button><button class="ic cx" id=cx title="Close column" aria-label="Close column">✕</button>`);
+ $('csp').onclick=()=>P.split(me);$('cx').onclick=()=>P.close(me);
+ addEventListener('pointerdown',()=>P.foc(me),true);addEventListener('focusin',()=>P.foc(me));
+ addEventListener('keydown',e=>{let f=P.key(e);if(f&&e.code=='KeyW'&&sh.classList.contains('on'))f=hideSheet;if(f){e.preventDefault();e.stopImmediatePropagation();f()}},true);
+ addEventListener('storage',e=>{const r=document.documentElement;if(e.key=='theme')e.newValue?r.dataset.theme=e.newValue:delete r.dataset.theme;if(e.key=='accent')setAcc(e.newValue)})}
+</script>

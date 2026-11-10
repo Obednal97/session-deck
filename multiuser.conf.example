@@ -1,0 +1,17 @@
+# Session Deck for several accounts on this Mac: one deck per account, one shared /deck address.
+# Read by install-multiuser.sh. No secrets here.
+#
+# Settings for all decks: lines of KEY=value only.
+#   DECK_HOST   the Mac's Tailscale HTTPS name (passkeys are bound to it)
+DECK_HOST=mac.your-tailnet.ts.net
+#
+# One line per account:  <macOS account>  <Tailscale login>  [KEY=value ...]
+#   Any server.py setting can follow and overrides the default the installer gives. Defaults for each account:
+#     DECK_ENGINES=rotate,claude,local (each shown only if installed for that account)  CLAUDE_CONFIG_DIR=~/.claude  DECK_SECRETS=~/.config/session-deck
+#     DECK_TMUX_SOCKET=ssh,default  DECK_TMUX_SESSION=work  DECK_PORT=0 (no local port; the socket only)
+#   launch=agent runs that deck in the account's own login session (a LaunchAgent) instead of a LaunchDaemon. Use it
+#   only for an account that is logged in at the Mac (the owner): its tmux, keychain and privacy grants live there.
+#   ~ means that account's home folder.
+owner    you@example.com      launch=agent DECK_PORT=8787 DECK_TS_PORT=0
+alice    alice@example.com
+bob      bob@example.com      DECK_ENGINES=claude DECK_TMUX_SOCKET=default DECK_TMUX_SESSION=main

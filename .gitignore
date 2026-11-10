@@ -1,0 +1,7 @@
+*.bak*
+*.pre-multiuser
+__pycache__/
+.DS_Store
+# holds people's Tailscale logins: kept local, see multiuser.conf.example
+multiuser.conf
+.claude/
