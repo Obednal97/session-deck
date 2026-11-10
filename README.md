@@ -35,7 +35,7 @@ It's one Python file and one HTML file, with no build step and no framework.
 ### Works well with
 
 - **[mac-ai-server](https://github.com/Obednal97/mac-ai-server)** turns a spare Mac into an always-on Claude Code machine: it stays awake, logs itself back in after a power cut, sets up Tailscale, puts every SSH login into tmux, and adds `claude-local` (Claude Code on a local model) and accounts for other people. It isn't required, but it's the setup Session Deck was built on, and the deck's defaults match it: it looks for sessions in the `ssh` tmux server first, then the default one, and starts new chats in a session called `work`.
-- **[claude-statusline-kit](https://github.com/Obednal97/claude-statusline-kit)** adds a status line to Claude Code, and `rclaude`, which moves a session to your next Claude subscription when one hits its limit. If `rclaude` is installed, the deck offers it when you start a chat, and shows which subscription each session is on.
+- **[claude-statusline-kit](https://github.com/Obednal97/claude-statusline-kit)** adds a status line to Claude Code, and `rclaude`, which moves a session to your next Claude subscription when one hits its limit. If `rclaude` is installed, the deck offers it when you start a chat, and shows which subscription each session is on. You can also pick one account for a new, resumed or forked chat, which pins it there (`rclaude --account`, needs a kit version that has it).
 
 ## Set it up for yourself
 
