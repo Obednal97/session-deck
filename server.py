@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Session Deck: shows live tmux Claude Code sessions as chats and types into them.
 Binds 127.0.0.1 (and DECK_SOCKET) only. Needs the token from <DECK_SECRETS>/session-deck.json for every local /api call."""
-import json, os, re, secrets, shutil, subprocess, sys, threading, time, urllib.parse
+import html, json, os, re, secrets, shutil, subprocess, sys, threading, time, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -504,7 +504,10 @@ def ptext(c):
 def user_item(tx, ts):  # a message from the user, or a background task's "finished" notice shown as a small note
     tx = ptext(tx)
     tn = re.match(r"<task-notification>.*?(?:<summary>(.*?)</summary>|$)", tx, re.S)
-    if tn: return {"role": "assistant", "kind": "note", "text": (tn.group(1) or "Background task update").strip(), "ts": ts}
+    if tn:  # the summary comes XML-escaped; the page escapes again, so unescape here. Commands in it can be long: cut them
+        t = html.unescape(tn.group(1) or "Background task update").strip()
+        t = re.sub(r'^(Background command )"(.{70}).*?"( (?:completed|failed|was stopped|exited).*)$', r'\1"\2…"\3', t, flags=re.S)
+        return {"role": "assistant", "kind": "note", "text": t[:300], "ts": ts}
     return {"role": "user", "kind": "text", "text": tx[:6000], "ts": ts}
 
 _msgs, _msgs_lock = {}, threading.Lock()
