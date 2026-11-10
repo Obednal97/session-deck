@@ -249,6 +249,15 @@ def accounts():
             rows.append({"name": c[1], "status": c[2], "h5": c[3], "week": c[4], "until": c[5] if c[5] != "-" else None})
     _acc[1] = rows; _acc[0] = time.time(); return rows
 
+_mod = [0, None]
+def account_models():
+    """rclaude's account -> the model ids it can use, newest first (`rclaude models`, which caches Anthropic's list)."""
+    if time.time() - _mod[0] < 300 and _mod[1] is not None: return _mod[1]
+    exe = "rotate" in ENGINES and engine_exe("rotate")
+    try: d = json.loads(run(exe, "models", "--json") or "{}") if exe else {}
+    except ValueError: d = {}
+    _mod[1] = d if isinstance(d, dict) else {}; _mod[0] = time.time(); return _mod[1]
+
 SESSDIR = CLAUDE / "sessions"
 def pid_sessions():
     """Claude Code's own <pid>.json per running chat: sessionId (updated in place by /clear and /resume), cwd, status."""
@@ -404,7 +413,7 @@ def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=Non
     if not os.path.isdir(cwd) or not cwd.startswith(str(HOME) + "/"): return None
     if resume and not re.fullmatch(r"[0-9a-f-]{36}", resume): return None
     perm, model, effort = str(perm), str(model or ""), str(effort or "")
-    if perm not in PERMS or model not in MODELS | {""} or effort not in EFFORTS | {""}: return None
+    if perm not in PERMS or not (model in MODELS | {""} or re.fullmatch(r"claude-[a-z0-9-]{1,60}", model)) or effort not in EFFORTS | {""}: return None
     name = re.sub(r"[^\w .,'()&+-]", "", re.sub(r"\s+", " ", str(name or ""))).strip(" -")[:60]
     exe = engine in ENGINES and engine_exe(engine)
     if not exe: return None  # only this deck's engines: a guest's deck must never start the owner's rclaude
@@ -1698,7 +1707,7 @@ class H(BaseHTTPRequestHandler):
             if q.get("f") == ["1"] and DEV_RE.fullmatch((q.get("d") or [""])[0]): VIEW[(m.group(1), q["d"][0])] = time.time()
             s = next((s for s in live_sessions() if s["pane"] == m.group(1)), {})
             return self.send(200, {**pane_screen(m.group(1)), "device": device(), "accounts": accounts(), "plan": s.get("plan"), "pinned": s.get("pinned")})
-        if path == "/api/accounts": return self.send(200, {"accounts": accounts()})  # rclaude's plans, for the Account choice
+        if path == "/api/accounts": return self.send(200, {"accounts": accounts(), "models": account_models()})  # rclaude's plans, for the Account choice
         m = re.fullmatch(r"/api/procs/(" + PANE_RE + ")", path)
         if m and valid_pane(m.group(1)): return self.send(200, procs_view(m.group(1)))
         if path == "/api/files":
