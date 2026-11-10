@@ -343,6 +343,10 @@ let inSplit=false,OPEN=new Set();// the outer page: split view on, and the panes
 // a column always takes the computer layout (floating composer, dialogs), however narrow it is
 if(COL)for(const r of document.styleSheets[0].cssRules)if(r.media&&/^\(min-width: ?700px\)$/.test(r.conditionText))r.media.appendMedium('all');
 const ago=t=>{const m=Math.round((Date.now()/1000-t)/60);return m<2?'now':m<90?m+'m':m<2000?Math.round(m/60)+'h':Math.round(m/1440)+'d'};
+// each device has an id and a name, so a notice skips only the device that's looking at the chat, and a test reports per device
+const DEV=(()=>{const r=()=>Math.random().toString(36).slice(2,12)+Math.random().toString(36).slice(2,12);try{let d=localStorage.getItem('dev');if(!d)localStorage.setItem('dev',d=r());return d}catch(e){return r()}})();
+const DNAME=(()=>{const u=navigator.userAgent,os=/iPhone/.test(u)?'iPhone':/iPad/.test(u)?'iPad':/Android/.test(u)?'Android':/Mac/.test(u)?'Mac':/Windows/.test(u)?'Windows':'Linux',
+ b=/Edg\//.test(u)?'Edge':/Firefox\//.test(u)?'Firefox':/Chrome\//.test(u)?'Chrome':'Safari',app=matchMedia('(display-mode: standalone)').matches||navigator.standalone;return os+' ('+b+(app?' app':'')+')'})();
 let CFG={home:'~',root:'~',engines:[]};// replaced by /api/config
 const rel=c=>c.replace(CFG.home+'/projects/','~/projects/').replace(CFG.home+'/','~/');
 let hist=[],nav={v:'root'},dOpen=false,dKey='';
@@ -664,7 +668,7 @@ sb.addEventListener('click',e=>{const b=e.target.closest('.chf');if(b)changeFile
 const bar=p=>{const v=parseFloat(p)||0;return`<span class=bar><i class="${v>=85?'c':v>=60?'w':''}" style="width:${Math.min(v,100)}%"></i></span>${esc(p)}`};
 let statsOpen=false;$('stats').addEventListener('click',async e=>{if(agTap(e,()=>{agT=0;agentPoll()}))return;if(e.target.id=='cyc'){await api('/api/key',{pane:cur.pane,key:'BTab'});setTimeout(poll,400)}});
 $('status').onclick=()=>{statsOpen=!statsOpen;$('stats').hidden=!statsOpen;$('status').classList.toggle('open',statsOpen)};
-async function poll(){if(!cur||term||document.hidden)return;if(cur.agent)return agentPoll();if(cur.ro)return;const me=cur;let s;try{s=await api('/api/status/'+cur.pane)}catch(e){return}if(cur!==me)return;
+async function poll(){if(!cur||term||document.hidden)return;if(cur.agent)return agentPoll();if(cur.ro)return;const me=cur;let s;try{s=await api('/api/status/'+cur.pane+'?d='+DEV+'&f='+(!document.hidden&&(window.top||window).document.hasFocus()?1:0))}catch(e){return}if(cur!==me)return;
  busy=s.working;cur.ctx=s.ctx;cur.model=s.model;cur.plan=s.plan;sendBtn();const st=$('status');st.hidden=!!s.menu;st.classList.toggle('on',s.working);st.innerHTML='<span class=stx>'+esc(s.working?(s.status||'Working…'):'Idle'+(s.ctx?' · context '+s.ctx:''))+'</span>';
  renderMenu(s.menu);const b=$('sug');b.hidden=!s.suggestion||!!$('ta').value||s.working;if(s.suggestion)b.innerHTML='<i>suggested</i>'+esc(s.suggestion);b.dataset.t=s.suggestion||'';
  const d=s.device||{};$('stats').innerHTML=`<h4>This chat</h4><dt>Model</dt><dd>${esc(s.model||'unknown')}</dd>${s.plan?`<dt>Plan</dt><dd>${esc(s.plan)}</dd>`:''}<dt>Context</dt><dd>${s.ctx?bar(s.ctx.split(' ')[0])+' '+esc(s.ctx.split(' ').slice(1).join(' ')):'unknown'}</dd><dt>Permissions</dt><dd>${esc(s.perm||'unknown')} <button class=cyc id=cyc>Change</button></dd>`+
@@ -767,15 +771,17 @@ async function pushUI(msg){const el=$('pf')||document.createElement('div'),r=nav
  if(!navigator.serviceWorker||!window.PushManager||!window.Notification){el.innerHTML='<small>'+(/iPhone|iPad/.test(navigator.userAgent)&&!inst?'To get notifications, add Session Deck to your Home Screen (Share, then Add to Home Screen) and open it from there.':'This browser can\'t show notifications.')+'</small>';return}
  if(pkey===undefined)try{pkey=(await api('/api/push/key')).key}catch(e){}
  const s=r?await r.pushManager.getSubscription():null,on=!!s&&Notification.permission=='granted';
- if(on&&msg===undefined)api('/api/push/subscribe',{sub:s.toJSON(),quiet:1}).catch(()=>{});
+ if(on&&msg===undefined)api('/api/push/subscribe',{sub:s.toJSON(),quiet:1,dev:DEV,name:DNAME}).catch(()=>{});
  if(!msg&&Notification.permission=='denied')msg='Notifications are blocked for this app. Allow them in Settings, then try again.';
- el.innerHTML=`Notifications<div class=seg><button data-n=1 aria-pressed=${on}>On</button><button data-n=0 aria-pressed=${!on}>Off</button></div>`+(on?'<button data-n=t class=ptest>Send a test</button>':'')+(msg?`<small>${esc(msg)}</small>`:'')}
-const pushTest=async s=>{const d=await api('/api/push/subscribe',{sub:s.toJSON()});return d.test>=200&&d.test<300?'A test notification is on its way. Nothing showing? Allow notifications for '+(/Mac/.test(navigator.platform)?'Google Chrome (or Session Deck) in System Settings, Notifications, and check Focus is off.':'this browser in your system settings.'):'The push service answered '+d.test+'. Turn notifications off and on again.'};
+ el.innerHTML=`Notifications<div class=seg><button data-n=1 aria-pressed=${on}>On</button><button data-n=0 aria-pressed=${!on}>Off</button></div>`+(on?'<button data-n=t class=ptest>Send a test to every device</button>':'')+(msg?`<small>${esc(msg)}</small>`:'')}
+const pushTest=async s=>{const d=await api('/api/push/subscribe',{sub:s.toJSON(),dev:DEV,name:DNAME});return d.test>=200&&d.test<300?'On. A test notification is on its way to this device.':'The push service answered '+d.test+'. Turn notifications off and on again.'};
+const pushAll=async()=>{const d=await api('/api/push/test',{});if(!d.devices.length)return'No device has notifications on.';
+ return'Test sent. '+d.devices.map(x=>(x.dev==DEV?'This device':x.name)+(x.code>=200&&x.code<300?': sent':': failed ('+x.code+')')).join(', ')+'. Nothing showing on a Mac? Allow notifications for the browser in System Settings, Notifications, and check Focus is off.'};
 const pfClick=async e=>{const b=e.target.closest('[data-n]');if(!b)return;
  if(b.dataset.n=='1'){if(await Notification.requestPermission()!='granted')return pushUI('');if(!pkey)return pushUI('The server has no push key yet.');
   try{const r=await(SWR=navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready)),s=await r.pushManager.getSubscription()||await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(pkey)});
    pushUI(await pushTest(s))}catch(x){pushUI('Could not turn on notifications: '+x.message)}return}
- if(b.dataset.n=='t'){const R=await SWR,s=R&&await R.pushManager.getSubscription();return pushUI(s?await pushTest(s):'Turn notifications on first.')}
+ if(b.dataset.n=='t')return pushUI(await pushAll().catch(x=>'Could not send: '+x.message));
  const R=await SWR,s=R&&await R.pushManager.getSubscription();if(s){await api('/api/push/unsubscribe',{endpoint:s.endpoint}).catch(()=>{});await s.unsubscribe()}pushUI('')};
 if(!COL)pushUI();
 if(navigator.serviceWorker&&!COL)navigator.serviceWorker.addEventListener('message',e=>{const p=e.data&&e.data.pane;if(p)list().then(()=>{const s=live.find(x=>x.pane==p);if(s){closeMenu();hideSheet();stack=[];open_(s)}})});

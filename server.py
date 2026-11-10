@@ -994,11 +994,14 @@ def push_one(sub, msg):
     except Exception as e:
         print("push:", e, flush=True); return 0
 
-def push_all(msg):
+VIEW = {}  # (pane, device id) -> when that device last had the chat open and in focus
+DEV_RE = re.compile(r"[\w-]{8,40}")
+def push_all(msg, skip=()):
+    """Sends to every device with notifications on, except those in skip (device ids). [(sub, code or None if skipped)]"""
     with _push_lock:
-        subs = push_subs(); codes = [push_one(s, msg) for s in subs]
-        if any(c in (404, 410) for c in codes): save_subs([s for s, c in zip(subs, codes) if c not in (404, 410)])
-    return codes
+        subs = push_subs(); res = [(s, None if s.get("dev") in skip else push_one(s, msg)) for s in subs]
+        if any(c in (404, 410) for _, c in res): save_subs([s for s, c in res if c not in (404, 410)])
+    return res
 
 def attn(s):
     if s["state"] == "waiting" or s["menu"]: return "needs"
@@ -1029,13 +1032,13 @@ def watch_once():
         if busy and not w["busy"]: w["fin"] = 0  # a new turn: the old reply is no longer the news
         w["need"], w["busy"] = a == "needs", (w["busy"] or now) if busy else None
         if not msg: continue
-        viewed = now - SEEN.get(p, 0) < 5
+        viewers = {d for (vp, d), t in VIEW.items() if vp == p and now - t < 8}  # only the device looking at it is spared
         dup = now - w["sent"].get(msg["body"], 0) < 60
-        print(f"push {msg['kind']} {p} {s['title'] or s['name']!r}: {msg['body'][:80]!r}" + (" (skipped: viewing)" if viewed else " (skipped: repeat)" if dup else ""), flush=True)
-        if viewed or dup: continue
+        print(f"push {msg['kind']} {p} {s['title'] or s['name']!r}: {msg['body'][:80]!r}" + (" (skipped: repeat)" if dup else ""), flush=True)
+        if dup: continue
         w["sent"] = {k: v for k, v in w["sent"].items() if now - v < 60} | {msg["body"]: now}
         n = sum(attn(x) is not None for x in live)
-        if push_subs(): print("  ->", push_all({"title": s["title"] or s["name"], "body": msg["body"], "pane": p, "n": n}), flush=True)
+        if push_subs(): print("  ->", [(x.get("name") or "?", c) for x, c in push_all({"title": s["title"] or s["name"], "body": msg["body"], "pane": p, "n": n}, viewers)], flush=True)
     for p in [p for p in WATCH if p not in {s["pane"] for s in live}]: del WATCH[p]
 
 def watcher():
@@ -1661,7 +1664,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, change_diff(cwd, fq[0]) if fq else changes(cwd))
         m = re.fullmatch(r"/api/status/(" + PANE_RE + ")", path)
         if m and valid_pane(m.group(1)):
-            SEEN[m.group(1)] = time.time()
+            SEEN[m.group(1)] = time.time(); q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if q.get("f") == ["1"] and DEV_RE.fullmatch((q.get("d") or [""])[0]): VIEW[(m.group(1), q["d"][0])] = time.time()
             plan = next((s["plan"] for s in live_sessions() if s["pane"] == m.group(1)), None)
             return self.send(200, {**pane_screen(m.group(1)), "device": device(), "accounts": accounts(), "plan": plan})
         m = re.fullmatch(r"/api/procs/(" + PANE_RE + ")", path)
@@ -1758,14 +1762,20 @@ class H(BaseHTTPRequestHandler):
             sub = body.get("sub") or {}; keys = sub.get("keys") or {}
             if not (push_ok(sub.get("endpoint")) and isinstance(keys.get("p256dh"), str) and isinstance(keys.get("auth"), str)):
                 return self.send(400, {"error": "Not a push service this deck knows."})
-            sub = {"endpoint": sub["endpoint"], "keys": {"p256dh": keys["p256dh"], "auth": keys["auth"]}, "added": time.time()}
+            dev = body.get("dev") if isinstance(body.get("dev"), str) and DEV_RE.fullmatch(body["dev"]) else None
+            name = re.sub(r"[^\w ()./-]", "", str(body.get("name") or ""))[:60] or "A device"
+            sub = {"endpoint": sub["endpoint"], "keys": {"p256dh": keys["p256dh"], "auth": keys["auth"]}, "added": time.time(), "dev": dev, "name": name}
             with _push_lock:
-                subs = push_subs(); new = sub["endpoint"] not in {s["endpoint"] for s in subs}
-                code = None if body.get("quiet") else push_one(sub, {"title": "Session Deck", "body": "Notifications are on.", "pane": ""})  # every time the person asks, not only the first
-                if new and code not in (404, 410): save_subs(subs + [sub])
+                old = push_subs(); subs = [x for x in old if x["endpoint"] != sub["endpoint"] and not (dev and x.get("dev") == dev)]
+                code = None if body.get("quiet") else push_one(sub, {"title": "Session Deck", "body": "Notifications are on.", "pane": ""})
+                if code not in (404, 410): subs.append({**next((x for x in old if x["endpoint"] == sub["endpoint"]), {}), **sub})
+                save_subs(subs)  # one entry per device: a new subscription from the same device replaces the old one
             return self.send(200, {"ok": True, "test": code})
-        if self.path == "/api/push/unsubscribe":
-            with _push_lock: save_subs([s for s in push_subs() if s["endpoint"] != body.get("endpoint")])
+        if self.path == "/api/push/test":  # every device with notifications on, each with what its push service said
+            res = push_all({"title": "Session Deck", "body": "Test notification.", "pane": ""})
+            return self.send(200, {"devices": [{"name": x.get("name") or "A device", "dev": x.get("dev"), "code": c} for x, c in res]})
+        if self.path == "/api/push/unsubscribe":  # this device (endpoint), or another one by its device id
+            with _push_lock: save_subs([s for s in push_subs() if s["endpoint"] != body.get("endpoint") and not (body.get("dev") and s.get("dev") == body.get("dev"))])
             return self.send(200, {"ok": True})
         if self.path == "/api/prefs":
             d, err = prefs_change(body) if isinstance(body, dict) else (None, "bad")
