@@ -1123,6 +1123,56 @@ def save():
 def user(login):
     return DB.setdefault(login, {"uid": b64u(secrets.token_bytes(16)), "creds": [], "sessions": {}})
 
+# Pins and archived chats, kept here so every device sees the same. One deck runs per macOS account, so this file is per person.
+PREFS = Path(os.environ.get("DECK_PREFS") or STORE.parent / "prefs.json")
+PIN_TYPES, PREF_KEYS, _prefs_lock = {"chat", "project", "job", "artifact"}, ("pins", "archived", "archivedProjects"), threading.Lock()
+SID_RE = r"[0-9a-f-]{36}"
+
+def prefs():
+    try: d = json.loads(PREFS.read_text())
+    except Exception: d = {}
+    return {k: d[k] if isinstance(d.get(k), list) else [] for k in PREF_KEYS}
+
+def short(v, n=200):  # a non-empty single-line string, or None
+    return v if isinstance(v, str) and 0 < len(v) <= n and not re.search(r"[\x00-\x1f\x7f]", v) else None
+
+def pin_item(x):
+    """A pin as a page sent it, or None: a known type, an id, and up to 12 short scalar fields (title, cwd, what a page needs to open it)."""
+    x = {k: v for k, v in x.items() if v is not None} if isinstance(x, dict) else None
+    if not x or x.get("type") not in PIN_TYPES or not short(x.get("id")) or len(x) > 12: return None
+    if not all(isinstance(k, str) and re.fullmatch(r"[A-Za-z]{1,20}", k) for k in x): return None
+    if not all(isinstance(v, (bool, int, float)) or isinstance(v, str) and len(v) <= 500 for v in x.values()): return None
+    return {k: re.sub(r"[\x00-\x1f\x7f]", " ", v) if isinstance(v, str) else v for k, v in x.items()}
+
+def prefs_change(b):
+    """Applies one change from POST /api/prefs: (new prefs, None) or (None, error)."""
+    with _prefs_lock:
+        d = prefs(); P, A, AP = d["pins"], d["archived"], d["archivedProjects"]
+        if "pin" in b:
+            x = pin_item(b["pin"])
+            if not x: return None, "That can't be pinned."
+            i = next((i for i, p in enumerate(P) if (p.get("type"), p.get("id")) == (x["type"], x["id"])), None)
+            if i is None and len(P) >= 100: return None, "That's 100 pins already. Unpin something first."
+            if i is None: P.append(x)
+            else: P[i] = x  # pinned again: newer details, same place
+        elif "unpin" in b:
+            u = b["unpin"] if isinstance(b["unpin"], dict) else {}
+            d["pins"] = [p for p in P if (p.get("type"), p.get("id")) != (u.get("type"), u.get("id"))]
+        elif "archive" in b or "unarchive" in b:
+            s = b.get("archive", b.get("unarchive"))
+            if not isinstance(s, str) or not re.fullmatch(SID_RE, s): return None, "Not a chat."
+            d["archived"] = ([x for x in A if x != s] + ([s] if "archive" in b else []))[-5000:]
+        elif "archiveProject" in b or "unarchiveProject" in b:
+            p = short(b.get("archiveProject", b.get("unarchiveProject")))
+            if not p: return None, "Not a project."
+            d["archivedProjects"] = ([x for x in AP if x != p] + ([p] if "archiveProject" in b else []))[-500:]
+        else: return None, "Nothing to change."
+        PREFS.parent.mkdir(parents=True, exist_ok=True); t = PREFS.with_name(PREFS.name + ".tmp")
+        fd = os.open(t, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600); os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as fh: json.dump(d, fh)
+        os.replace(t, PREFS)
+        return d, None
+
 def cbor(b, i=0):
     """Minimal CBOR decoder (ints, bytes, text, arrays, maps, bools): enough for attestationObject and COSE keys."""
     mt, ai = b[i] >> 5, b[i] & 31; i += 1
@@ -1315,6 +1365,7 @@ class H(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("q", [""])[0].strip()
             return self.send(200, {"results": search(q) if len(q) >= 3 else []})
         if path == "/api/folders": return self.send(200, {"folders": folders()})
+        if path == "/api/prefs": return self.send(200, prefs())
         if path == "/api/config":
             return self.send(200, {"home": str(HOME), "root": str(FOLDERS), "engines": [{"id": k, "label": v[1], "sub": v[2]} for k, v in ENGINES.items() if engine_exe(k)]})  # only what this user has installed
         if path == "/api/git":
@@ -1461,6 +1512,9 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/push/unsubscribe":
             with _push_lock: save_subs([s for s in push_subs() if s["endpoint"] != body.get("endpoint")])
             return self.send(200, {"ok": True})
+        if self.path == "/api/prefs":
+            d, err = prefs_change(body) if isinstance(body, dict) else (None, "bad")
+            return self.send(400, {"error": err}) if err else self.send(200, d)
         pane = body.get("pane", "")
         if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(400, {"error": "pane"})
         if self.path == "/api/procs/kill":

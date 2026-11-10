@@ -15,6 +15,7 @@ It's one Python file and one HTML file, with no build step and no framework.
 
 - **Live chats.** Every Claude Code session running in tmux shows up as a chat, with its project, whether it's working, waiting for you or done, and an attention count on the ones that need you.
 - **History.** Past sessions, grouped by project and searchable. Resume or fork any of them.
+- **Pins, projects and archive.** Pin chats and projects to the top of the list, archive chats you're done with, and browse every project on its own page, its chats grouped by day. Pins and archive are kept on the Mac, so your phone and computer agree.
 - **Reply and approve.** Type into a session, answer its questions and permission prompts, or use the key bar (Esc, arrows, Tab, Ctrl-C) for anything else.
 - **Start chats.** Pick a folder, a permission mode, model and effort, a git worktree, and which Claude to run (see [Engines](#engines)).
 - **See the work.** Tool calls, edit diffs with real line numbers, the session's git changes, subagents (with tokens, time and nested subagents), and background shell processes, which you can stop.
@@ -85,6 +86,7 @@ All optional, as environment variables:
 | `DECK_PORT` / `DECK_TS_PORT` | `8787` / `8788` | the local port (token) and the Tailscale port (Face ID); `0` turns one off |
 | `DECK_TS_USER` | the Mac's Tailscale login | the Tailscale logins allowed to sign in, comma-separated |
 | `DECK_RP_ID` | the Mac's Tailscale name | the HTTPS name passkeys are bound to |
+| `DECK_PREFS` | `~/Library/Application Support/session-deck/prefs.json` | where pins and archived chats are kept |
 | `DECK_SECRETS` | `~/.secrets`, else `~/.config/session-deck` | where `session-deck.json` (token, cookie key, push key) is kept, created on first run |
 
 ## Security

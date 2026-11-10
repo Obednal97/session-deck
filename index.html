@@ -270,6 +270,19 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 :root.col{--side:0px}.col :is(#drawer,#mb,#eo,#off,#title .work){display:none!important}.col.rail header{padding-left:max(var(--gut),54px)}.col.rail #eo{display:block!important}
 .ptag{flex:none;max-width:34%;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--m);overflow:hidden;white-space:nowrap}.ptag span{overflow:hidden;text-overflow:ellipsis}.ptag .tl{width:18px;height:18px;border-radius:6px;font-size:9px}
 .col #cdot{margin:0 -2px 0 0}.cx{font-size:15px;color:var(--m)!important}.col.solo .cx,.col.nosplit .csp{display:none}
+/* sidebar: nav rows, pins, row menus (long press, right-click, the ⋯ on hover) and the Projects page */
+.nav{padding:8px 0 0}.nrow{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;color:var(--fg);padding:8px 10px;border-radius:12px;text-align:left}
+.nrow svg{width:20px;height:20px;flex:none;color:var(--m)}.nrow span{flex:1}.ndot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--c)}
+.tl svg{width:17px;height:17px}.pins>button+button::before{left:56px!important}.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.rmn{display:none;flex:none;width:26px;height:26px;margin:-4px 0;border-radius:7px;place-items:center;color:var(--m);font-style:normal;font-weight:700}.rmn:hover{background:var(--l);color:var(--fg)}
+.pjb{display:flex;gap:8px;align-items:center}.pjb .qs{padding:0 12px}.pjb .qs input{border:0;background:none;border-radius:0;padding:8px 0;outline:none}.pjb .seg{flex:none;width:150px}
+.pjw{min-height:min(60vh,560px);display:flex;flex-direction:column;gap:8px}.pjg{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px}
+.pjc{display:flex;align-items:center;background:var(--r);border-radius:16px;padding-right:6px}.pjc>button:first-child{flex:1;min-width:0;display:flex;align-items:center;gap:12px;border:0;background:none;text-align:left;padding:12px;color:var(--fg)}
+.pjc span{flex:1;min-width:0}.pjc b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pjc small{display:block;color:var(--m);font-size:12.5px}
+.pjc .ic{margin:0;padding:7px;color:var(--m)}.pjc .ic svg{width:19px;height:19px}.pjp[aria-pressed=true]{color:var(--c)}.pjp[aria-pressed=true] svg{fill:currentColor}
+.sheet .sec{background:var(--s)}.sheet .card{background:var(--r)}.sheet .rmn{display:none!important}
+.arow{display:flex;align-items:center;gap:6px;padding-right:8px}.arow .crow{flex:1;min-width:0}.arow+.arow{border-top:1px solid color-mix(in srgb,var(--l) 70%,transparent)}
+@media(hover:hover) and (pointer:fine){:is(.crow,.prow):hover .rmn{display:grid}.nrow:hover{background:var(--r)}.pjc:hover,.sheet .card .crow:hover{background:var(--l)}}
 </style>
 <header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class=chip id=tv hidden>Terminal</button></header>
 <div class=off id=off hidden>Reconnecting…</div>
@@ -328,21 +341,21 @@ const hue=p=>HUES[[...p].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,7)%HUES.length
 const ini=p=>{const w=p.replace(/^[^A-Za-z0-9]+/,'').split(/[-_. ]+/).filter(Boolean);return(w.length>1?w[0][0]+w[1][0]:(w[0]||'?')[0]).toUpperCase()};
 const tile=(p,big)=>`<i class="tl${big?' big':''}" style="--h:${hue(p)}">${esc(ini(p))}</i>`;
 function groups(a){const g={};a.forEach(x=>{const p=proj(x.cwd),o=g[p]??={p,n:0,t:0,w:0};o.n++;o.t=Math.max(o.t,x.mtime);if(x.working)o.w++});return Object.values(g).sort((a,b)=>(a.p=='Other')-(b.p=='Other')||b.t-a.t)}
-const prow=g=>{const lv=live.filter(x=>proj(x.cwd)==g.p).length;return`<button class=prow data-p="${esc(g.p)}">${tile(g.p)}<span><b>${esc(g.p)}</b><small>${g.n} chat${g.n>1?'s':''} · ${ago(g.t)}</small></span>${lv?`<em class=lvp>${lv} live</em>`:''}</button>`};
+const prow=g=>{const lv=live.filter(x=>proj(x.cwd)==g.p).length;return`<button class=prow data-p="${esc(g.p)}">${tile(g.p)}<span><b>${esc(g.p)}</b><small>${g.n} chat${g.n>1?'s':''} · ${ago(g.t)}</small></span>${lv?`<em class=lvp>${lv} live</em>`:''}${MORE}</button>`};
 const stc=s=>['','done','needs'][rank(s)]||(s.working?'work':'idle');
 const SPL='<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><rect x=3 y=4 width=18 height=16 rx=2.5 /><path d="M12 4v16"/></svg>';
-const crowL=(s,r)=>{const k=rank(s);return`<button class="crow lv${cur&&cur.pane==s.pane||OPEN.has(s.pane)?' cur':''}" data-pane="${esc(s.pane)}"><i class="sc ${stc(s)}"></i><span><b>${esc(s.title||s.name)}</b><small>${r==null?tile(proj(s.cwd))+esc(proj(s.cwd))+' · ':sub(s.cwd,r)?esc(sub(s.cwd,r))+' · ':''}${bgMark(s)}${s.engine!='rotate'?`<span class="pill ${s.engine}">${s.engine}</span>`:''}${s.working?'<span class=work>working</span>':ago(s.mtime)}</small></span>${k?`<em class="ap a${k}">${k==2?'Needs you':'New'}</em>`:''}${inSplit&&!OPEN.has(s.pane)?`<i class=ncol title="Open in a new column">${SPL}</i>`:''}</button>`};
-const crowH=(h,r,snip)=>`<button class="crow${cur&&cur.session==h.session||OPEN.has(h.session)?' cur':''}" data-h="${esc(h.session)}" data-c="${esc(h.cwd)}"><span><b>${esc(h.title||h.session.slice(0,8))}</b><small>${snip?esc(snip)+' · ':''}${r?(sub(h.cwd,r)?esc(sub(h.cwd,r))+' · ':''):esc(proj(h.cwd))+' · '}${ago(h.mtime)}</small></span></button>`;
+const crowL=(s,r)=>{const k=rank(s);return`<button class="crow lv${cur&&cur.pane==s.pane||OPEN.has(s.pane)?' cur':''}" data-pane="${esc(s.pane)}"><i class="sc ${stc(s)}"></i><span><b>${esc(s.title||s.name)}</b><small>${r==null?tile(proj(s.cwd))+esc(proj(s.cwd))+' · ':sub(s.cwd,r)?esc(sub(s.cwd,r))+' · ':''}${bgMark(s)}${s.engine!='rotate'?`<span class="pill ${s.engine}">${s.engine}</span>`:''}${s.working?'<span class=work>working</span>':ago(s.mtime)}</small></span>${k?`<em class="ap a${k}">${k==2?'Needs you':'New'}</em>`:''}${inSplit&&!OPEN.has(s.pane)?`<i class=ncol title="Open in a new column">${SPL}</i>`:''}${MORE}</button>`};
+const crowH=(h,r,snip)=>`<button class="crow${cur&&cur.session==h.session||OPEN.has(h.session)?' cur':''}" data-h="${esc(h.session)}" data-c="${esc(h.cwd)}"><span><b>${esc(h.title||h.session.slice(0,8))}</b><small>${snip?esc(snip)+' · ':''}${r?(sub(h.cwd,r)?esc(sub(h.cwd,r))+' · ':''):esc(proj(h.cwd))+' · '}${ago(h.mtime)}</small></span>${MORE}</button>`;
 function drawMenu(force){const q=$('q').value.trim();if(nav.v=='root'&&q.length>=3)return;let h;
- if(nav.v=='root'){const A=[...live].sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),H=groups(hist);
-  h=`<section><div class=sec>Active<span>${A.length||''}</span></div><div class=card>`+(A.map(s=>crowL(s,null)).join('')||'<div class=none>Nothing running. Start a chat with the pencil above.</div>')+`</div></section><section><div class=sec>History<span>${H.length} projects</span></div><div class=card>`+H.map(prow).join('')+'</div></section>'}
- else{const r=root(nav.p),f=x=>proj(x.cwd)==nav.p&&(!q||(x.title||'').toLowerCase().includes(q.toLowerCase())),A=live.filter(f),P=hist.filter(f),n=nav.n||40;
+ if(nav.v=='root'){const A=[...live].sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),H=groups(hist.filter(x=>!isArc(x.session)&&!arcP(proj(x.cwd))));
+  h=navHTML()+(PREFS.pins.length?`<section><div class=sec>Pinned<span>${PREFS.pins.length}</span></div><div class="card pins">${PREFS.pins.map(pinRow).join('')}</div></section>`:'')+`<section><div class=sec>Active<span>${A.length||''}</span></div><div class=card>`+(A.map(s=>crowL(s,null)).join('')||'<div class=none>Nothing running. Start a chat with the pencil above.</div>')+`</div></section><section><div class=sec>History<span>${H.length} projects</span></div><div class=card>`+H.map(prow).join('')+'</div></section>'}
+ else{const r=root(nav.p),f=x=>proj(x.cwd)==nav.p&&(!q||(x.title||'').toLowerCase().includes(q.toLowerCase())),A=live.filter(f),P=hist.filter(x=>f(x)&&!isArc(x.session)),n=nav.n||40,X=hist.filter(x=>proj(x.cwd)==nav.p&&isArc(x.session)).length;
   h=`<button class=dback>‹ Chats</button><div class=ph>${tile(nav.p,1)}<span><h3>${esc(nav.p)}</h3><small>${esc(rel(r))}</small></span></div>`+
    (A.length?`<section><div class=sec>Running<span>${A.length}</span></div><div class=card>${A.map(s=>crowL(s,r)).join('')}</div></section>`:'')+
-   `<section><div class=sec>History<span>${P.length||''}</span></div><div class=card>`+(P.slice(0,n).map(x=>crowH(x,r)).join('')||'<div class=none>'+(q?'No matches':'No past chats')+'</div>')+'</div></section>'+
-   (P.length>n?'<button class=more id=dmore>Show more</button>':'')+`<button class=pnew data-c="${esc(r)}">+ New chat in ${esc(nav.p)}</button>`}
+   (byDay(P.slice(0,n),x=>crowH(x,r))||'<section><div class=sec>History</div><div class=card><div class=none>'+(q?'No matches':'No past chats')+'</div></div></section>')+
+   (P.length>n?'<button class=more id=dmore>Show more</button>':'')+(X?`<button class=more data-arc=1>${X} archived chat${X>1?'s':''}</button>`:'')+`<button class=pnew data-c="${esc(r)}">+ New chat in ${esc(nav.p)}</button>`}
  if(h===dKey&&!force)return;dKey=h;$('dl').innerHTML=h}
-async function list(){const d=await api('/api/sessions');live=d.live;hist=d.history;PN={};[...hist,...live].sort((a,b)=>a.mtime-b.mtime).forEach(x=>{const p=proj0(x.cwd);PN[pnk(p)]=p});attnUI();if(dOpen)drawMenu()}
+async function list(){if(Date.now()-pfAt>3e4)prefs();const d=await api('/api/sessions');live=d.live;hist=d.history;PN={};[...hist,...live].sort((a,b)=>a.mtime-b.mtime).forEach(x=>{const p=proj0(x.cwd);PN[pnk(p)]=p});attnUI();if(dOpen)drawMenu()}
 const setQ=()=>{$('q').value='';$('q').placeholder=nav.v=='root'?'Search all chats':'Filter '+nav.p+' chats';$('dl').scrollTop=0};
 function openMenu(){dOpen=true;$('drawer').classList.add('on');$('scrim').classList.add('on');drawMenu(1);list()}
 function closeMenu(){dOpen=false;$('drawer').classList.remove('on');$('scrim').classList.remove('on');$('q').blur()}
@@ -361,6 +374,10 @@ $('sab').onclick=openRP;$('rpx').onclick=closeRP;
 $('rpl').addEventListener('click',e=>agTap(e,rpDraw));
 setInterval(()=>{if(!cur||!cur.session){$('sab').hidden=true;return}if(cur.session!==rpS){rpS=cur.session;rpAll=[];rpT=0}if(!document.hidden&&(rOpen?Date.now()-rpT>3e3:Date.now()-rpT>15e3)){rpT=Date.now();rpLoad()}rpBadge()},1e3);
 $('dl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
+ if(e.target.closest('.rmn'))return rowMenu(b);
+ if(b.dataset.nav)return NAV.find(x=>x.id==b.dataset.nav).open();
+ if(b.dataset.pin){closeMenu();return openPin(PREFS.pins[+b.dataset.pin])}
+ if(b.dataset.arc)return openProjects('arc',nav.p);
  if(b.dataset.p){nav={v:'proj',p:b.dataset.p};setQ();return drawMenu(1)}
  if(b.classList.contains('dback')){nav={v:'root'};setQ();return drawMenu(1)}
  if(b.id=='dmore'){nav.n=(nav.n||40)+40;return drawMenu(1)}
@@ -382,6 +399,67 @@ let qt;$('q').oninput=()=>{clearTimeout(qt);const v=$('q').value.trim();if(nav.v
  dKey='';$('dl').innerHTML=`<div class=sec>${d.results.length} chats mention "${esc(v)}"</div><div class=card>`+d.results.map(r=>crowH(r,null,r.snippet)).join('')+'</div>'},350)};
 const theme=t=>{try{t?localStorage.setItem('theme',t):localStorage.removeItem('theme')}catch(e){}t?document.documentElement.dataset.theme=t:delete document.documentElement.dataset.theme;$('seg')&&$('seg').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t==t))};
 theme(document.documentElement.dataset.theme||'');
+/* sidebar: nav rows, pins and archive. Pins and archive live on the Mac (/api/prefs), so phone and desktop agree; a split-view column uses
+   the outer page's. Other pages plug in through window.NAV, navDot, pinToggle, isPinned and openPin (a NAV row shows once window.open<Id> exists) */
+const SVG=d=>`<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round>${d}</svg>`;
+const IC={projects:SVG('<path d="M3 7.5a2 2 0 0 1 2-2h4l2 2.2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),scheduled:SVG('<circle cx=12 cy=12 r=8.5 /><path d="M12 7.5V12l3 2"/>'),
+ artifacts:SVG('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/>'),chat:SVG('<path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17h-8l-5 4v-4H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 5z"/>'),
+ pin:SVG('<path d="M9 3.5h6l-1 6.5 3.5 3.5h-11L10 10z"/><path d="M12 13.5V21"/>'),archive:SVG('<rect x=3 y=4 width=18 height=5 rx=1.5 /><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>')};
+const MORE='<i class=rmn title="Pin or archive">⋯</i>';
+window.NAV=[{id:'projects',label:'Projects',icon:IC.projects,open:()=>openProjects()},{id:'scheduled',label:'Scheduled',icon:IC.scheduled,open:()=>window.openScheduled&&openScheduled()},
+ {id:'artifacts',label:'Artifacts',icon:IC.artifacts,open:()=>window.openArtifacts&&openArtifacts()}];
+const DOTS={};window.navDot=(id,on)=>{DOTS[id]=!!on;if(dOpen)drawMenu()};
+const navHTML=()=>`<div class=nav>${NAV.filter(x=>typeof window['open'+x.id[0].toUpperCase()+x.id.slice(1)]=='function').map(x=>`<button class=nrow data-nav="${esc(x.id)}">${x.icon}<span>${esc(x.label)}</span>${DOTS[x.id]?'<i class=ndot></i>':''}</button>`).join('')}</div>`;
+let PREFS={pins:[],archived:[],archivedProjects:[]},ARC=new Set(),pfAt=0;
+async function prefs(b){try{const d=await api('/api/prefs',b);PREFS=d;ARC=new Set(d.archived);pfAt=Date.now();if(dOpen)drawMenu(1);return true}catch(e){if(b)toast('Couldn\'t save that. Try again.');return false}}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pfAt=0});// back on this device: catch up with changes made on another
+function isArc(id){return ARC.has(id)}function arcP(p){return PREFS.archivedProjects.includes(p)}
+window.isPinned=(t,id)=>PREFS.pins.some(p=>p.type==t&&p.id==id);
+window.pinToggle=x=>prefs(isPinned(x.type,x.id)?{unpin:{type:x.type,id:x.id}}:{pin:x});
+function arcSet(x,on){return prefs({[(on?'archive':'unarchive')+(x.type=='project'?'Project':'')]:x.id}).then(ok=>{if(ok&&on)toast('Archived. Find it in Projects, under Archived.');return ok})}
+function openChat(id,x){const s=live.find(l=>l.session==id),h=s||hist.find(l=>l.session==id)||x||{};closeMenu();stack=[];if(s){hideSheet();return open_(s)}pickup(id,h.cwd||CFG.root,h.title||id.slice(0,8))}
+function openProj(p){hideSheet();nav={v:'proj',p};setQ();if(inSplit&&s0)side();openMenu()}
+window.openPin=x=>x.type=='chat'?openChat(x.id,x):x.type=='project'?openProj(x.id):x.type=='job'?window.openScheduled&&openScheduled(x.id):window.openArtifacts&&openArtifacts(x.id);
+if(COL){const P=parent;prefs=b=>P.prefs(b);isArc=id=>P.isArc(id);window.isPinned=(t,i)=>P.isPinned(t,i);window.pinToggle=x=>P.pinToggle(x);window.openPin=x=>P.openPin(x)}
+function pinRow(x,i){const ic=k=>`<i class=tl style="--h:var(--c)">${IC[k]}</i>`;
+ if(x.type=='project'){const n=live.filter(s=>proj(s.cwd)==x.id).length;return`<button class=prow data-p="${esc(x.id)}">${tile(x.id)}<span><b>${esc(x.id)}</b><small>Project${n?' · '+n+' live':''}</small></span>${MORE}</button>`}
+ if(x.type!='chat')return`<button class=crow data-pin=${i}>${ic(x.type=='job'?'scheduled':'artifacts')}<span><b>${esc(x.title||x.id)}</b><small>${x.type=='job'?'Scheduled':'Artifact'}${x.sub?' · '+esc(x.sub):''}</small></span>${MORE}</button>`;
+ const s=live.find(l=>l.session==x.id),h=s||hist.find(l=>l.session==x.id)||x,on=cur&&cur.session==x.id||OPEN.has(s?s.pane:x.id);
+ return`<button class="crow${on?' cur':''}" ${s?`data-pane="${esc(s.pane)}"`:`data-h="${esc(x.id)}" data-c="${esc(h.cwd||'')}"`}>${ic('chat')}<span><b>${esc(h.title||h.name||x.title||'Chat')}</b><small>${h.cwd?esc(proj(h.cwd))+' · ':''}${s?s.working?'<span class=work>working</span>':'live':h.mtime?ago(h.mtime):'pinned'}</small></span>${s?`<i class="sc ${stc(s)}"></i>`:''}${MORE}</button>`}
+// a project's chats by day, like the Claude app: Today, Yesterday, Previous 7 days, Earlier
+const DG=['Today','Yesterday','Previous 7 days','Earlier'],dgOf=t=>{const d=new Date(),m=k=>new Date(d.getFullYear(),d.getMonth(),d.getDate()-k)/1e3;return t>=m(0)?0:t>=m(1)?1:t>=m(7)?2:3};
+const byDay=(L,row)=>{const g=[[],[],[],[]];L.forEach(x=>g[dgOf(x.mtime)].push(x));return g.map((a,i)=>a.length?`<section><div class=sec>${DG[i]}<span>${a.length}</span></div><div class=card>${a.map(row).join('')}</div></section>`:'').join('')};
+// row menu: right-click, a long press, or the ⋯ that shows on hover
+let lpT,lpOn=0,lpAt=0,lpX=0,lpY=0;const rowAt=e=>e.target.closest('#dl :is(.crow,.prow)');
+function rowItem(b){const d=b.dataset;if(d.p)return{type:'project',id:d.p,title:d.p};if(d.pin)return PREFS.pins[+d.pin];
+ const s=d.pane?live.find(x=>x.pane==d.pane):hist.find(x=>x.session==d.h)||PREFS.pins.find(x=>x.type=='chat'&&x.id==d.h);return s&&(s.session||s.id)?{type:'chat',id:s.session||s.id,title:s.title||s.name||'',cwd:s.cwd||''}:null}
+function rowMenu(b){const x=rowItem(b);if(!x||Date.now()-lpAt<700)return;lpAt=Date.now();const c=x.type=='chat',pr=x.type=='project',a=c?isArc(x.id):pr&&arcP(x.id);
+ sb.innerHTML=`<h2>${esc(x.title||x.id)}</h2><small class=sub2>${c?esc(x.cwd?proj(x.cwd):'Chat'):pr?'Project':x.type=='job'?'Scheduled':'Artifact'}</small><button class=pick id=apin style="text-align:center">${isPinned(x.type,x.id)?'Unpin':'Pin'}</button>`+
+  (c||pr?`<button class=pick id=aarc style="text-align:center">${a?'Unarchive':'Archive'}${c&&!a&&live.some(l=>l.session==x.id)?'<small>It stays under Active until it ends</small>':''}</button>`:'');showSheet();
+ $('apin').onclick=()=>{hideSheet();pinToggle(x)};if($('aarc'))$('aarc').onclick=()=>{hideSheet();arcSet(x,!a)}}
+$('dl').addEventListener('contextmenu',e=>{const b=rowAt(e);if(b){e.preventDefault();rowMenu(b)}});
+$('dl').addEventListener('touchstart',e=>{const b=rowAt(e),t=e.touches[0];clearTimeout(lpT);lpOn=0;if(b&&e.touches.length==1){lpX=t.clientX;lpY=t.clientY;lpT=setTimeout(()=>{lpOn=1;rowMenu(b)},500)}},{passive:true});
+$('dl').addEventListener('touchmove',e=>{const t=e.touches[0];if(Math.hypot(t.clientX-lpX,t.clientY-lpY)>10)clearTimeout(lpT)},{passive:true});
+$('dl').addEventListener('touchend',e=>{clearTimeout(lpT);if(lpOn){lpOn=0;e.preventDefault()}});// no tap after a long press
+$('dl').addEventListener('touchcancel',()=>clearTimeout(lpT));
+/* Projects: a page of project cards (Your projects, Archived), opened from the nav row */
+let pj={t:'mine',q:'',s:'recent'};
+function openProjects(t,q){closeMenu();pj.t=t||'mine';pj.q=q||'';
+ sb.innerHTML=`<h2>Projects</h2><div class=pjb><label class=qs>${$('q').parentNode.querySelector('svg').outerHTML}<input id=pjq type=search placeholder="Search projects" autocomplete=off value="${esc(pj.q)}"></label><div class=seg id=pjs><button data-s=recent>Recent</button><button data-s=name>Name</button></div></div>
+ <div class=seg id=pjt><button data-t=mine>Your projects</button><button data-t=arc>Archived</button></div><div class=pjw id=pjl></div>`;showSheet(-1);pjDraw();$('pjq').oninput=()=>{pj.q=$('pjq').value.trim();pjDraw()}}
+function pjDraw(){if(!$('pjl'))return;const q=pj.q.toLowerCase(),m=s=>s.toLowerCase().includes(q),srt=L=>pj.s=='name'?L.sort((a,b)=>a.p.localeCompare(b.p)):L;
+ ['pjs','pjt'].forEach(i=>$(i).querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.s?b.dataset.s==pj.s:b.dataset.t==pj.t)));
+ const card=(g,ar)=>{const lv=live.filter(x=>proj(x.cwd)==g.p).length,pn=isPinned('project',g.p),e=esc(g.p);return`<div class=pjc><button data-pj="${e}">${tile(g.p,1)}<span><b>${e}</b><small>${g.n} chat${g.n==1?'':'s'} · ${ago(g.t)}</small></span>${lv?`<em class=lvp>${lv} live</em>`:''}</button>`+
+  (ar?`<button class=chip data-uap="${e}">Unarchive</button>`:`<button class="ic pjp" data-pp="${e}" aria-pressed=${pn} title="${pn?'Unpin':'Pin'}" aria-label="${pn?'Unpin':'Pin'}">${IC.pin}</button><button class=ic data-ap="${e}" title=Archive aria-label=Archive>${IC.archive}</button>`)+'</div>'};
+ let h;if(pj.t=='mine'){const L=srt(groups([...live,...hist].filter(x=>!isArc(x.session))).filter(g=>!arcP(g.p)&&m(g.p)));h=L.length?`<div class=pjg>${L.map(g=>card(g)).join('')}</div>`:`<div class=none>${q?'No projects match.':'No projects yet.'}</div>`}
+ else{const P=srt(groups([...live,...hist]).filter(g=>arcP(g.p)&&m(g.p))),by={};hist.filter(x=>isArc(x.session)&&(m(proj(x.cwd))||m(x.title||''))).forEach(x=>(by[proj(x.cwd)]??=[]).push(x));
+  const K=Object.keys(by);if(pj.s=='name')K.sort((a,b)=>a.localeCompare(b));
+  h=(P.length?`<div class=pjg>${P.map(g=>card(g,1)).join('')}</div>`:'')+K.map(p=>`<section><div class=sec>${esc(p)}<span>${by[p].length}</span></div><div class=card>${by[p].map(x=>`<div class=arow><button class=crow data-h="${esc(x.session)}" data-c="${esc(x.cwd)}"><span><b>${esc(x.title||x.session.slice(0,8))}</b><small>${ago(x.mtime)}</small></span></button><button class=chip data-ua="${esc(x.session)}">Unarchive</button></div>`).join('')}</div></section>`).join('')||
+   `<div class=none>${q?'Nothing archived matches.':'Nothing archived. To archive a chat or a project, long-press or right-click it in the list.'}</div>`}
+ $('pjl').innerHTML=h}
+$('sbody').addEventListener('click',e=>{const b=e.target.closest('#pjl button,#pjs button,#pjt button');if(!b)return;const D=b.dataset,P=t=>({type:'project',id:t,title:t});
+ if(D.s||D.t){D.s?pj.s=D.s:pj.t=D.t;return pjDraw()}if(D.pj)return openProj(D.pj);if(D.h)return pickup(D.h,D.c,b.querySelector('b').textContent);
+ (D.pp?pinToggle(P(D.pp)):D.ap?arcSet(P(D.ap),1):D.uap?arcSet(P(D.uap),0):D.ua?arcSet({type:'chat',id:D.ua},0):Promise.resolve()).then(pjDraw)});
 function home(){cur=null;$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
  $('main').innerHTML='<div class=empty><p>Pick a chat from the menu, or start a new one.</p><button class=go id=eo>Open menu</button><button class=pick id=en style="text-align:center">New chat</button></div>'}
 /* sheets */
@@ -431,8 +509,10 @@ async function showInfo(){if(!cur||(!cur.session&&!cur.pane))return;if(cur.agent
   drow('Messages',d.prompts!=null?`${d.prompts} from you · ${d.replies} replies · ${d.tools} tool calls`:'')+`</dl><div id=agl>${agentsBlock(d.agents||[])}</div>
  <details class=more2><summary>More details</summary><dl class=info>`+drow('Started',when(d.first))+drow('Last activity',when(d.last))+drow('Size',d.bytes?mb(d.bytes):'')+
   drow('Engine',esc(cur.engine||''))+drow('Claude Code',esc(d.version||''))+drow('Window',esc(d.pane||''))+drow('Session ID',`<code>${esc(d.session)}</code>`)+drow('Transcript',`<code>${esc(d.file)}</code>`)+`</dl></details>
- <button class=pick id=chg style="text-align:center">Changes</button><button class=pick id=rnb style="text-align:center">Rename…</button>`;showSheet(-1);
- $('rnb').onclick=renameStep;$('chg').onclick=changesSheet;lifeButtons(d);procsUI()}
+ <button class=pick id=chg style="text-align:center">Changes</button><button class=pick id=rnb style="text-align:center">Rename…</button>`+(cur.session?'<div class=two><button class=pick id=ipin style="text-align:center"></button><button class=pick id=iarc style="text-align:center"></button></div>':'');showSheet(-1);
+ $('rnb').onclick=renameStep;$('chg').onclick=changesSheet;lifeButtons(d);procsUI();if(!cur.session)return;
+ const x={type:'chat',id:cur.session,title:cur.title||cur.name||'',cwd:d.cwd||cur.cwd||''},up=()=>{if(!$('ipin'))return;$('ipin').textContent=isPinned('chat',x.id)?'Unpin':'Pin';$('iarc').textContent=isArc(x.id)?'Unarchive':'Archive'};up();
+ $('ipin').onclick=()=>pinToggle(x).then(up);$('iarc').onclick=()=>arcSet(x,!isArc(x.id)).then(up)}
 function lifeButtons(d){const p=cur.pane,id=cur.session,cwd=d.cwd||cur.cwd,t=cur.title;
  sb.insertAdjacentHTML('beforeend',(id?'<button class=pick id=fkb style="text-align:center">Fork into a new chat</button>':'')+(p?'<button class=pick id=endb style="text-align:center;color:#e5484d">End chat</button>':''));
  if(id)$('fkb').onclick=()=>{sb.innerHTML=`<button class=dback id=fback style="padding:0;text-align:left">‹ Chat info</button><h2>Fork into a new chat</h2><small class=sub2>A copy of “${esc(t||'this chat')}” with its own session ID, in ${esc(rel(cwd))}. The original stays as it is.</small>${engines()}<button class=go id=fgo>Start the fork</button>`;showSheet(1);
@@ -771,7 +851,7 @@ const settle=()=>setTimeout(()=>{const pos=el=>parseFloat((el.style.transform.ma
  if(RP.classList.contains('drag'))rEnd(pos(RP)<rw()*.3);if(DR.classList.contains('drag'))dEnd(pos(DR)>-dw()*.3)},80);
 document.addEventListener('touchend',settle,true);document.addEventListener('touchcancel',settle,true);
 drag(RP,(dx,dy)=>rOpen&&dx>0&&dx>Math.abs(dy)*1.2,dx=>rSet(Math.max(0,dx)),(dx,dy,vx)=>{if(RP.classList.contains('drag'))rEnd(!(dx>rw()*.3||vx>.35))});
-$('drawer').addEventListener('click',e=>{const b=e.target.closest('#dl button');if(b&&(b.dataset.p||b.classList.contains('dback')))slide($('dl'),b.dataset.p?1:-1)},true);
+$('drawer').addEventListener('click',e=>{const b=e.target.closest('#dl button');if(b&&!e.target.closest('.rmn')&&(b.dataset.p||b.classList.contains('dback')))slide($('dl'),b.dataset.p?1:-1)},true);
 // chats: a subagent pushes, going back pops; a fresh chat fades in once its first paint lands
 let fresh=null;const open0=open_;
 open_=s=>{const d=cur&&s.session&&s.session==cur.session?(s.agent&&stack[stack.length-1]===cur?1:cur.agent?-1:0):0;if(d)slide($('main'),d);open0(s);fresh=cur;
