@@ -117,7 +117,8 @@ header h1{cursor:pointer}
 .qs{flex:1;min-width:0;display:flex;align-items:center;gap:8px;background:var(--r);border-radius:99px;padding:0 12px;color:var(--m)}.qs svg{width:17px;height:17px;flex:none}
 .dh input{flex:1;min-width:0;background:none;border:0;padding:8px 0;color:var(--fg);outline:none}
 .dl{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 12px 12px}
-.sec{position:sticky;top:0;z-index:2;background:var(--bg);display:flex;justify-content:space-between;align-items:baseline;padding:14px 6px 6px;font-weight:600;font-size:12.5px;color:var(--m);letter-spacing:.02em}.sec span{font-weight:500;font-size:12px}
+.sec{position:sticky;top:0;z-index:2;background:var(--bg);display:flex;justify-content:space-between;align-items:baseline;padding:14px 6px 6px;font-weight:600;font-size:12.5px;color:var(--m);letter-spacing:.02em;--fb:var(--bg)}.sec span{font-weight:500;font-size:12px}
+.sec::after{content:"";position:absolute;left:0;right:0;top:100%;height:14px;background:linear-gradient(var(--fb),transparent);pointer-events:none}
 .card{background:var(--s);border-radius:16px;padding:4px}
 .prow,.crow{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;text-align:left;padding:9px 10px;position:relative;border-radius:12px;color:var(--fg)}
 .card>button+button::before{content:'';position:absolute;top:0;right:10px;left:56px;border-top:1px solid var(--l);opacity:.7}.card>.crow+.crow:not(.lv)::before{left:10px}.card>.lv+.lv::before{left:34px}.card>.cur::before,.card>.cur+button::before,.card>:active::before,.card>:active+button::before{display:none}
@@ -282,13 +283,13 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .pjc{display:flex;align-items:center;background:var(--r);border-radius:16px;padding-right:6px}.pjc>button:first-child{flex:1;min-width:0;display:flex;align-items:center;gap:12px;border:0;background:none;text-align:left;padding:12px;color:var(--fg)}
 .pjc span{flex:1;min-width:0}.pjc b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pjc small{display:block;color:var(--m);font-size:12.5px}
 .pjc .ic{margin:0;padding:7px;color:var(--m)}.pjc .ic svg{width:19px;height:19px}.pjp[aria-pressed=true]{color:var(--c)}.pjp[aria-pressed=true] svg{fill:currentColor}
-.sheet .sec{background:var(--s)}.sheet .card{background:var(--r)}.sheet .rmn{display:none!important}
+.sheet .sec{background:var(--s);--fb:var(--s)}.sheet .card{background:var(--r)}.sheet .rmn{display:none!important}
 .arow{display:flex;align-items:center;gap:6px;padding-right:8px}.arow .crow{flex:1;min-width:0}.arow+.arow{border-top:1px solid color-mix(in srgb,var(--l) 70%,transparent)}
 @media(hover:hover) and (pointer:fine){:is(.crow,.prow):hover .rmn{display:grid}.nrow:hover{background:var(--r)}.pjc:hover,.sheet .card .crow:hover{background:var(--l)}}
 /* Scheduled and Artifacts pages: shown in the sheet like Settings, a wider dialog on a computer */
 @media(min-width:700px){.sheet>div:has(>.pg){width:min(700px,100%)}}
 .pg{display:flex;flex-direction:column;gap:10px}.pg h2{margin:0;font-size:16px}.pg .seg{flex:none}.pg .seg b{font:600 11px system-ui,sans-serif;margin-left:4px;padding:1px 6px;border-radius:99px;background:var(--r)}
-.pg .sec{top:-16px;background:var(--s);padding:12px 4px 6px}.pg .card{background:var(--r);display:flex;flex-direction:column}.pg .card+.card{margin-top:8px}
+.pg .sec{top:-16px;background:var(--s);--fb:var(--s);padding:12px 4px 6px}.pg .card{background:var(--r);display:flex;flex-direction:column}.pg .card+.card{margin-top:8px}
 .pg .card>*+*::before{content:'';position:absolute;top:0;right:10px;left:56px;border-top:1px solid var(--l);opacity:.7}.pg .crow{text-decoration:none}.pg .crow.lp{padding-left:28px}.pg .crow.lp::before{left:28px}
 .pg :is(.crow:hover,.crow:active){background:var(--l)}.pg .crow b{font-weight:500}.pg input{width:100%;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px}
 .pg .arti{width:34px;height:34px}.sc.fail{background:#e5484d}.pg .ph{padding:0}.pg .ph span{flex:1;min-width:0}.pg .ph h3{font-size:18px}
