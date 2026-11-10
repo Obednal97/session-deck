@@ -43,7 +43,7 @@ _socks = {}  # socket name -> (when checked, has sessions); a new socket is chec
 def sockets():
     now, out = time.time(), []
     for s in TMUXDIR.iterdir() if TMUXDIR.exists() else ():
-        if s.name.endswith("test"): continue  # throwaway servers used when testing the deck itself (tmux -L <name>test)
+        if s.name.endswith("test") and not os.environ.get("DECK_SHOW_TEST"): continue  # throwaway servers used when testing the deck itself (tmux -L <name>test)
         t, ok = _socks.get(s.name, (0, False))
         if now - t > 60: ok = subprocess.run(["tmux", "-L", s.name, "has-session"], capture_output=True).returncode == 0; _socks[s.name] = (now, ok)
         if ok: out.append(s.name)
@@ -61,9 +61,22 @@ def term_release(pane):
     if RESZ.pop(pane, None) is not None:
         tm(pane, "resize-window", "-A", "-t", "{P}"); tm(pane, "set-option", "-wu", "-t", "{P}", "window-size")  # resize-window sets manual: unset after
 
+ROOMY = (120, 50)
+def roomy():
+    """A chat window nobody is attached to keeps the size it last had, often a phone's: questions then wrap and their
+    top falls off the screen. Give such windows room (tmux sizes them to a client again once one attaches)."""
+    for s in live_sessions():
+        p = s["pane"]
+        if p in RESZ: continue
+        w, h, n = (tm(p, "display", "-p", "-t", "{P}", "#{window_width} #{window_height} #{session_attached}").split() + ["", "", ""])[:3]
+        if n == "0" and (w, h) != tuple(map(str, ROOMY)):
+            tm(p, "resize-window", "-t", "{P}", "-x", str(ROOMY[0]), "-y", str(ROOMY[1])); tm(p, "set-option", "-wu", "-t", "{P}", "window-size")
+
 def term_reaper():  # a phone that closed or locked mid-view never says goodbye
     while True:
         time.sleep(10)
+        try: roomy()
+        except Exception: pass
         for p, t in list(RESZ.items()):
             if time.time() - t > 30:
                 try: term_release(p)
@@ -152,6 +165,9 @@ def live_sessions():
 def parse_menu(plain):
     L = plain.splitlines()
     F = max((i for i, l in enumerate(L) if re.search(r"Enter to (confirm|select|submit)|to navigate|Esc to cancel", l)), default=-1)
+    if F < 0:  # some menus (a multi-question's "Ready to submit your answers?") have no key hints: a numbered ❯ list at the bottom
+        end = max((i for i, l in enumerate(L) if l.strip()), default=-1)
+        if any(re.match(r"^\s*\u276f\s+\d+\.\s+\S", l) for l in L[max(0, end - 12):end + 1]): F = end + 1; L = L + [""]
     if F >= 0:
         M = max((i for i in range(F) if re.match(r"^\s*\u276f\s+\S", L[i])), default=-1)
         if M >= 0:
@@ -164,7 +180,10 @@ def parse_menu(plain):
             opts, sel = [], 0
             for i in range(s, F):
                 l = L[i]
-                if is_opt(l):
+                if l.strip().lstrip("\u276f").strip() == "Submit":  # a multi-select's Submit row sits indented, without a number
+                    if l.lstrip().startswith("\u276f"): sel = len(opts)
+                    opts.append({"label": "Submit", "desc": ""})
+                elif is_opt(l):
                     if l[:tc].strip() == "\u276f": sel = len(opts)
                     opts.append({"label": re.sub(r"^\d+\.\s+", "", l[tc:].strip()), "desc": ""})
                 elif opts and is_desc(l) and l.strip():
@@ -172,7 +191,8 @@ def parse_menu(plain):
             j = s - 1
             while j >= 0 and not L[j].strip(): j -= 1
             ql = []
-            while j >= 0 and L[j].strip() and not set(L[j].strip()) <= set("\u2500\u2501\u254c-") and len(ql) < 6: ql.insert(0, L[j].strip()); j -= 1
+            while j >= 0 and L[j].strip() and not set(L[j].strip()) <= set("\u2500\u2501\u254c-") and not L[j].lstrip().startswith("\u2190") and len(ql) < 12:
+                ql.insert(0, re.sub(r"^[\u2502\u2503|]\s?", "", L[j].strip())); j -= 1  # a question is drawn with a bar down its left
             q = " ".join(ql)
             if len(opts) >= 2: return {"question": q, "options": opts, "selected": sel, "mode": "arrows", "amend": "Tab to amend" in L[F]}
     for i, l in enumerate(L):
@@ -189,7 +209,15 @@ def pane_screen(key):
     model = re.search(r"Model:\s*(.+?)\s*(\||$)", plain, re.M)
     ctx = re.search(r"Ctx:\s*([\d.]+%)\s*\(([^)]+)\)", plain)
     pm = re.search(r"^\s*(?:\u23f5\u23f5|\u23f8)\s*(.+?)(?:\s+on)?(?:\s*\(|\s+\u00b7|$)", plain, re.M)
-    return {"menu": parse_menu(plain), "working": "esc to interrupt" in plain or bool(st), "status": st[-1].strip() if st else None,
+    menu = parse_menu(plain)
+    if menu:  # several questions at once: a tab row "←  ☐ Topic  ☐ Topic  ✔ Submit  →", the current one on a coloured background
+        row = next((l for l in scr.splitlines() if "\u2190" in l and "\u2192" in l and "Submit" in l), None)
+        if row:
+            parts = re.split("([\u2610\u2612\u2714])", row)
+            tabs = [{"label": re.sub(r"\x1b\[[0-9;]*m", "", parts[i + 1]).strip(" \u2192"), "done": parts[i] != "\u2610",
+                     "current": bool(re.search(r"\x1b\[48;[0-9;]*m", parts[i - 1]))} for i in range(1, len(parts) - 1, 2)]
+            menu["tabs"] = [t for t in tabs if t["label"] != "Submit"]
+    return {"menu": menu, "working": "esc to interrupt" in plain or bool(st), "status": st[-1].strip() if st else None,
             "suggestion": sug[-1] if sug else None, "model": model.group(1).strip() if model else None,
             "ctx": f"{ctx.group(1)} ({ctx.group(2)})" if ctx else None,
             "perm": pm.group(1).strip() if pm else "default (asks before acting)"}
@@ -1427,7 +1455,7 @@ class H(BaseHTTPRequestHandler):
             sub = {"endpoint": sub["endpoint"], "keys": {"p256dh": keys["p256dh"], "auth": keys["auth"]}, "added": time.time()}
             with _push_lock:
                 subs = push_subs(); new = sub["endpoint"] not in {s["endpoint"] for s in subs}
-                code = push_one(sub, {"title": "Session Deck", "body": "Notifications are on.", "pane": ""}) if new and not body.get("quiet") else None
+                code = None if body.get("quiet") else push_one(sub, {"title": "Session Deck", "body": "Notifications are on.", "pane": ""})  # every time the person asks, not only the first
                 if new and code not in (404, 410): save_subs(subs + [sub])
             return self.send(200, {"ok": True, "test": code})
         if self.path == "/api/push/unsubscribe":

@@ -78,6 +78,13 @@ body{position:fixed;left:0;right:0;top:0;height:100%;overscroll-behavior:none}
 .menu button{text-align:left;border:1px solid var(--l);background:var(--s);border-radius:12px;padding:9px 12px;font-size:14px}
 .menu button small{display:block;color:var(--m);font-size:12px}
 .menu button.sel{border-color:var(--c)}
+.menu .mh{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--m)}.menu .mh b{border:1px solid var(--l);border-radius:99px;padding:2px 9px;font-weight:600}.menu .mh b.on{background:var(--r);color:var(--fg);border-color:var(--c)}.menu .mh b.fin::before{content:'\2713  '}.menu .mh span{margin-left:auto}
+.menu .mq2{font-size:15px;line-height:1.4;color:var(--fg);margin:2px 0 4px;white-space:pre-wrap}
+.menu .rec{font-style:normal;font-size:11px;font-weight:600;color:var(--c);border:1px solid var(--c);border-radius:99px;padding:0 7px;margin-left:8px;vertical-align:1px}
+.menu .cb{display:inline-block;width:16px;height:16px;border:1.5px solid var(--m);border-radius:5px;margin-right:9px;vertical-align:-3px}.menu .cb.on{background:var(--c);border-color:var(--c);box-shadow:inset 0 0 0 3px var(--s)}
+.menu button.msub{background:var(--c);color:#fff;border-color:var(--c);text-align:center;font-weight:600}
+.ptest{background:none;border:0;color:var(--c);padding:6px 0;font-size:13px;display:block}
+.menu button.alt{background:none;border-style:dashed;color:var(--m);padding:7px 12px}
 .cmp{border-top:1px dashed var(--l);border-bottom:1px dashed var(--l);padding:8px 0;color:var(--m);font-size:13px}.cmp summary{cursor:pointer;text-align:center}.cmp .a{margin-top:8px;max-height:60vh;overflow:auto}
 .now{align-self:flex-end;margin-top:-6px;border:1px solid var(--l);background:var(--s);color:var(--c);border-radius:14px;padding:4px 12px;font-size:13px}
 .tg{border:1px solid var(--l);border-radius:10px;background:var(--s);overflow:hidden}
@@ -593,7 +600,12 @@ sb.addEventListener('click',async e=>{const b=e.target.closest('#bgp button');if
  toast(r.gone?(r.forced?'Stopped. It had to be forced after 3 seconds.':'Stopped.'):'Asked it to stop, but it is still running.');procsUI();list()});
 setInterval(()=>{if(!sh.hidden&&$('bgp'))tick(procsUI)},3000);
 let menuKey='';function renderMenu(mn){const el=$('menu');cur.menu=mn;const k=JSON.stringify(mn);if(k===menuKey)return;menuKey=k;el.hidden=!mn;$('ta').placeholder=mn?(mn.amend?'Add a note, then tap Yes or No':'Or type your own answer'):'Message';if(!mn)return;
- el.innerHTML=(mn.question?`<div class=mq>${esc(mn.question)}</div>`:'')+mn.options.map((o,i)=>`<button data-o=${i} class="${i===mn.selected?'sel':''}">${esc(o.label)}${o.desc?`<small>${esc(o.desc)}</small>`:''}</button>`).join('')+(mn.amend?'<div class=mq>To tell Claude something with your answer, type it below and tap Yes or No. Send adds it to No.</div>':'')}
+ // a question from Claude: topic tabs when it asks several; "Type something" is the box below, so no button for it
+ const T=mn.tabs||[],rec=/\s*\(recommended\)\s*$/i,ci=T.findIndex(t=>t.current);
+ el.innerHTML=(T.length?`<div class=mh>${T.map(t=>`<b class="${t.current?'on':''}${t.done?' fin':''}">${esc(t.label)}</b>`).join('')}${T.length>1&&ci>=0?`<span>${ci+1} of ${T.length}</span>`:''}</div>`:'')
+  +(mn.question?`<div class=mq2>${esc(mn.question)}</div>`:'')
+  +mn.options.map((o,i)=>{const cb=o.label.match(/^\[(.)\]\s+/),l=cb?o.label.slice(cb[0].length):o.label;if(/^type something\.?$/i.test(l))return'';
+   return`<button data-o=${i} class="${i===mn.selected?'sel':''}${/^chat about this$/i.test(l)?' alt':''}${l=='Submit'&&!o.desc?' msub':''}">${cb?`<span class="cb${cb[1]!=' '?' on':''}"></span>`:''}${esc(l.replace(rec,''))}${rec.test(l)?'<i class=rec>Recommended</i>':''}${o.desc?`<small>${esc(o.desc)}</small>`:''}</button>`}).join('')+(mn.amend?'<div class=mq>To tell Claude something with your answer, type it below and tap Yes or No. Send adds it to No.</div>':'')}
 const shown=()=>({question:cur.menu.question,labels:cur.menu.options.map(o=>o.label)});
 let tt;function toast(m){const t=$('toast');t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,4000)}
 // a 409 means the screen moved on: say why and redraw the menu, keeping the typed text
@@ -662,11 +674,13 @@ async function pushUI(msg){const el=$('pf')||document.createElement('div'),r=nav
  const s=r?await r.pushManager.getSubscription():null,on=!!s&&Notification.permission=='granted';
  if(on&&msg===undefined)api('/api/push/subscribe',{sub:s.toJSON(),quiet:1}).catch(()=>{});
  if(!msg&&Notification.permission=='denied')msg='Notifications are blocked for this app. Allow them in Settings, then try again.';
- el.innerHTML=`Notifications<div class=seg><button data-n=1 aria-pressed=${on}>On</button><button data-n=0 aria-pressed=${!on}>Off</button></div>`+(msg?`<small>${esc(msg)}</small>`:'')}
+ el.innerHTML=`Notifications<div class=seg><button data-n=1 aria-pressed=${on}>On</button><button data-n=0 aria-pressed=${!on}>Off</button></div>`+(on?'<button data-n=t class=ptest>Send a test</button>':'')+(msg?`<small>${esc(msg)}</small>`:'')}
+const pushTest=async s=>{const d=await api('/api/push/subscribe',{sub:s.toJSON()});return d.test>=200&&d.test<300?'A test notification is on its way. Nothing showing? Allow notifications for '+(/Mac/.test(navigator.platform)?'Google Chrome (or Session Deck) in System Settings, Notifications, and check Focus is off.':'this browser in your system settings.'):'The push service answered '+d.test+'. Turn notifications off and on again.'};
 const pfClick=async e=>{const b=e.target.closest('[data-n]');if(!b)return;
  if(b.dataset.n=='1'){if(await Notification.requestPermission()!='granted')return pushUI('');if(!pkey)return pushUI('The server has no push key yet.');
   try{const r=await(SWR=navigator.serviceWorker.register('sw.js').then(()=>navigator.serviceWorker.ready)),s=await r.pushManager.getSubscription()||await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(pkey)});
-   const d=await api('/api/push/subscribe',{sub:s.toJSON()});pushUI(d.test==null||d.test==201?'On. A test notification is on its way.':'Subscribed, but the push service answered '+d.test+'.')}catch(x){pushUI('Could not turn on notifications: '+x.message)}return}
+   pushUI(await pushTest(s))}catch(x){pushUI('Could not turn on notifications: '+x.message)}return}
+ if(b.dataset.n=='t'){const R=await SWR,s=R&&await R.pushManager.getSubscription();return pushUI(s?await pushTest(s):'Turn notifications on first.')}
  const R=await SWR,s=R&&await R.pushManager.getSubscription();if(s){await api('/api/push/unsubscribe',{endpoint:s.endpoint}).catch(()=>{});await s.unsubscribe()}pushUI('')};
 if(!COL)pushUI();
 if(navigator.serviceWorker&&!COL)navigator.serviceWorker.addEventListener('message',e=>{const p=e.data&&e.data.pane;if(p)list().then(()=>{const s=live.find(x=>x.pane==p);if(s){closeMenu();hideSheet();stack=[];open_(s)}})});
