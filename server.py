@@ -1085,6 +1085,250 @@ def tidy_loop():
         try: tidy_uploads()
         except Exception: pass
         time.sleep(3600)
+# --- Scheduled page: this account's launchd jobs, and the loops (CronCreate) inside live chats ---
+import plistlib, datetime
+AGENTS, DOM = HOME / "Library/LaunchAgents", f"gui/{os.getuid()}"
+VENDOR = ("com.apple.", "com.google.", "com.microsoft.", "com.adobe.", "homebrew.", "us.zoom.")  # other apps' agents: not yours to run
+SELF = "local.session-deck"  # the deck's own job is never run or paused from the deck
+WD, MON = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"], "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+ordn = lambda n: f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+cal = lambda s: [d for d in (s if isinstance(s, list) else [s]) if isinstance(d, dict)]
+both = lambda a: ", ".join(a[:-1]) + " and " + a[-1] if len(a) > 1 else a[0]
+
+def every(s):
+    for n, u in ((86400, "day"), (3600, "hour"), (60, "minute"), (1, "second")):
+        if s >= n and s % n == 0: return f"Every {u}" if s == n else f"Every {s // n} {u}s"
+    return "Every few seconds"
+
+def cal_words(sci):
+    """StartCalendarInterval in words: "Daily at 07:30 and 19:00", "Mondays at 07:00", "3rd of each month at 07:00"."""
+    by = {}
+    for d in cal(sci):
+        h, m, dd, wd, mo = (d.get(k) for k in ("Hour", "Minute", "Day", "Weekday", "Month"))
+        day = ((f"{dd} {MON[mo - 1]}", " each year") if mo and dd else (f"Every day in {MON[mo - 1]}", "") if mo else
+               (f"{ordn(dd)} of each month or {WD[wd % 7]}", "") if dd and wd is not None else (ordn(dd), " of each month") if dd else
+               (WD[wd % 7], "") if wd is not None else ("Hourly" if h is None and m is not None else "Daily", ""))
+        by.setdefault(day, set()).add(f"{h:02}:{m or 0:02}" if h is not None else f":{m:02}" if m is not None else "every minute")
+    merged = {}
+    for (head, tail), ts in by.items(): merged.setdefault((tail, tuple(sorted(ts))), []).append(head)
+    return "; ".join(f"{both(hs)}{tail} at {both(list(ts))}".replace("Daily at every minute", "Every minute").replace(" at every minute", ", every minute")
+                     for (tail, ts), hs in merged.items()) or "Every minute"
+
+def next_run(sci):
+    now, best = datetime.datetime.now().replace(second=0, microsecond=0), None
+    for d in cal(sci):
+        g = lambda k: d.get(k) if isinstance(d.get(k), int) else None
+        for i in range(400):
+            day = now.date() + datetime.timedelta(days=i)
+            dd, wd = g("Day"), g("Weekday")
+            od, ow = dd is None or day.day == dd, wd is None or day.isoweekday() % 7 == wd % 7
+            if (g("Month") and day.month != g("Month")) or not ((od or ow) if dd is not None and wd is not None else od and ow): continue
+            t = next((x for h in ([g("Hour")] if g("Hour") is not None else range(24)) for m in ([g("Minute")] if g("Minute") is not None else range(60))
+                      if (x := datetime.datetime.combine(day, datetime.time(h % 24, m % 60))) > now), None)
+            if t: best = min(best or t, t); break
+    return best.timestamp() if best else None
+
+def lc(*a):
+    r = subprocess.run(["launchctl", *a], capture_output=True, text=True, timeout=10)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+def short_cmd(argv):
+    a = [x.replace(str(HOME), "~") for x in argv]
+    if len(a) > 1 and os.path.basename(a[0]) in {"bash", "sh", "zsh", "env", "python", "python3", "node", "perl", "ruby", "osascript", "uv"}:
+        a = a[1:]  # bash run.sh: the script is what it runs
+        while len(a) > 1 and a[0].startswith("-"): a.pop(0)
+    s = " ".join([os.path.basename(a[0]) if "/" in a[0] and " " not in a[0] else a[0], *a[1:]]) if a else ""
+    return s if len(s) <= 90 else s[:89] + "…"
+
+_jobs = [0, None]
+def jobs(fresh=False):
+    """This account's LaunchAgents with launchd's state for each. A deck running for an account that isn't logged in at the
+    Mac has no gui domain: its jobs show as not loaded."""
+    if not fresh and _jobs[1] is not None and time.time() - _jobs[0] < 8: return _jobs[1]
+    off = set(re.findall(r'"([^"]+)" => (?:disabled|true)', lc("print-disabled", DOM)[1]))
+    out = []
+    for p in sorted(AGENTS.glob("*.plist")):
+        try: d = plistlib.loads(p.read_bytes())
+        except Exception: continue
+        label = d.get("Label") if isinstance(d, dict) else None
+        if not isinstance(label, str) or not re.fullmatch(r"[\w.@-]{1,200}", label) or label.startswith(VENDOR): continue
+        argv = d.get("ProgramArguments") or [d.get("Program")]
+        argv = [str(x) for x in argv if x is not None] if isinstance(argv, list) else []
+        logs = list(dict.fromkeys(os.path.expanduser(x) for x in (d.get("StandardOutPath"), d.get("StandardErrorPath")) if isinstance(x, str)))
+        rc, pr = lc("print", f"{DOM}/{label}")
+        g = lambda k: (re.search(rf"^\t{k} = (.+)$", pr, re.M) or [None, None])[1] if not rc else None
+        ex = re.match(r"-?\d+", g("last exit code") or ""); sci, si = d.get("StartCalendarInterval"), d.get("StartInterval")
+        trig = [w for k, w in (("KeepAlive", "Kept running"), ("RunAtLoad", "At login"), ("WatchPaths", "When files change"),
+                               ("QueueDirectories", "When files arrive"), ("StartOnMount", "When a disk mounts")) if d.get(k)]
+        when = cal_words(sci) if cal(sci) else every(si) if isinstance(si, int) and si > 0 else " · ".join(trig) or "Only when started"
+        if (sci or si) and d.get("RunAtLoad"): when += ", and at login"
+        out.append({"label": label, "name": d.get("Comment") if isinstance(d.get("Comment"), str) else re.sub(r"^(local|com|org|net|io|dev|app|uk|me)\.", "", label).replace(".", " ").replace("-", " ").replace("_", " ").capitalize(),
+                    "kind": "sched" if cal(sci) or si else "service", "cal": bool(cal(sci)), "when": when, "next": next_run(sci) if cal(sci) else None,
+                    "cmd": short_cmd(argv), "argv": " ".join(x.replace(str(HOME), "~") for x in argv)[:2000], "plist": str(p).replace(str(HOME), "~"),
+                    "last": max((os.stat(x).st_mtime for x in logs if os.path.isfile(x)), default=None), "loaded": not rc,
+                    "running": (g("pid") or "").isdigit(), "runs": int(g("runs")) if (g("runs") or "").isdigit() else None,
+                    "exit": int(ex.group()) if ex else None, "paused": label in off, "self": label.startswith(SELF),
+                    "_plist": str(p), "_logs": logs})
+    _jobs[:] = [time.time(), out]; return out
+
+def job(label):
+    return next((j for j in jobs(True) if j["label"] == label), None) if isinstance(label, str) else None
+
+def job_log(label, n=80, cap=65536):
+    """The last n lines of the job's own log files (from its plist, never from the request), read-only and size-capped."""
+    j = job(label)
+    if not j: return None
+    out = []
+    for p in j["_logs"]:
+        try:
+            if not os.path.isfile(p): raise OSError
+            with open(p, "rb") as fh:
+                size = fh.seek(0, 2); fh.seek(max(0, size - cap)); ls = fh.read().decode("utf8", "replace").splitlines()[1 if size > cap else 0:]
+            out.append({"path": p.replace(str(HOME), "~"), "text": re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", "\n".join(ls[-n:]))})
+        except OSError: out.append({"path": p.replace(str(HOME), "~"), "text": None})
+    return {"label": label, "logs": out}
+
+def job_action(label, action):
+    j = job(label)
+    if not j: return {"error": "That job isn't in the list."}
+    if j["self"]: return {"error": "The deck's own job can't be run or paused from here."}
+    t = f"{DOM}/{label}"
+    steps = {"run": [("kickstart", t)], "pause": [("disable", t)] + ([("bootout", t)] if j["loaded"] else []),
+             "resume": [("enable", t)] + ([] if j["loaded"] else [("bootstrap", DOM, j["_plist"])])}.get(action)
+    if not steps: return {"error": "Unknown action."}
+    for s in steps:
+        rc, msg = lc(*s)
+        if rc: _jobs[0] = 0; return {"error": f"launchctl {s[0]} failed: {msg[:200] or rc}"}
+    _jobs[0] = 0
+    return {"ok": True}
+
+def cron_words(c, recurring, nxt):
+    if not recurring: return "Once, " + time.strftime("%a %-d %b at %H:%M", time.localtime(nxt / 1000)) if isinstance(nxt, (int, float)) else "Once"
+    f, st = str(c).split(), r"(?:\*|\d+-\d+)/(\d+)"
+    if len(f) != 5: return str(c)
+    mi, h, dom, mon, dow = f
+    if (m := re.fullmatch(st, mi)) and h == dom == mon == dow == "*": return every(int(m.group(1)) * 60)
+    if mi.isdigit() and (m := re.fullmatch(st, h)) and dom == mon == dow == "*": return every(int(m.group(1)) * 3600)
+    if mi.isdigit() and h == dom == mon == dow == "*": return f"Hourly at :{int(mi):02}"
+    if mi.isdigit() and h.isdigit() and dom == mon == "*" and (dow == "*" or dow.isdigit()):
+        return f"{'Daily' if dow == '*' else WD[int(dow) % 7]} at {int(h):02}:{int(mi):02}"
+    return "Cron " + str(c)
+
+def loops_in(f):
+    """CronCreate jobs a transcript made and didn't delete: (made at, durable, item)."""
+    r = subprocess.run(["rg", "-N", "-e", '"name":"Cron(Create|Delete)"', "-e", '"humanSchedule"', str(f)], capture_output=True, text=True, timeout=10).stdout
+    made, gone, out = {}, set(), []
+    for l in r.splitlines():
+        try: o = json.loads(l); c = o["message"]["content"]
+        except Exception: continue
+        for b in c if isinstance(c, list) else []:
+            if not isinstance(b, dict): continue
+            if b.get("type") == "tool_use" and b.get("name") == "CronDelete": gone.add(str((b.get("input") or {}).get("id")))
+            elif b.get("type") == "tool_use" and b.get("name") == "CronCreate": made[b.get("id")] = (b.get("input") or {}, o.get("timestamp"))
+            elif b.get("type") == "tool_result" and b.get("tool_use_id") in made and not b.get("is_error") and isinstance(o.get("toolUseResult"), dict):
+                inp, ts = made[b["tool_use_id"]]; tr = o["toolUseResult"]
+                try: at = datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+                except ValueError: at = 0
+                out.append((at, bool(tr.get("durable")), {"id": str(tr.get("id")), "prompt": re.sub(r"\s+", " ", str(inp.get("prompt") or ""))[:300],
+                            "when": cron_words(inp.get("cron") or tr.get("humanSchedule"), tr.get("recurring", True), tr.get("nextFireAt")),
+                            "recurring": tr.get("recurring", True), "next": tr.get("nextFireAt")}))
+    return [x for x in out if x[2]["id"] not in gone]
+
+def loops():
+    """Loops in live chats. Session-only ones die with the process, so any made before this claude started are gone;
+    recurring ones expire after 7 days and one-shots once they have fired."""
+    t = ps_table(); k = kids_of(t); now = time.time(); roots = pane_roots(); out = []
+    for s in live_sessions():
+        f = s["session"] and find_file(s["session"])
+        if not f: continue
+        c = chat_pid(t, k, roots.get(s["pane"], 0)); born = now - t[c][2] - 60 if c else 0
+        L = [x for at, dur, x in cached(f, loops_in) if (dur or at >= born) and (now - at < 7 * 86400 if x["recurring"] else (x["next"] or 0) / 1000 > now)]
+        if L: out.append({"pane": s["pane"], "session": s["session"], "title": s["title"] or s["name"], "cwd": s["cwd"], "loops": L})
+    return out
+
+def scheduled():
+    return {"jobs": [{k: v for k, v in j.items() if k[0] != "_"} for j in jobs()], "loops": loops(), "domain": not lc("print", DOM)[0]}
+# --- Artifacts page: what this Mac's Claude sessions published (Artifact tool results), plus rclaude's ledger ---
+LEDGER = RSTATE.parent / "artifacts.jsonl"  # rclaude: {"event":"publish",url,id,title,account,main,share?,session,cwd,t} and {"event":"shared",url,t}
+ART_URL = re.compile(r"https://claude\.ai/(?:code/)?artifact/[A-Za-z0-9_-]+")
+ART_RES = r'"type":"tool_result","content":(?:"|\[\{"type":"text","text":")(?:Published |Updated the Artifact |Created a new Artifact )'
+_arts = {}  # transcript -> ((mtime, size), [publishes]): only new or grown files are searched again
+
+def art_lines(fs):
+    """Artifact publishes in transcripts fs, found with rg, as {file: [record]}."""
+    hits = {f: [] for f in fs}
+    for i in range(0, len(fs), 400):
+        r = subprocess.run(["rg", "-N", "-0", "--with-filename", "--max-columns", "0", "-e", '"type":"tool_use","id":"[^"]+","name":"Artifact"', "-e", ART_RES, *fs[i:i + 400]],
+                           capture_output=True, text=True, timeout=60).stdout
+        calls = {}
+        for l in r.splitlines():
+            f, _, line = l.partition("\0")
+            try: o = json.loads(line); c = o["message"]["content"]
+            except Exception: continue
+            for b in c if isinstance(c, list) else []:
+                if not isinstance(b, dict): continue
+                if b.get("type") == "tool_use" and b.get("name") == "Artifact": calls[b.get("id")] = b.get("input") if isinstance(b.get("input"), dict) else {}
+                elif b.get("type") == "tool_result" and b.get("tool_use_id") in calls and not b.get("is_error"):
+                    inp, tr = calls[b["tool_use_id"]], o.get("toolUseResult") if isinstance(o.get("toolUseResult"), dict) else {}
+                    if inp.get("action", "publish") != "publish" or inp.get("asset"): continue
+                    tx = b.get("content") if isinstance(b.get("content"), str) else json.dumps(b.get("content"))
+                    u = ART_URL.match(str(tr.get("url") or "")) or ART_URL.search(tx)
+                    if not u: continue
+                    try: at = datetime.datetime.fromisoformat(str(o.get("timestamp")).replace("Z", "+00:00")).timestamp()
+                    except ValueError: at = 0
+                    p = Path(f); sid = o.get("sessionId") or (p.parent.parent.name if p.parent.name == "subagents" else p.stem)
+                    hits.setdefault(f, []).append({"url": u.group(), "t": at, "title": str(tr.get("title") or inp.get("title") or Path(str(inp.get("file_path") or "")).stem or "")[:200],
+                                                   "icon": str(tr.get("icon") or inp.get("icon") or "")[:40], "typed": bool(tr.get("type") or inp.get("type_url")),
+                                                   "session": sid if re.fullmatch(r"[0-9a-f-]{36}", str(sid)) else None, "cwd": o.get("cwd")})
+    return hits
+
+def artifacts():
+    fs = {}
+    for f in [*PROJ.glob("*/*.jsonl"), *PROJ.glob("*/*/subagents/*.jsonl")]:
+        try: s = f.stat(); fs[str(f)] = (s.st_mtime, s.st_size)
+        except OSError: pass
+    for k in [k for k in _arts if k not in fs]: del _arts[k]
+    new = [f for f, k in fs.items() if _arts.get(f, (None,))[0] != k]
+    for f, recs in art_lines(new).items(): _arts[f] = (fs[f], recs)
+    by = {}
+    for r in sorted((r for _, recs in _arts.values() for r in recs), key=lambda r: r["t"]): by[r["url"]] = {**by.get(r["url"], {}), **r}  # latest wins
+    shared = set()
+    try: lines = LEDGER.read_text(errors="ignore").splitlines()
+    except OSError: lines = []
+    for l in lines:
+        try: e = json.loads(l); u = ART_URL.match(e["url"]).group()
+        except Exception: continue
+        if e.get("event") == "shared": shared.add(u)
+        elif e.get("event") == "publish":
+            a, t = by.get(u, {"url": u, "t": 0, "icon": "", "typed": False}), e.get("t") if isinstance(e.get("t"), (int, float)) else 0
+            fill = {k: e.get(k) for k in ("title", "session", "cwd") if isinstance(e.get(k), str) and (t >= a["t"] or not a.get(k))}
+            by[u] = {**a, **fill, "t": max(t, a["t"]), "account": str(e.get("account") or "")[:60] or None, "main": e.get("main") is not False, "share": e.get("share") is not False}
+    out = sorted(by.values(), key=lambda a: -a["t"])
+    for a in out:
+        f = a.get("session") and find_file(a["session"])
+        a.update(chat=cached(f, title_of) if f else None, shared=a["url"] in shared)
+        a["unshared"] = a.get("main") is False and a.get("share") is not False and not a["shared"]  # share false: an account kept out of sharing
+    return out
+
+def mark_shared(url):
+    u = ART_URL.fullmatch(str(url or ""))
+    if not u or url not in {a["url"] for a in artifacts()}: return {"error": "That artifact isn't in the list."}
+    LEDGER.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with os.fdopen(os.open(LEDGER, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600), "a") as fh:
+        fh.write(json.dumps({"t": int(time.time()), "event": "shared", "url": url}) + "\n")
+    return {"ok": True}
+
+def pages_api(h, path, body=None):
+    """/api/scheduled and /api/artifacts for GET (body None) and POST; False when the path is another route's."""
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(h.path).query)
+    if body is None and path == "/api/scheduled": return h.send(200, scheduled()) or True
+    if body is None and path == "/api/scheduled/log":
+        r = job_log(q.get("label", [""])[0]); return h.send(200 if r else 404, r or {"error": "That job isn't in the list."}) or True
+    if body is None and path == "/api/artifacts": return h.send(200, {"artifacts": artifacts(), "ledger": LEDGER.exists()}) or True
+    if body is not None and path in ("/api/scheduled", "/api/artifacts"):
+        r = job_action(body.get("label"), body.get("action")) if path == "/api/scheduled" else mark_shared(body.get("url")) if body.get("shared") is True else {"error": "bad"}
+        return h.send(409 if "error" in r else 200, r) or True
+    return False
 # Passkeys (WebAuthn, Face ID) for the Tailscale route; direct local requests keep the token.
 import base64, hashlib, hmac
 from cryptography.hazmat.primitives import hashes, serialization
@@ -1356,6 +1600,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, (HERE / path[1:]).read_bytes(), PWA[path])
         if path.startswith("/api/auth/"): return self.auth(path)
         if not self.authed(): return self.send(401, {"error": "token"})
+        if pages_api(self, path): return
         if path == "/api/push/key":
             v = vapid(); return self.send(200, {"key": b64u(v[1]) if v else None})
         if path == "/api/sessions":
@@ -1499,6 +1744,7 @@ class H(BaseHTTPRequestHandler):
                 tm(pane, "set-buffer", "-b", "deck", "/exit"); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
                 time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
             _live[0] = 0
+        if pages_api(self, self.path, body): return
         if self.path == "/api/push/subscribe":
             sub = body.get("sub") or {}; keys = sub.get("keys") or {}
             if not (push_ok(sub.get("endpoint")) and isinstance(keys.get("p256dh"), str) and isinstance(keys.get("auth"), str)):
