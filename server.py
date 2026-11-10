@@ -164,10 +164,16 @@ def live_sessions():
 
 def parse_menu(plain):
     L = plain.splitlines()
-    F = max((i for i, l in enumerate(L) if re.search(r"Enter to (confirm|select|submit)|to navigate|Esc to cancel", l)), default=-1)
-    if F < 0:  # some menus (a multi-question's "Ready to submit your answers?") have no key hints: a numbered ❯ list at the bottom
+    # a question's key hints; viewers (background shells and agents, the resume list) end "Esc to close" and aren't questions
+    # The hints sit on one of the last lines (chat text above can quote them) and start the line.
+    tail = [i for i, l in enumerate(L) if l.strip()][-3:]
+    F = max((i for i in tail if re.match(r"\s*(Enter to|Esc to|Tab|\u2191|\u2190|Press )", L[i])
+             and re.search(r"Enter to (confirm|select|submit)|to navigate|Esc to cancel", L[i])
+             and not re.search(r"(?i)esc to close|enter to view", L[i])), default=-1)
+    if F < 0:  # "Ready to submit your answers?" has no key hints: a numbered ❯ list at the bottom, under a line ending "?"
         end = max((i for i, l in enumerate(L) if l.strip()), default=-1)
-        if any(re.match(r"^\s*\u276f\s+\d+\.\s+\S", l) for l in L[max(0, end - 12):end + 1]): F = end + 1; L = L + [""]
+        m1 = next((i for i in range(max(0, end - 12), end + 1) if re.match(r"^\s*\u276f\s+\d+\.\s+\S", L[i])), None)
+        if m1 and next((l for l in reversed(L[:m1]) if l.strip()), "").rstrip().endswith("?"): F = end + 1; L = L + [""]
     if F >= 0:
         M = max((i for i in range(F) if re.match(r"^\s*\u276f\s+\S", L[i])), default=-1)
         if M >= 0:
