@@ -71,7 +71,7 @@ body{position:fixed;left:0;right:0;top:0;height:100%;overscroll-behavior:none}
 .a{white-space:normal}.a p{margin:.4em 0}.a :first-child{margin-top:0}.a :last-child{margin-bottom:0}
 .a pre{background:var(--s);border:1px solid var(--l);border-radius:8px;padding:8px 10px;overflow-x:auto;font:12px/1.45 ui-monospace,monospace;white-space:pre}
 .a code{font:12.5px ui-monospace,monospace;background:var(--r);border-radius:4px;padding:1px 4px}.a pre code{background:none;padding:0}
-.a table{border-collapse:collapse;display:block;overflow-x:auto;font-size:13px}.a th,.a td{border:1px solid var(--l);padding:4px 8px;text-align:left}
+.a table{border-collapse:collapse;display:block;overflow-x:auto;font-size:13px}.a th,.a td{border:1px solid var(--l);padding:4px 8px;text-align:left;white-space:nowrap}.a :is(th,td).w{white-space:normal;min-width:15em}
 .a ul,.a ol{padding-left:22px;margin:.4em 0}.a h1,.a h2,.a h3{font-size:15px;margin:.8em 0 .3em}.a a{color:var(--c)}
 .more{align-self:center;border:1px solid var(--l);background:none;border-radius:99px;padding:6px 14px;font-size:13px;color:var(--m)}
 .menu{padding:10px 12px;border-top:1px solid var(--l);background:var(--bg);display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow-y:auto}
@@ -617,6 +617,7 @@ function paint(m,B,more,atEnd){const box=cur.box&&m.contains(cur.box)&&!cur.grew
  q('.t').forEach(t=>{if(open.includes(t.firstChild.textContent))t.querySelector('pre').hidden=false});
  q('.tg').forEach(g=>{if((cur.og||new Set()).has(g.dataset.g))g.lastChild.hidden=false});
  q('img[data-src]').forEach(loadImg);
+ q('.a :is(th,td)').forEach(c=>c.textContent.length>40&&c.classList.add('w'));// tables take the width their data needs and scroll; only long cells wrap
  q('.a pre').forEach(p=>{const w=document.createElement('div');w.className='cb';p.replaceWith(w);w.append(p);w.insertAdjacentHTML('beforeend','<button class=cpy>Copy</button>')});
  if(cur.grew){m.scrollTop=m.scrollHeight-h0+t0;cur.grew=0;m.dataset.s=1}
  cur.unseen=box&&k&&!atEnd?(cur.unseen||0)+Math.max(0,add.length-(A.length-(k?s+k:0))):0;
