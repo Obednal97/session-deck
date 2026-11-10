@@ -5,7 +5,7 @@
 <script>const ACC=[['Blue','#7d9bff','#2f5bd8'],['Purple','#b197fc','#7048e8'],['Pink','#f783ac','#d6336c'],['Red','#ff8787','#e03131'],['Orange','#ffa94d','#e8590c'],['Yellow','#ffd43b','#f2c200','#1a1a1a'],['Green','#69db7c','#2b8a3e'],['Teal','#63e6be','#0c8599'],['Graphite','#ced4da','#495057']];function setAcc(n){const a=ACC.find(x=>x[0]==n)||ACC[0],st=document.documentElement.style;st.setProperty('--cd',a[1]);st.setProperty('--cl',a[2]);a[3]?st.setProperty('--onl',a[3]):st.removeProperty('--onl')}
 try{const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t;setAcc(localStorage.getItem('accent'))}catch(e){}
 // column mode: this page inside one column of the desktop split view (the outer page adds ?col=<id>)
-const COL=parent!==window&&new URLSearchParams(location.search).get('col');if(COL)document.documentElement.classList.add('col')</script>
+const COL=parent!==window&&new URLSearchParams(location.search).get('col');if(COL)document.documentElement.classList.add('col');if(COL=='agp')document.documentElement.classList.add('agpm')</script>
 <style>
 :root{color-scheme:dark;--bg:#0e1118;--s:#171b25;--r:#1f2430;--l:#2b3242;--fg:#e7ebf3;--m:#8c97ab;--c:var(--cd,#7d9bff);--o:#f0b25e;--g:#4cc47f;--on:#0e1118}
 @media(prefers-color-scheme:light){:root:not([data-theme=dark]){color-scheme:light;--bg:#f3f5f8;--s:#fff;--r:#eaeef4;--l:#d6dce6;--fg:#161b26;--m:#5b6677;--c:var(--cl,#2f5bd8);--o:#a8650a;--g:#1f8a4c;--on:var(--onl,#fff)}}
@@ -269,6 +269,8 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .split.room .crow:hover .ncol{display:grid}.ncol{flex:none;width:26px;height:26px;margin:-4px 0;border-radius:7px;place-items:center;color:var(--m)}.ncol:hover{background:var(--l);color:var(--fg)}.ncol svg{width:16px;height:16px}
 :root.col{--side:0px}.col :is(#drawer,#mb,#eo,#off,#title .work){display:none!important}.col.rail header{padding-left:max(var(--gut),54px)}.col.rail #eo{display:block!important}
 .ptag{flex:none;max-width:34%;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--m);overflow:hidden;white-space:nowrap}.ptag span{overflow:hidden;text-overflow:ellipsis}.ptag .tl{width:18px;height:18px;border-radius:6px;font-size:9px}
+.agp{position:fixed;top:0;right:0;bottom:0;width:min(640px,50vw);z-index:40;background:var(--bg);border-left:1px solid var(--l);box-shadow:-12px 0 40px rgba(0,0,0,.35);transform:translateX(104%);visibility:hidden;transition:transform .26s var(--ez,ease),visibility 0s .26s}.agp.on{transform:none;visibility:visible;transition:transform .26s var(--ez,ease)}.agp iframe{width:100%;height:100%;border:0;display:block}
+:root.agpm .csp{display:none!important}
 .col #cdot{margin:0 -2px 0 0}.cx{font-size:15px;color:var(--m)!important}.col.solo .cx,.col.nosplit .csp{display:none}
 /* sidebar: nav rows, pins, row menus (long press, right-click, the ⋯ on hover) and the Projects page */
 .nav{padding:8px 0 0}.nrow{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;color:var(--fg);padding:8px 10px;border-radius:12px;text-align:left}
@@ -520,7 +522,7 @@ const agentRows=(list,all)=>list.map(a=>{const k=kidsOf(all,a.id),o=agOpen.has(a
 function agTap(e,redraw){const ag=e.target.closest('.agr');if(!ag)return false;const id=ag.dataset.a,k=+ag.dataset.k;
  if(k&&(e.target.closest('[data-t]')||!agOpen.has(id))){agOpen.has(id)?agOpen.delete(id):agOpen.add(id);redraw();return true}
  openAgent(id,ag.dataset.d);return true}
-function openAgent(id,desc){hideSheet();if(rOpen)closeRP();stack.push(cur);open_({session:cur.session,agent:id,title:'Subagent: '+desc,ro:1})}
+function openAgent(id,desc){hideSheet();if(rOpen)closeRP();if(COL&&COL!='agp'&&parent.deck&&parent.deck.agent)return parent.deck.agent(cur.session,id,desc);stack.push(cur);open_({session:cur.session,agent:id,title:'Subagent: '+desc,ro:1})}
 sb.addEventListener('click',e=>agTap(e,()=>{if(info&&$('agl'))$('agl').innerHTML=agentsBlock(info.agents||[],agFull)}));
 function agentsBlock(all,full){const t=kidsOf(all,null),n=all.filter(a=>a.running).length,show=full?t:t.slice(0,6);
  return all.length?`<button class=srow id=agopen><span>Subagents</span><small>${n?n+' running of ':''}${all.length} ›</small></button>`:''}
@@ -994,18 +996,24 @@ function mode(){if(COL||!started)return;const on=SPLIT.matches;if(on==inSplit)re
  if(on){const b=stack[0]||cur;if(term&&cur)termOff(cur.pane);term=false;$('tv').textContent='Terminal';if(rOpen)closeRP();stack=[];home();colLoad();layout();if(b)colOpen(b);return}
  const x=(COLS[FOC]||{}).x,s=x&&(x.pane?live.find(l=>l.pane==x.pane):{...x});COLS.forEach(c=>c.el&&c.el.remove());COLS=[];OPEN=new Set();document.title='Session Deck';s?open_(s):home();drawMenu(1)}
 if(!COL){
- window.deck={shared,ready:id=>{const c=COLS[cix(id)];if(c){c.ready=1;colUI();colShow(c)}},foc:id=>colFocus(cix(id)),isFoc:id=>COLS[FOC]&&COLS[FOC].id==id,key:gkey,
+ window.deck={shared,ready:id=>{const c=COLS[cix(id)];if(c){c.ready=1;colUI();colShow(c)}},foc:id=>id!='agp'&&colFocus(cix(id)),isFoc:id=>id=='agp'||COLS[FOC]&&COLS[FOC].id==id,key:e=>e.key=='Escape'&&agpOn()?agpClose:gkey(e),agent:agpOpen,
   saw:(id,st)=>{const c=COLS[cix(id)];if(!c||!c.ready)return;const x=st.x&&JSON.parse(JSON.stringify(st.x)),ch=JSON.stringify(x)!=JSON.stringify(c.x);if(!ch&&c.t==st.t)return;c.x=x;c.t=st.t;if(ch)colSave();colUI()},
-  close:id=>colClose(cix(id)),split:id=>colSplit(cix(id)),lock:s=>lock(s),newChat:c=>newChat(c),openMenu:()=>{if(s0)side();$('q').focus()}};
+  close:id=>id=='agp'?agpClose():colClose(cix(id)),split:id=>id!='agp'&&colSplit(cix(id)),lock:s=>lock(s),newChat:c=>newChat(c),openMenu:()=>{if(s0)side();$('q').focus()}};
  const list0=list,open2=open_,start2=start;list=()=>{lsAt=Date.now();return lsP=list0()};open_=s=>inSplit?colOpen(s):open2(s);
  start=async()=>{if(!SPLIT.matches)return start2();try{CFG=await api('/api/config')}catch(e){}dock();home();await list().catch(()=>{});mode()};
  SPLIT.addEventListener('change',mode);let rz=0;addEventListener('resize',()=>{if(inSplit&&!rz)rz=requestAnimationFrame(()=>{rz=0;layout()})});
  $('q').parentNode.insertAdjacentHTML('beforebegin','<button class=ic id=sct aria-label="Hide the chat list" title="Hide the chat list"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linejoin=round><rect x=3 y=4 width=18 height=16 rx=2.5 /><path d="M9 4v16"/></svg></button>');$('sct').onclick=side}
+/* desktop split view: a subagent opens in a panel over the right side of the window (the right-hand chat), not in place of the chat */
+const agpOn=()=>!!(window.AGP&&AGP.classList.contains('on'));
+function agpOpen(sess,id,desc){if(!window.AGP){document.body.insertAdjacentHTML('beforeend','<aside class=agp id=agp><iframe title=Subagent></iframe></aside>');window.AGP=$('agp')}
+ AGP.firstChild.src='?col=agp&ag='+encodeURIComponent(sess+'/'+id)+'&agd='+encodeURIComponent(desc||'');requestAnimationFrame(()=>AGP.classList.add('on'))}
+function agpClose(){if(!agpOn())return;AGP.classList.remove('on');setTimeout(()=>{if(!agpOn())AGP.firstChild.src='about:blank'},260)}
+addEventListener('keydown',e=>{if(e.key=='Escape'&&agpOn()&&!sh.classList.contains('on')){e.preventDefault();agpClose()}});
 /* column mode: this page as one column of the split view. The outer page (deck) owns the chat list, settings, sign-in and the window's shortcuts */
 if(COL){const P=parent.deck,me=COL,o=open_,h=home,l2=list2,p1=poll;let pAt=0;
  list=async f=>{const d=await P.shared(f);live=d.live.map(x=>({...x}));hist=d.hist;PN=d.PN;attnUI()};
  lock=s=>{if(!started)window.colWait=1;P.lock(s)};openMenu=()=>P.openMenu();newChat=c=>P.newChat(c);$('mb').onclick=openMenu;
- start=async()=>{try{CFG=await api('/api/config')}catch(e){}P.ready(me)};
+ start=async()=>{try{CFG=await api('/api/config')}catch(e){}P.ready(me);if(me=='agp'){const q=new URLSearchParams(location.search),[ss,a]=(q.get('ag')||'').split('/');await list();open_({session:ss,agent:a,title:'Subagent: '+(q.get('agd')||''),ro:1})}};
  const st=()=>{const b=stack[0]||cur;return{x:b&&(b.pane?{pane:b.pane}:b.session?{session:b.session,title:b.title,ro:1,cwd:b.cwd}:null),t:$('title').textContent.replace(/●/g,'').trim()}};
  const head=()=>{const b=stack[0]||cur,s=b&&b.pane&&live.find(x=>x.pane==b.pane),c=b&&(b.cwd||s&&s.cwd);$('cdot').hidden=!s;if(s)$('cdot').className='sc '+stc(s);
   $('ptag').innerHTML=c?tile(proj(c))+`<span>${esc(proj(c))}</span>`:'';P.saw(me,st())};
