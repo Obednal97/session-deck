@@ -1044,6 +1044,33 @@ def watch_once():
         if push_subs(): print("  ->", [(x.get("name") or "?", c) for x, c in push_all({"title": s["title"] or s["name"], "body": msg["body"], "pane": p, "n": n}, viewers)], flush=True)
     for p in [p for p in WATCH if p not in {s["pane"] for s in live}]: del WATCH[p]
 
+def end_chat(pane):
+    """/exit in the pane, after clearing a question or a draft. Claude may still ask something first."""
+    s = pane_screen(pane)
+    if s["menu"] or s["working"]: tm(pane, "send-keys", "-t", "{P}", "Escape"); time.sleep(0.8)
+    tm(pane, "send-keys", "-t", "{P}", "C-c"); time.sleep(0.3)  # clears a draft (or a prompt Escape put back) so /exit is typed alone
+    tm(pane, "set-buffer", "-b", "deck", "/exit"); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
+    time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
+
+IDLE_END = float(os.environ.get("DECK_IDLE_END_DAYS", "3")) * 86400  # 0 turns it off
+def idle_sweep():
+    """Ends chats with no activity (nothing written to the transcript) for IDLE_END. Leaves pinned chats, ones that are
+    working, and ones with background shells or subagents still running. They stay in History to resume."""
+    if not IDLE_END: return
+    pins = {x.get("id") for x in prefs()["pins"] if x.get("type") == "chat"}
+    for s in live_sessions():
+        if not s.get("session") or s["session"] in pins or s["working"] or time.time() - (s.get("mtime") or time.time()) < IDLE_END: continue
+        pv = procs_view(s["pane"])
+        if pv["procs"] or pv["shells"] or pv["agents"]: continue
+        print(f"idle-end {s['pane']} {s['title'] or s['name']!r}: no activity for {(time.time() - s['mtime']) / 86400:.1f} days", flush=True)
+        end_chat(s["pane"]); _live[0] = 0
+
+def idler():
+    while True:
+        time.sleep(600)
+        try: idle_sweep()
+        except Exception as e: print("idle-end:", e, flush=True)
+
 def watcher():
     while True:
         time.sleep(2)
@@ -1754,13 +1781,8 @@ class H(BaseHTTPRequestHandler):
             pane = str(body.get("pane", "")); _live[0] = 0
             if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(200, {"gone": True})
             if body.get("kill"): tm(pane, "kill-pane", "-t", "{P}")
-            else:
-                s = pane_screen(pane)
-                if s["menu"] or s["working"]: tm(pane, "send-keys", "-t", "{P}", "Escape"); time.sleep(0.8)
-                tm(pane, "send-keys", "-t", "{P}", "C-c"); time.sleep(0.3)  # clears a draft (or a prompt Escape put back) so /exit is typed alone
-                tm(pane, "set-buffer", "-b", "deck", "/exit"); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
-                time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
-            _live[0] = 0
+            else: end_chat(pane)
+            _live[0] = 0; return self.send(200, {"ok": True})  # straight away: the pane may already be gone
         if pages_api(self, self.path, body): return
         if self.path == "/api/push/subscribe":
             sub = body.get("sub") or {}; keys = sub.get("keys") or {}
@@ -1865,6 +1887,6 @@ if __name__ == "__main__":
     print(f"Session Deck on {', '.join(str(x.server_address) for x in srvs)}  (token: {SECRET_FILE})", flush=True)
     threading.Thread(target=watcher, daemon=True).start()
     threading.Thread(target=tidy_loop, daemon=True).start()
-    threading.Thread(target=term_reaper, daemon=True).start()
+    threading.Thread(target=term_reaper, daemon=True).start(); threading.Thread(target=idler, daemon=True).start()
     for x in srvs[1:]: threading.Thread(target=x.serve_forever, daemon=True).start()
     srvs[0].serve_forever()

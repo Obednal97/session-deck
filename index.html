@@ -451,11 +451,11 @@ const byDay=(L,row)=>{const g=[[],[],[],[]];L.forEach(x=>g[dgOf(x.mtime)].push(x
 // row menu: right-click, a long press, or the ⋯ that shows on hover
 let lpT,lpOn=0,lpAt=0,lpX=0,lpY=0;const rowAt=e=>e.target.closest('#dl :is(.crow,.prow)');
 function rowItem(b){const d=b.dataset;if(d.p)return{type:'project',id:d.p,title:d.p};if(d.pin)return PREFS.pins[+d.pin];
- const s=d.pane?live.find(x=>x.pane==d.pane):hist.find(x=>x.session==d.h)||PREFS.pins.find(x=>x.type=='chat'&&x.id==d.h);return s&&(s.session||s.id)?{type:'chat',id:s.session||s.id,title:s.title||s.name||'',cwd:s.cwd||''}:null}
-function rowMenu(b){const x=rowItem(b);if(!x||Date.now()-lpAt<700)return;lpAt=Date.now();const c=x.type=='chat',pr=x.type=='project',a=c?isArc(x.id):pr&&arcP(x.id);
- sb.innerHTML=`<h2>${esc(x.title||x.id)}</h2><small class=sub2>${c?esc(x.cwd?proj(x.cwd):'Chat'):pr?'Project':x.type=='job'?'Scheduled':'Artifact'}</small><button class=pick id=apin style="text-align:center">${isPinned(x.type,x.id)?'Unpin':'Pin'}</button>`+
-  (c||pr?`<button class=pick id=aarc style="text-align:center">${a?'Unarchive':'Archive'}${c&&!a&&live.some(l=>l.session==x.id)?'<small>It stays under Active until it ends</small>':''}</button>`:'');showSheet();
- $('apin').onclick=()=>{hideSheet();pinToggle(x)};if($('aarc'))$('aarc').onclick=()=>{hideSheet();arcSet(x,!a)}}
+ const s=d.pane?live.find(x=>x.pane==d.pane):hist.find(x=>x.session==d.h)||PREFS.pins.find(x=>x.type=='chat'&&x.id==d.h);return s&&(s.session||s.id||d.pane)?{type:'chat',id:s.session||s.id||'',title:s.title||s.name||'',cwd:s.cwd||''}:null}
+function rowMenu(b){const x=rowItem(b);if(!x||Date.now()-lpAt<700)return;lpAt=Date.now();const lp=x.type=='chat'&&(b.dataset.pane||(live.find(l=>l.session==x.id)||{}).pane),c=x.type=='chat',pr=x.type=='project',a=c?isArc(x.id):pr&&arcP(x.id);
+ sb.innerHTML=`<h2>${esc(x.title||x.id)}</h2><small class=sub2>${c?esc(x.cwd?proj(x.cwd):'Chat'):pr?'Project':x.type=='job'?'Scheduled':'Artifact'}</small>`+(x.id?`<button class=pick id=apin style="text-align:center">${isPinned(x.type,x.id)?'Unpin':'Pin'}</button>`:'')+
+  ((c||pr)&&x.id?`<button class=pick id=aarc style="text-align:center">${a?'Unarchive':'Archive'}${c&&!a&&live.some(l=>l.session==x.id)?'<small>It stays under Active until it ends</small>':''}</button>`:'')+(lp?'<button class=pick id=endb style="text-align:center;color:#e5484d">End chat</button>':'');showSheet();
+ if($('apin'))$('apin').onclick=()=>{hideSheet();pinToggle(x)};if($('aarc'))$('aarc').onclick=()=>{hideSheet();arcSet(x,!a)};if(lp)twice($('endb'),'Tap again to end this chat',()=>endChat(lp))}
 $('dl').addEventListener('contextmenu',e=>{const b=rowAt(e);if(b){e.preventDefault();rowMenu(b)}});
 $('dl').addEventListener('touchstart',e=>{const b=rowAt(e),t=e.touches[0];clearTimeout(lpT);lpOn=0;if(b&&e.touches.length==1){lpX=t.clientX;lpY=t.clientY;lpT=setTimeout(()=>{lpOn=1;rowMenu(b)},500)}},{passive:true});
 $('dl').addEventListener('touchmove',e=>{const t=e.touches[0];if(Math.hypot(t.clientX-lpX,t.clientY-lpY)>10)clearTimeout(lpT)},{passive:true});

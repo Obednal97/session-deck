@@ -84,6 +84,7 @@ All optional, as environment variables:
 | `DECK_TMUX_SESSION` | `work` | the tmux session new chats open in |
 | `DECK_FOLDERS` | `~/projects` | where the new-chat folder picker starts |
 | `DECK_PORT` / `DECK_TS_PORT` | `8787` / `8788` | the local port (token) and the Tailscale port (Face ID); `0` turns one off |
+| `DECK_IDLE_END_DAYS` | `3` | ends chats with no activity for this many days (they stay in History to resume); pinned chats and ones still running shells or subagents are left alone; `0` turns it off |
 | `DECK_TS_USER` | the Mac's Tailscale login | the Tailscale logins allowed to sign in, comma-separated |
 | `DECK_RP_ID` | the Mac's Tailscale name | the HTTPS name passkeys are bound to |
 | `DECK_PREFS` | `~/Library/Application Support/session-deck/prefs.json` | where pins and archived chats are kept |
