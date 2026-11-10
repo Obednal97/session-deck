@@ -3,11 +3,16 @@
 Your Claude Code sessions on your phone. Session Deck is a small web app that shows the Claude Code sessions running in tmux on your Mac as chats: read them, reply, approve permission prompts, start new ones, and get a notification when one needs you. It works on a phone and on a desktop (where it shows up to four chats side by side), over [Tailscale](https://tailscale.com), so nothing is exposed to the internet.
 
 <p>
-<img src="docs/screenshots/phone-chat.png" width="270" alt="A chat on a phone">
-<img src="docs/screenshots/phone-list.png" width="270" alt="The chat list on a phone">
+<img src="docs/screenshots/phone-chat.png" width="270" alt="A chat with an edit diff on a phone">
+<img src="docs/screenshots/phone-list.png" width="270" alt="The chat list with Projects, Scheduled, Artifacts and pinned items on a phone">
+<img src="docs/screenshots/phone-question.png" width="270" alt="A question from Claude with topic tabs and a recommended answer on a phone">
+</p>
+<p>
+<img src="docs/screenshots/phone-scheduled.png" width="270" alt="Scheduled jobs and loops on a phone">
 <img src="docs/screenshots/phone-agents.png" width="270" alt="Subagents on a phone">
 </p>
 <img src="docs/screenshots/desktop-split.png" alt="Two chats side by side on a desktop">
+<img src="docs/screenshots/desktop-artifacts.png" alt="The Artifacts page on a desktop, with one not yet shared">
 
 It's one Python file and one HTML file, with no build step and no framework.
 
