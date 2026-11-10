@@ -261,8 +261,9 @@ def pid_sessions():
 
 RSTATE = Path(os.environ.get("RCLAUDE_STATE_DIR") or "~/.local/state/claude-rotate").expanduser() / "state.json"
 def launchers():
-    """rclaude launcher pid -> the plan its chat runs on now. A switch relaunches claude under the same launcher and records it there."""
-    try: return {int(k): v.get("account") for k, v in json.loads(RSTATE.read_text()).get("launchers", {}).items() if k.isdigit() and isinstance(v, dict)}
+    """rclaude launcher pid -> its entry: the plan its chat runs on now ("account"; a switch relaunches claude under the same
+    launcher and records it there) and "pinned" for `rclaude --account`."""
+    try: return {int(k): v for k, v in json.loads(RSTATE.read_text()).get("launchers", {}).items() if k.isdigit() and isinstance(v, dict)}
     except Exception: return {}
 
 _engine = {}  # pid -> engine; a process's environment can't change, so ps -E runs once per chat
@@ -288,11 +289,11 @@ def _live_sessions():
         if p not in _engine:
             env = run("ps", "-E", "-o", "command=", "-p", str(p))
             _engine[p] = "local" if "ANTHROPIC_BASE_URL=http://localhost:11434" in env else ("rotate" if rotate else "claude")
-        plan, x = None, table.get(p, (0,))[0]
+        plan, pinned, x = None, False, table.get(p, (0,))[0]
         if _engine[p] == "rotate":
             lau = launchers() if lau is None else lau
             for _ in range(6):  # the launcher is the chat's parent, or a little further up
-                if x in lau: plan = lau[x]; break
+                if x in lau: plan, pinned = lau[x].get("account"), bool(lau[x].get("pinned")); break
                 x = table.get(x, (0,))[0]
         if sf:
             cwd, sid = sf.get("cwd") or "", sf["sessionId"]
@@ -302,7 +303,7 @@ def _live_sessions():
         else:
             cwd, f = cwd_of(p) or "", None
             fallback.append(len(out))
-        out.append({"pane": pid_, "where": loc, "name": wname, "cwd": cwd, "engine": _engine[p], "plan": plan, "file": f, "cmd": cmd,
+        out.append({"pane": pid_, "where": loc, "name": wname, "cwd": cwd, "engine": _engine[p], "plan": plan, "pinned": pinned, "file": f, "cmd": cmd,
                     "state": sf.get("status") if sf else None, **pane_screen(pid_)})
     for i in fallback:  # no <pid>.json: guess from --resume, else the newest transcript in the folder that no other chat has
         s = out[i]; d = project_dir(s["cwd"]); m = re.search(r"--resume (\S{36})", s["cmd"])
@@ -397,7 +398,7 @@ MODELS, EFFORTS = {"opus", "sonnet", "haiku"}, {"low", "medium", "high", "xhigh"
 def is_git(cwd):
     return subprocess.run(["git", "-C", cwd, "rev-parse", "--is-inside-work-tree"], capture_output=True).returncode == 0
 
-def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=None, name=None, worktree=False):
+def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=None, name=None, worktree=False, account=None):
     import shlex
     cwd = os.path.realpath(cwd)
     if not os.path.isdir(cwd) or not cwd.startswith(str(HOME) + "/"): return None
@@ -407,7 +408,9 @@ def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=Non
     name = re.sub(r"[^\w .,'()&+-]", "", re.sub(r"\s+", " ", str(name or ""))).strip(" -")[:60]
     exe = engine in ENGINES and engine_exe(engine)
     if not exe: return None  # only this deck's engines: a guest's deck must never start the owner's rclaude
-    cmd = [exe, *PERMS[perm]] + (["--resume", resume] if resume else []) + (["--fork-session"] if fork and resume else [])
+    account = str(account or "")  # rclaude --account pins the chat to one plan; only a name `rclaude status` lists
+    if account and (engine != "rotate" or account not in {a["name"] for a in accounts()}): return None
+    cmd = [exe] + (["--account", account] if account else []) + [*PERMS[perm]] + (["--resume", resume] if resume else []) + (["--fork-session"] if fork and resume else [])
     if model and engine != "local": cmd.append("--model=" + model)  # claude-local sets its own model
     if effort: cmd.append("--effort=" + effort)
     if name: cmd.append("--name=" + name)
@@ -1666,8 +1669,9 @@ class H(BaseHTTPRequestHandler):
         if m and valid_pane(m.group(1)):
             SEEN[m.group(1)] = time.time(); q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             if q.get("f") == ["1"] and DEV_RE.fullmatch((q.get("d") or [""])[0]): VIEW[(m.group(1), q["d"][0])] = time.time()
-            plan = next((s["plan"] for s in live_sessions() if s["pane"] == m.group(1)), None)
-            return self.send(200, {**pane_screen(m.group(1)), "device": device(), "accounts": accounts(), "plan": plan})
+            s = next((s for s in live_sessions() if s["pane"] == m.group(1)), {})
+            return self.send(200, {**pane_screen(m.group(1)), "device": device(), "accounts": accounts(), "plan": s.get("plan"), "pinned": s.get("pinned")})
+        if path == "/api/accounts": return self.send(200, {"accounts": accounts()})  # rclaude's plans, for the Account choice
         m = re.fullmatch(r"/api/procs/(" + PANE_RE + ")", path)
         if m and valid_pane(m.group(1)): return self.send(200, procs_view(m.group(1)))
         if path == "/api/files":
@@ -1744,7 +1748,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {"done": done})
         if self.path == "/api/new":
             p = start(str(body.get("cwd", "")), body.get("engine"), body.get("resume"), bool(body.get("fork")), body.get("perm") or "bypass",
-                      body.get("model"), body.get("effort"), body.get("name"), bool(body.get("worktree")))
+                      body.get("model"), body.get("effort"), body.get("name"), bool(body.get("worktree")), body.get("account"))
             return self.send(200, {"pane": p}) if p else self.send(400, {"error": "bad"})
         if self.path == "/api/end":  # /exit, or with kill the pane itself; only ever a pane that is running Claude right now
             pane = str(body.get("pane", "")); _live[0] = 0
