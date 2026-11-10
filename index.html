@@ -263,6 +263,21 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 :root.col{--side:0px}.col :is(#drawer,#mb,#eo,#off,#title .work){display:none!important}.col.rail header{padding-left:max(var(--gut),54px)}.col.rail #eo{display:block!important}
 .ptag{flex:none;max-width:34%;display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--m);overflow:hidden;white-space:nowrap}.ptag span{overflow:hidden;text-overflow:ellipsis}.ptag .tl{width:18px;height:18px;border-radius:6px;font-size:9px}
 .col #cdot{margin:0 -2px 0 0}.cx{font-size:15px;color:var(--m)!important}.col.solo .cx,.col.nosplit .csp{display:none}
+/* Scheduled and Artifacts pages: shown in the sheet like Settings, a wider dialog on a computer */
+@media(min-width:700px){.sheet>div:has(>.pg){width:min(700px,100%)}}
+.pg{display:flex;flex-direction:column;gap:10px}.pg h2{margin:0;font-size:16px}.pg .seg{flex:none}.pg .seg b{font:600 11px system-ui,sans-serif;margin-left:4px;padding:1px 6px;border-radius:99px;background:var(--r)}
+.pg .sec{top:-16px;background:var(--s);padding:12px 4px 6px}.pg .card{background:var(--r);display:flex;flex-direction:column}.pg .card+.card{margin-top:8px}
+.pg .card>*+*::before{content:'';position:absolute;top:0;right:10px;left:56px;border-top:1px solid var(--l);opacity:.7}.pg .crow{text-decoration:none}.pg .crow.lp{padding-left:28px}.pg .crow.lp::before{left:28px}
+.pg :is(.crow:hover,.crow:active){background:var(--l)}.pg .crow b{font-weight:500}.pg input{width:100%;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px}
+.pg .arti{width:34px;height:34px}.sc.fail{background:#e5484d}.pg .ph{padding:0}.pg .ph span{flex:1;min-width:0}.pg .ph h3{font-size:18px}
+.pgp{flex:none;font:600 11.5px system-ui,sans-serif;font-style:normal;padding:3px 9px;border-radius:99px;background:var(--l);color:var(--m)}.pgp.ok{background:color-mix(in srgb,var(--g) 18%,transparent);color:var(--g)}.pgp.bad{background:color-mix(in srgb,#e5484d 18%,transparent);color:#e5484d}
+.pgt{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.pgt em{font:600 11px system-ui,sans-serif;font-style:normal;padding:2px 8px;border-radius:99px;border:1px solid var(--l);color:var(--m)}.pgt .ns{border-color:var(--o);color:var(--o)}
+.pgt i{font:600 11px system-ui,sans-serif;font-style:normal;padding:2px 8px;border-radius:99px;background:var(--s);color:var(--c);cursor:pointer}.achat{font-style:normal;color:var(--c);cursor:pointer}
+.pin{flex:none;display:grid;place-items:center;width:30px;height:30px;margin:-6px -4px -6px 0;border-radius:8px;color:var(--m);opacity:.55}.pin svg{width:16px;height:16px}.pin[aria-pressed=true]{color:var(--c);opacity:1}.pin:hover{opacity:1;background:var(--l)}
+.pga{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pga .pick{text-align:center}.pga .pick.red{color:#e5484d}
+.pg pre.log{margin:0;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--l);font:11.5px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto;color:var(--fg)}
+.pgf{align-self:center;color:var(--c);font-size:13.5px;padding:10px;text-decoration:none}.pgf:hover{text-decoration:underline}
+@media(min-width:700px){.pg .sec{top:-20px}}
 </style>
 <header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class=chip id=tv hidden>Terminal</button></header>
 <div class=off id=off hidden>Reconnecting…</div>
@@ -899,4 +914,72 @@ if(COL){const P=parent.deck,me=COL,o=open_,h=home,l2=list2,p1=poll;let pAt=0;
  addEventListener('pointerdown',()=>P.foc(me),true);addEventListener('focusin',()=>P.foc(me));
  addEventListener('keydown',e=>{let f=P.key(e);if(f&&e.code=='KeyW'&&sh.classList.contains('on'))f=hideSheet;if(f){e.preventDefault();e.stopImmediatePropagation();f()}},true);
  addEventListener('storage',e=>{const r=document.documentElement;if(e.key=='theme')e.newValue?r.dataset.theme=e.newValue:delete r.dataset.theme;if(e.key=='accent')setAcc(e.newValue)})}
+/* Scheduled and Artifacts pages, shown in the sheet like Settings. The nav (window.NAV) calls openScheduled(id) and openArtifacts(id), id being
+   an item to open straight away; window.navDot marks unseen runs and new artifacts; window.pinToggle and isPinned pin cards. A column hands them up */
+const ls=(k,v)=>{try{return v===undefined?+localStorage.getItem(k)||0:localStorage.setItem(k,v)}catch(e){return 0}};
+const PINI='<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M9 4h6l-1 6 3 3H7l3-3zM12 13v7"/></svg>';
+const ARTI=artCard('#','').match(/<i class=arti>.*?<\/i>/)[0],ARTD='<i class=arti><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linejoin=round><rect x=4 y=5 width=16 height=14 rx=2 /><path d="M4 10h16M10 10v9"/></svg></i>';
+let PG=null;// the open page: {k:'sched'|'art', tab, det (a job's label), q, hi (an artifact to show), d (data), key (last HTML drawn)}
+const pinI=(type,id,t)=>window.pinToggle?`<i class=pin data-pin="${type}" data-id="${esc(id)}" data-t="${esc(t)}" aria-pressed=${!!(window.isPinned&&isPinned(type,id))} title=Pin>${PINI}</i>`:'';
+const until=t=>{const m=Math.round((t-Date.now()/1e3)/60);return m<1?'now':m<90?'in '+m+'m':m<2160?'in '+Math.round(m/60)+'h':'in '+Math.round(m/1440)+'d'};
+const pgSet=h=>{if(h!==PG.key){PG.key=h;sb.innerHTML=h}};
+function pgOpen(k,o,head){if(COL&&parent.deck)return false;closeMenu();PG={k,...o};sb.innerHTML=`<div class=pg data-k=${k}>${head}</div>`;showSheet(-1);pgLoad();return true}
+window.openScheduled=id=>pgOpen('sched',{tab:'s',det:id||null},'<h2>Scheduled</h2><div class=none>Loading…</div>')||parent.openScheduled(id);
+window.openArtifacts=id=>pgOpen('art',{tab:'all',q:'',hi:id||null},'<h2>Artifacts</h2><div class=seg id=pgtab></div><input id=pgq type=search placeholder="Search artifacts" autocomplete=off><div id=pgl><div class=none>Loading…</div></div>')||parent.openArtifacts(id);
+async function pgLoad(){const me=PG;let d;try{d=await api(me.k=='sched'?'/api/scheduled':'/api/artifacts')}catch(e){return}if(PG===me){me.d=d;pgDraw()}}
+function pgDraw(){if(!PG||!PG.d||!sb.querySelector(`.pg[data-k=${PG.k}]`))return;if(PG.k=='art')return artDraw();ls('schSeen',Date.now()/1e3);window.navDot&&navDot('scheduled',false);PG.det?schDet():schDraw()}
+/* Scheduled: launchd jobs (Scheduled and Services tabs), loops in live chats, and a link to the cloud routines */
+const jobSt=j=>j.running?['ok','Running']:j.paused?['','Paused']:!j.loaded?['','Not loaded']:null;
+const jobRow=j=>{const s=jobSt(j);return`<button class=crow data-job="${esc(j.label)}">${tile(j.name)}<span><b>${esc(j.name)}</b><small>${esc(j.when)}${j.next&&j.loaded&&!j.paused?' · next '+until(j.next):''}${j.last?' · ran '+(ago(j.last)=='now'?'just now':ago(j.last)+' ago'):''}</small></span>${j.exit&&!j.running?'<i class="sc fail" title="The last run failed"></i>':''}${s?`<em class="pgp ${s[0]}">${s[1]}</em>`:''}${pinI('job',j.label,j.name)}</button>`};
+const loopCard=c=>`<div class=card><button class=crow data-pane="${esc(c.pane)}">${tile(proj(c.cwd))}<span><b>${esc(c.title)}</b><small>${esc(proj(c.cwd))} · open the chat</small></span><em class=pgp>${c.loops.length}</em></button>`+
+ c.loops.map(l=>`<button class=crow data-pane="${esc(c.pane)}"><i class="sc work"></i><span><b>${esc(l.prompt||'Loop')}</b><small>${esc(l.when)}</small></span></button>`).join('')+'</div>';
+function schDraw(){const d=PG.d,J=d.jobs.filter(j=>(j.kind=='sched')==(PG.tab=='s')),n=d.jobs.filter(j=>j.kind=='sched').length,nl=d.loops.reduce((a,c)=>a+c.loops.length,0);
+ pgSet(`<div class=pg data-k=sched><h2>Scheduled</h2><div class=seg><button data-tab=s aria-pressed=${PG.tab=='s'}>Scheduled<b>${n+nl}</b></button><button data-tab=v aria-pressed=${PG.tab=='v'}>Services<b>${d.jobs.length-n}</b></button></div>`+
+  (d.domain?'':'<div class=none>launchd has no session for this account (it isn\'t logged in at the Mac), so its jobs show as not loaded.</div>')+
+  `<section><div class=sec>On this Mac<span>${J.length}</span></div><div class=card>${J.map(jobRow).join('')||'<div class=none>Nothing here.</div>'}</div></section>`+
+  (PG.tab=='s'?`<section><div class=sec>Loops in chats<span>${nl||''}</span></div>${d.loops.map(loopCard).join('')||'<div class=card><div class=none>No live chat has a loop running.</div></div>'}</section>`:'')+
+  '<a class=pgf href="https://claude.ai/code/routines" target=_blank rel="noopener noreferrer">Cloud routines on claude.ai ↗</a></div>')}
+function schDet(){const j=PG.d.jobs.find(x=>x.label==PG.det);if(!j){PG.det=null;return schDraw()}const s=jobSt(j),off=j.paused||!j.loaded;
+ pgSet(`<div class=pg data-k=sched><button class=dback data-back style="padding:0;text-align:left">‹ Scheduled</button><div class=ph>${tile(j.name,1)}<span><h3>${esc(j.name)}</h3><small>${esc(j.label)}</small></span>${pinI('job',j.label,j.name)}</div><dl class=info>`+
+  drow('Status',s?`<em class="pgp ${s[0]}">${s[1]}</em>`:'Waiting')+drow('Schedule',esc(j.when))+drow('Next run',j.next&&!off?esc(when(j.next*1e3)):'')+drow('Last run',j.last?esc(when(j.last*1e3)):'')+
+  drow('Last result',j.exit==null?'':j.exit?`<span style="color:#e5484d">Failed (exit code ${j.exit})</span>`:'Worked')+drow('Runs',j.runs==null?'':j.runs+' since launchd loaded it')+
+  drow('Program',`<code>${esc(j.argv)}</code>`)+drow('File',`<code>${esc(j.plist)}</code>`)+'</dl>'+
+  (j.self?'<small class=sub2>This is the deck itself, so it can\'t be run or paused from here.</small>':`<div class=pga><button class=go data-act=run${off?' disabled':''}>Run now</button><button class="pick${off?'':' red'}" data-act=${off?'resume':'pause'}>${off?'Resume':'Pause'}</button></div>`)+
+  '<div class=lbl>Log</div><div id=pglog><div class=none>Loading…</div></div></div>');
+ const pb=sb.querySelector('[data-act=pause]');if(pb&&!pb.onclick)twice(pb,'Tap again to pause',()=>schAct('pause'));schLog(j.label)}
+async function schLog(l){let d;try{d=await api('/api/scheduled/log?label='+encodeURIComponent(l))}catch(e){d={logs:[]}}const el=$('pglog');if(!el||!PG||PG.det!=l)return;
+ el.innerHTML=d.logs.map(x=>`<small style="color:var(--m)">${esc(x.path)}</small>`+(x.text==null?'<div class=none>No log file yet.</div>':`<pre class=log>${esc(x.text)||'(empty)'}</pre>`)).join('')||'<div class=none>This job doesn\'t write a log.</div>';
+ el.querySelectorAll('pre').forEach(p=>p.scrollTop=p.scrollHeight)}
+async function schAct(a){const l=PG.det;try{await api('/api/scheduled',{label:l,action:a});toast({run:'Started',pause:'Paused',resume:'Resumed'}[a])}catch(e){toast(e.reason||'That didn\'t work.')}
+ if(PG&&PG.det==l){PG.key='';await pgLoad();setTimeout(()=>PG&&PG.det==l&&schLog(l),1500)}}
+/* Artifacts: everything published from this Mac's chats, newest first, with rclaude's account and sharing state when it has them */
+const artRow=a=>{const acc=a.account&&a.main===false;return`<a class=crow href="${esc(a.url)}" target=_blank rel="noopener noreferrer" data-u="${esc(a.url)}">${a.typed?ARTD:ARTI}<span><b>${esc(a.title||'Artifact')}</b><small>${a.cwd?tile(proj(a.cwd))+esc(proj(a.cwd))+' · ':''}${ago(a.t)}`+
+ (a.session?` · <i class=achat data-sess="${esc(a.session)}" data-c="${esc(a.cwd||'')}" data-t="${esc(a.chat||'')}">${esc(a.chat||'Chat')}</i>`:'')+'</small>'+
+ (acc||a.unshared?`<span class=pgt>${acc?`<em>${esc(a.account)}</em>`:''}${a.unshared?'<em class=ns>Not shared</em><i data-shared>Mark as shared</i>':''}</span>`:'')+`</span>${pinI('artifact',a.url,a.title||'Artifact')}</a>`};
+function artDraw(){const A=PG.d.artifacts,N=A.filter(a=>a.unshared),q=PG.q.toLowerCase(),L=(PG.tab=='ns'?N:A).filter(a=>!q||[a.title,a.chat,a.cwd&&proj(a.cwd),a.account].join(' ').toLowerCase().includes(q));
+ ls('artSeen',Math.max(ls('artSeen'),...A.map(a=>a.t)));window.navDot&&navDot('artifacts',false);
+ $('pgtab').innerHTML=`<button data-tab=all aria-pressed=${PG.tab=='all'}>All<b>${A.length}</b></button><button data-tab=ns aria-pressed=${PG.tab=='ns'}>Not shared<b>${N.length}</b></button>`;
+ const day=new Date().setHours(0,0,0,0)/1e3,G=[['Today',0],['Yesterday',1],['This week',7],['This month',31],['Older',1e9]],by={};
+ L.forEach(a=>{const g=G.find(([,n])=>a.t>=day-n*86400)||G[4];(by[g[0]]??=[]).push(a)});
+ const h=G.filter(([g])=>by[g]).map(([g])=>`<section><div class=sec>${g}<span>${by[g].length}</span></div><div class=card>${by[g].map(artRow).join('')}</div></section>`).join('')||`<div class=none>${q?'No matches.':PG.tab=='ns'?'Everything is shared.':'Nothing published from this Mac yet.'}</div>`;
+ if(h!==PG.key){PG.key=h;$('pgl').innerHTML=h}
+ const el=PG.hi&&$('pgl').querySelector(`[data-u="${CSS.escape(PG.hi)}"]`);PG.hi=null;if(el){el.scrollIntoView({block:'center'});enter(el,{background:'var(--l)'},{duration:1600})}}
+async function pgChat(o){await list().catch(()=>{});const s=live.find(l=>o.pane?l.pane==o.pane:l.session==o.session);if(o.pane&&!s)return toast('That chat has ended.');
+ hideSheet();closeMenu();stack=[];open_(s||{session:o.session,title:o.title,ro:1,cwd:o.cwd})}
+sb.addEventListener('input',e=>{if(e.target.id=='pgq'&&PG){PG.q=e.target.value.trim();artDraw()}});
+sb.addEventListener('click',async e=>{const x=e.target.closest('.pg [data-pin],.pg [data-shared],.pg .achat,.pg [data-tab],.pg [data-job],.pg [data-pane],.pg [data-back],.pg [data-act]');if(!x||!PG)return;
+ if(x.closest('a')!==x&&x.closest('a'))e.preventDefault();// a tag inside an artifact's card, not the card
+ if(x.dataset.pin){window.pinToggle({type:x.dataset.pin,id:x.dataset.id,title:x.dataset.t});return x.setAttribute('aria-pressed',!!(window.isPinned&&isPinned(x.dataset.pin,x.dataset.id)))}
+ if(x.hasAttribute('data-shared')){try{await api('/api/artifacts',{url:x.closest('[data-u]').dataset.u,shared:true});toast('Marked as shared')}catch(r){toast(r.reason||'Couldn\'t save that.')}return pgLoad()}
+ if(x.dataset.sess)return pgChat({session:x.dataset.sess,cwd:x.dataset.c,title:x.dataset.t});
+ if(x.dataset.pane)return pgChat({pane:x.dataset.pane});
+ if(x.dataset.tab){PG.tab=x.dataset.tab;PG.key='';return pgDraw()}
+ if(x.dataset.job||x.hasAttribute('data-back')){PG.det=x.dataset.job||null;PG.key='';pgDraw();return showSheet(PG.det?1:-1)}
+ if(x.dataset.act&&x.dataset.act!='pause')schAct(x.dataset.act)});
+// while a page is open its list refreshes every 10 s; every minute the nav dots check for runs and artifacts since the pages were last seen
+setInterval(()=>{if(PG&&!PG.det&&!document.hidden&&sh.classList.contains('on'))pgLoad()},1e4);
+async function navDots(){if(COL||!window.navDot||!started||!$('lock').hidden||document.hidden)return;const now=Date.now()/1e3;['schSeen','artSeen'].forEach(k=>ls(k)||ls(k,now));// first run: nothing is new yet
+ try{const d=await api('/api/scheduled'),t=ls('schSeen');navDot('scheduled',d.jobs.some(j=>j.last>t&&!j.running&&(j.cal||j.exit)))}catch(e){}
+ try{const d=await api('/api/artifacts'),t=ls('artSeen');navDot('artifacts',d.artifacts.some(a=>a.t>t))}catch(e){}}
+setTimeout(navDots,4e3);setInterval(navDots,6e4);
 </script>
