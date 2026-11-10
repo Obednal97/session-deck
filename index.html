@@ -462,9 +462,9 @@ $('dl').addEventListener('touchmove',e=>{const t=e.touches[0];if(Math.hypot(t.cl
 $('dl').addEventListener('touchend',e=>{clearTimeout(lpT);if(lpOn){lpOn=0;e.preventDefault()}});// no tap after a long press
 $('dl').addEventListener('touchcancel',()=>clearTimeout(lpT));
 /* Projects: a page of project cards (Your projects, Archived), opened from the nav row */
-let pj={t:'mine',q:'',s:'recent'};
+let pj={t:'mine',q:'',s:'name'};// by name: the list's History is already by activity
 function openProjects(t,q){closeMenu();pj.t=t||'mine';pj.q=q||'';
- sb.innerHTML=`<h2>Projects</h2><div class=pjb><label class=qs>${$('q').parentNode.querySelector('svg').outerHTML}<input id=pjq type=search placeholder="Search projects" autocomplete=off value="${esc(pj.q)}"></label><div class=seg id=pjs><button data-s=recent>Recent</button><button data-s=name>Name</button></div></div>
+ sb.innerHTML=`<h2>Projects</h2><div class=pjb><label class=qs>${$('q').parentNode.querySelector('svg').outerHTML}<input id=pjq type=search placeholder="Search projects" autocomplete=off value="${esc(pj.q)}"></label><div class=seg id=pjs><button data-s=name>Name</button><button data-s=recent>Recent</button></div></div>
  <div class=seg id=pjt><button data-t=mine>Your projects</button><button data-t=arc>Archived</button></div><div class=pjw id=pjl></div>`;showSheet(-1);pjDraw();$('pjq').oninput=()=>{pj.q=$('pjq').value.trim();pjDraw()}}
 function pjDraw(){if(!$('pjl'))return;const q=pj.q.toLowerCase(),m=s=>s.toLowerCase().includes(q),srt=L=>pj.s=='name'?L.sort((a,b)=>a.p.localeCompare(b.p)):L;
  ['pjs','pjt'].forEach(i=>$(i).querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.s?b.dataset.s==pj.s:b.dataset.t==pj.t)));
