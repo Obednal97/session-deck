@@ -118,7 +118,7 @@ header h1{cursor:pointer}
 .dh input{flex:1;min-width:0;background:none;border:0;padding:8px 0;color:var(--fg);outline:none}
 .dl{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:0 12px 12px}
 .sec{position:sticky;top:0;z-index:2;background:var(--bg);display:flex;justify-content:space-between;align-items:baseline;padding:14px 6px 6px;font-weight:600;font-size:12.5px;color:var(--m);letter-spacing:.02em;--fb:var(--bg)}.sec span{font-weight:500;font-size:12px}
-.sec::after{content:"";position:absolute;left:0;right:0;top:100%;height:14px;background:linear-gradient(var(--fb),transparent);pointer-events:none}
+.sec::after{content:"";position:absolute;left:0;right:0;top:100%;height:14px;background:linear-gradient(var(--fb),transparent);pointer-events:none;opacity:0}.sec.stk::after{opacity:1}
 .card{background:var(--s);border-radius:16px;padding:4px}
 .prow,.crow{display:flex;align-items:center;gap:12px;width:100%;border:0;background:none;text-align:left;padding:9px 10px;position:relative;border-radius:12px;color:var(--fg)}
 .card>button+button::before{content:'';position:absolute;top:0;right:10px;left:56px;border-top:1px solid var(--l);opacity:.7}.card>.crow+.crow:not(.lv)::before{left:10px}.card>.lv+.lv::before{left:34px}.card>.cur::before,.card>.cur+button::before,.card>:active::before,.card>:active+button::before{display:none}
@@ -450,6 +450,10 @@ function pinRow(x,i){const ic=k=>`<i class=tl style="--h:var(--c)">${IC[k]}</i>`
  return`<button class="crow${on?' cur':''}" ${s?`data-pane="${esc(s.pane)}"`:`data-h="${esc(x.id)}" data-c="${esc(h.cwd||'')}"`}>${ic('chat')}<span><b>${esc(h.title||h.name||x.title||'Chat')}</b><small>${h.cwd?esc(proj(h.cwd))+' · ':''}${s?s.working?'<span class=work>working</span>':'live':h.mtime?ago(h.mtime):'pinned'}</small></span>${s?`<i class="sc ${stc(s)}"></i>`:''}${MORE}</button>`}
 // a project's chats by day, like the Claude app: Today, Yesterday, Previous 7 days, Earlier
 const DG=['Today','Yesterday','Previous 7 days','Earlier'],dgOf=t=>{const d=new Date(),m=k=>new Date(d.getFullYear(),d.getMonth(),d.getDate()-k)/1e3;return t>=m(0)?0:t>=m(1)?1:t>=m(7)?2:3};
+// a section heading only fades the list below it once that list has scrolled up under it
+let stkF=0;const stk=c=>c.querySelectorAll('.sec').forEach(s=>{const n=s.nextElementSibling;s.classList.toggle('stk',!!n&&n.getBoundingClientRect().top<s.getBoundingClientRect().bottom-1)});
+document.addEventListener('scroll',e=>e.target.querySelectorAll&&stk(e.target),{capture:true,passive:true});
+new MutationObserver(()=>stkF||(stkF=requestAnimationFrame(()=>{stkF=0;stk(document)}))).observe(document.body,{childList:true,subtree:true});
 const byDay=(L,row)=>{const g=[[],[],[],[]];L.forEach(x=>g[dgOf(x.mtime)].push(x));return g.map((a,i)=>a.length?`<section><div class=sec>${DG[i]}<span>${a.length}</span></div><div class=card>${a.map(row).join('')}</div></section>`:'').join('')};
 // row menu: right-click, a long press, or the ⋯ that shows on hover
 let lpT,lpOn=0,lpAt=0,lpX=0,lpY=0;const rowAt=e=>e.target.closest('#dl :is(.crow,.prow)');
