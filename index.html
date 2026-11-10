@@ -44,11 +44,12 @@ pre.scr{margin:0;padding:12px 16px;font:11px/1.35 ui-monospace,monospace;overflo
 .sheet input,.sheet select{width:100%;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px;font:inherit}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;z-index:5}
 .sheet[hidden]{display:none}
-.sheet>div>*{flex-shrink:0}/* a long sheet scrolls; without this its fields get squashed to fit instead */
-.sheet>div{background:var(--s);width:100%;max-height:88%;overflow-y:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px}
+#sbody>*{flex-shrink:0}/* a long sheet scrolls; without this its fields get squashed to fit instead */
+.sheet>div{background:var(--s);width:100%;max-height:88%;overflow:hidden;border-radius:18px 18px 0 0;padding:16px 16px 0;display:flex;flex-direction:column;gap:12px}
+#sbody{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:12px;margin:-2px -16px 0;padding:2px 16px calc(16px + env(safe-area-inset-bottom))}
 .sheet h2{margin:0;font-size:16px}
-/* a popup's grabber, back link and title stay put while the rest scrolls under them (wrapped by shHead) */
-.shd{position:sticky;top:-16px;z-index:3;margin:-16px -16px -10px;padding:16px 16px 10px;background:var(--s);display:flex;flex-direction:column;gap:12px}
+/* a popup's back link and title sit above its scrolling body, so they stay put (moved there by shHead) */
+.shd{flex:none;position:relative;z-index:1;display:flex;flex-direction:column;gap:12px}.shd:empty{display:none}
 .shd::after{content:'';position:absolute;left:0;right:0;top:100%;height:14px;background:linear-gradient(var(--s),transparent);pointer-events:none}.lbl{font:600 11px ui-monospace,monospace;text-transform:uppercase;color:var(--m);letter-spacing:.06em}
 .eng{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .eng button{border:1px solid var(--l);background:none;border-radius:12px;padding:10px;text-align:left}
@@ -219,9 +220,9 @@ main,.dl{position:relative;isolation:isolate;background:var(--bg)}.gh{pointer-ev
 .sheet{background:none}.sheet:not(.on){pointer-events:none}
 .sheet::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.5);opacity:0;transition:opacity .36s var(--ez)}.sheet.on::before{opacity:var(--bk,1)}
 /* the panel runs 50vh past the bottom edge so a drag or a shrinking step never shows a gap under it */
-.sheet>div{position:relative;margin-bottom:-50vh;padding-bottom:calc(50vh + 16px + env(safe-area-inset-bottom));max-height:calc(88% + 50vh);overscroll-behavior:none;transform:translateY(calc(100% - 50vh));transition:transform .36s var(--ez)}
+.sheet>div{position:relative;margin-bottom:-50vh;padding-bottom:50vh;max-height:calc(88% + 50vh);transform:translateY(calc(100% - 50vh));transition:transform .36s var(--ez)}
 .sheet.on>div{transform:none}.sheet.drag::before,.sheet.drag>div{transition:none}
-:is(.sheet>div:not(:has(.shd)),.shd)::before{content:'';flex:none;align-self:center;width:36px;height:5px;border-radius:3px;background:var(--l);margin:-8px 0 -4px}
+.sheet>div::before{content:'';flex:none;align-self:center;width:36px;height:5px;border-radius:3px;background:var(--l);margin:-8px 0 -4px}
 .u{transform-origin:100% 100%}
 button{-webkit-touch-callout:none;transition:opacity .25s,transform .25s var(--ez)}button:active{transition:none;opacity:.55}
 :is(.prow,.crow,.row,.pick,.agr,.tgh,.t>button,.slash button,.menu button,.status,.bgh>button,.eng button):active{opacity:1;background:var(--r)}.srow:active{opacity:1;background:var(--l)}
@@ -241,8 +242,8 @@ footer{align-self:center;width:calc(min(var(--col),100%) - 32px);margin-bottom:c
 footer:focus-within{border-color:color-mix(in srgb,var(--c) 50%,var(--l))}footer textarea{background:none;padding-left:6px}
 .toast{left:calc(var(--side) + 16px);margin:auto;width:fit-content;max-width:440px;bottom:110px}
 .sheet{align-items:center;justify-content:center;padding:32px 24px}
-.sheet>div{width:min(560px,100%);max-height:100%;margin:0;padding:20px 22px;border-radius:16px;border:1px solid var(--l);box-shadow:0 24px 70px rgba(0,0,0,.45);transform:translateY(10px) scale(.97);opacity:0}
-.sheet.on>div{transform:none;opacity:1}:is(.sheet>div:not(:has(.shd)),.sheet .shd)::before{content:none}.shd{top:-20px;margin:-20px -22px -10px;padding:20px 22px 10px}}
+.sheet>div{width:min(560px,100%);max-height:100%;margin:0;padding:20px 22px 0;border-radius:16px;border:1px solid var(--l);box-shadow:0 24px 70px rgba(0,0,0,.45);transform:translateY(10px) scale(.97);opacity:0}
+.sheet.on>div{transform:none;opacity:1}.sheet>div::before{content:none}#sbody{margin:-2px -22px 0;padding:2px 22px 20px}}
 @media(min-width:700px) and (prefers-reduced-motion:no-preference){.sheet>div{transition:transform .32s var(--ez),opacity .2s ease-out}}
 @media(min-width:1000px){
 :root{--side:320px}body{padding-left:var(--side)}
@@ -291,9 +292,9 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .arow{display:flex;align-items:center;gap:6px;padding-right:8px}.arow .crow{flex:1;min-width:0}.arow+.arow{border-top:1px solid color-mix(in srgb,var(--l) 70%,transparent)}
 @media(hover:hover) and (pointer:fine){:is(.crow,.prow):hover .rmn{display:grid}.nrow:hover{background:var(--r)}.pjc:hover,.sheet .card .crow:hover{background:var(--l)}}
 /* Scheduled and Artifacts pages: shown in the sheet like Settings, a wider dialog on a computer */
-@media(min-width:700px){.sheet>div:has(>.pg){width:min(700px,100%)}}
+@media(min-width:700px){.sheet>div:has(#sbody>.pg){width:min(700px,100%)}}
 .pg{display:flex;flex-direction:column;gap:10px}.pg h2{margin:0;font-size:16px}.pg .seg{flex:none}.pg .seg b{font:600 11px system-ui,sans-serif;margin-left:4px;padding:1px 6px;border-radius:99px;background:var(--r)}
-.pg .sec{top:-16px;background:var(--s);--fb:var(--s);padding:12px 4px 6px}.pg .card{background:var(--r);display:flex;flex-direction:column}.pg .card+.card{margin-top:8px}
+.pg .sec{top:-2px;background:var(--s);--fb:var(--s);padding:12px 4px 6px}.pg .card{background:var(--r);display:flex;flex-direction:column}.pg .card+.card{margin-top:8px}
 .pg .card>*+*::before{content:'';position:absolute;top:0;right:10px;left:56px;border-top:1px solid var(--l);opacity:.7}.pg .crow{text-decoration:none}.pg .crow.lp{padding-left:28px}.pg .crow.lp::before{left:28px}
 .pg :is(.crow:hover,.crow:active){background:var(--l)}.pg .crow b{font-weight:500}.pg input{width:100%;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px}
 .pg .arti{width:34px;height:34px}.sc.fail{background:#e5484d}.pg .ph{padding:0}.pg .ph span{flex:1;min-width:0}.pg .ph h3{font-size:18px}
@@ -316,7 +317,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 <nav class=drawer id=drawer><div class=dh><label class=qs><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><circle cx=11 cy=11 r=6.5 /><path d="M20 20l-4.2-4.2"/></svg><input id=q type=search placeholder="Search all chats" autocomplete=off></label><button class=ic id=set aria-label=Settings><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=12 cy=12 r=3 /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button><button class=ic id=nc aria-label="New chat"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M18.4 2.6a2 2 0 0 1 2.9 2.9L12 14.8l-4 1 1-4z"/></svg></button></div>
  <div class=dl id=dl></div>
  </nav>
-<div class=sheet id=sheet hidden><div id=sbody></div></div>
+<div class=sheet id=sheet hidden><div id=spanel><div class=shd id=shd></div><div id=sbody></div></div></div>
 <button class=status id=status hidden></button>
 <div class=stats id=stats hidden></div>
 <div class=menu id=menu hidden></div>
@@ -493,7 +494,7 @@ $('sbody').addEventListener('click',e=>{const b=e.target.closest('#pjl button,#p
 function home(){cur=null;$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
  $('main').innerHTML='<div class=empty><p>Pick a chat from the menu, or start a new one.</p><button class=go id=eo>Open menu</button><button class=pick id=en style="text-align:center">New chat</button></div>'}
 /* sheets */
-const sh=$('sheet'),sb=$('sbody');sh.onclick=e=>{if(e.target===sh&&getSelection().isCollapsed)hideSheet()};// not when a text selection drag ends on the backdrop
+const sh=$('sheet'),sp=$('spanel'),sd=$('shd'),sb=$('sbody');sh.onclick=e=>{if(e.target===sh&&getSelection().isCollapsed)hideSheet()};// not when a text selection drag ends on the backdrop
 function engines(){eng=CFG.engines[0].id;const r=CFG.engines.some(e=>e.id=='rotate');if(r)loadAccounts();return`<div class=lbl>Run on</div><div class=eng>${CFG.engines.map((e,i)=>`<button${e.id=='local'?' class=l':''} data-e="${esc(e.id)}" aria-pressed=${!i}><b>${esc(e.label)}</b><br><small>${esc(e.sub)}</small></button>`).join('')}</div>`+
  (r?`<div id=acw${eng=='rotate'?'':' hidden'}><div class=lbl>Account</div><select id=oac><option value="">Automatic</option></select><small class=sub2 style="display:block;margin-top:4px">Automatic moves between plans as limits hit. A named account pins the chat to it.</small></div>`:'')}
 let MODS={};// rclaude account -> model ids it can use, newest first
@@ -857,16 +858,18 @@ function slide(el,dir){if(RM.matches)return;if(el._g)el._g.remove();const g=el._
  const a=dir>0?(anim(el,top,o),anim(g,under,o)):(anim(el,[...under].reverse(),o),anim(g,[...top].reverse(),o));a.onfinish=a.oncancel=()=>{g.remove();if(el._g==g)el._g=null}}
 // sheets: open slides up; called again while open it is a step (dir 1 forward, -1 back); height changes glide (ResizeObserver below)
 let shT,shA,shH=0,shAt=0;
-// pins a popup's leading back link, title and subtitle in one sticky header (inside a page sheet's .pg)
-function shHead(){const p=sb.querySelector(':scope>.pg')||sb;if(!p.firstElementChild||p.firstElementChild.classList.contains('shd'))return;const h=document.createElement('div');h.className='shd';
- for(let n=p.firstElementChild,l;n&&(n.matches('.dback,h2')&&!(l&&l.tagName=='H2')||l&&l.tagName=='H2'&&n.matches('small.sub2'));n=p.firstElementChild){h.append(n);l=n}if(h.firstChild)p.prepend(h)}
-new MutationObserver(shHead).observe(sb,{childList:true});
-function showSheet(dir){shHead();clearTimeout(shT);if(sh.hidden||!sh.classList.contains('on')){sh.hidden=false;sb.scrollTop=0;sh.offsetWidth;sh.classList.add('on');shH=sb.offsetHeight;shAt=performance.now();return}
- if(dir){sb.scrollTop=0;[...sb.children].forEach(c=>enter(c,{opacity:0,transform:`translateX(${dir*32}px)`},{duration:300}))}}
-function hideSheet(){if(sh.hidden)return;if(shA)shA.cancel();sh.classList.remove('on','drag');sb.style.transform='';sh.style.removeProperty('--bk');
+// a popup's leading back link, title and subtitle go in the header above its scrolling body (in a page sheet, from its .pg).
+// New content (innerHTML) replaces the header; content added to the body leaves it alone
+function shHead(rs){const p=sb.querySelector(':scope>.pg')||sb,h=[];
+ for(let n=p.firstElementChild,l;n&&n.matches(!l?'.dback,h2':l.tagName=='H2'?'small.sub2':l.matches('.dback')?'h2':':not(*)');n=n.nextElementSibling)h.push(l=n);
+ if(h.length||rs.some(x=>x.removedNodes.length)){sd.replaceChildren(...h);shMO.takeRecords()}}// not our own move
+const shMO=new MutationObserver(shHead);shMO.observe(sb,{childList:true});
+function showSheet(dir){shHead(shMO.takeRecords());clearTimeout(shT);if(sh.hidden||!sh.classList.contains('on')){sh.hidden=false;sb.scrollTop=0;sh.offsetWidth;sh.classList.add('on');shH=sp.offsetHeight;shAt=performance.now();return}
+ if(dir){sb.scrollTop=0;[sd,...sb.children].forEach(c=>enter(c,{opacity:0,transform:`translateX(${dir*32}px)`},{duration:300}))}}
+function hideSheet(){if(sh.hidden)return;if(shA)shA.cancel();sh.classList.remove('on','drag');sp.style.transform='';sh.style.removeProperty('--bk');
  if(sh.contains(document.activeElement))document.activeElement.blur();clearTimeout(shT);shT=setTimeout(()=>{if(!sh.classList.contains('on'))sh.hidden=true},RM.matches?0:380)}
-new ResizeObserver(()=>{const h=sb.offsetHeight,d=h-shH;shH=h;if(!d||sh.hidden||!sh.classList.contains('on')||sh.classList.contains('drag')||performance.now()-shAt<380)return;
- if(shA)shA.cancel();shA=enter(sb,{transform:`translateY(${Math.max(d,-innerHeight/2)/(DLG.matches?2:1)}px)`},{duration:340})}).observe(sb);
+new ResizeObserver(()=>{const h=sp.offsetHeight,d=h-shH;shH=h;if(!d||sh.hidden||!sh.classList.contains('on')||sh.classList.contains('drag')||performance.now()-shAt<380)return;
+ if(shA)shA.cancel();shA=enter(sp,{transform:`translateY(${Math.max(d,-innerHeight/2)/(DLG.matches?2:1)}px)`},{duration:340})}).observe(sp);
 // a finger-following drag: ok() claims the gesture on its first move, mv() follows, up() settles with the release velocity (px/ms)
 function drag(el,ok,mv,up){let x,y,on=0,px,py,pt,vx,vy;
  el.addEventListener('touchstart',e=>{const t=e.touches[0];on=e.touches.length==1?-1:0;x=px=t.clientX;y=py=t.clientY;pt=e.timeStamp;vx=vy=0},{passive:true});
@@ -875,11 +878,11 @@ function drag(el,ok,mv,up){let x,y,on=0,px,py,pt,vx,vy;
  const end=c=>e=>{if(on!=1){on=0;return}on=0;const t=e.changedTouches[0]||{clientX:px,clientY:py},still=e.timeStamp-pt>90;c?up(0,0,0,0):up(t.clientX-x,t.clientY-y,still?0:vx,still?0:vy)};
  el.addEventListener('touchend',end(0));el.addEventListener('touchcancel',end(1))}
 let shY=0,shV=1;
-drag(sb,(dx,dy,x,y,e)=>{if(!sh.classList.contains('on')||dy<=0||dy<Math.abs(dx))return false;const top=sb.getBoundingClientRect().top;
+drag(sp,(dx,dy,x,y,e)=>{if(!sh.classList.contains('on')||dy<=0||dy<Math.abs(dx))return false;const top=sp.getBoundingClientRect().top;
   if(y-top>28&&!e.target.closest('.shd')){if(sb.scrollTop>0)return false;for(let n=e.target;n&&n!=sb;n=n.parentNode)if(n.scrollTop>0)return false}// a scrolled list scrolls; the grabber always drags
   if(shA)shA.cancel();shV=Math.max(1,innerHeight-top);shY=0;sh.classList.add('drag');return true},
- (dx,dy)=>{shY=dy>0?dy:dy/4;sb.style.transform=`translateY(${shY}px)`;sh.style.setProperty('--bk',Math.max(0,1-shY/shV))},
- (dx,dy,vx,vy)=>{sh.classList.remove('drag');sb.style.transform='';sh.style.removeProperty('--bk');if(shY>shV*.3||vy>.5)hideSheet()});
+ (dx,dy)=>{shY=dy>0?dy:dy/4;sp.style.transform=`translateY(${shY}px)`;sh.style.setProperty('--bk',Math.max(0,1-shY/shV))},
+ (dx,dy,vx,vy)=>{sh.classList.remove('drag');sp.style.transform='';sh.style.removeProperty('--bk');if(shY>shV*.3||vy>.5)hideSheet()});
 // drawer: drag it shut, swipe right in a project to go back, or pull it out from the left edge (in a subagent the edge swipe goes back)
 const DR=$('drawer'),SC=$('scrim'),dw=()=>DR.offsetWidth;
 const dSet=x=>{if(!DR.classList.contains('drag')){DR.classList.add('drag');SC.classList.add('drag')}DR.style.transform=`translateX(${x}px)`;SC.style.opacity=Math.max(0,1+x/dw())};
@@ -946,7 +949,7 @@ function gkey(e){const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.cod
  return null}
 document.addEventListener('keydown',e=>{const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.code,a=document.activeElement;let f;
  if(e.key=='Escape'&&sh.classList.contains('on'))f=hideSheet;
- else if(e.key=='Tab'&&sh.classList.contains('on')){const F=[...sb.querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(x=>!x.disabled&&x.offsetParent),i=F.indexOf(a);// keep Tab inside the dialog
+ else if(e.key=='Tab'&&sh.classList.contains('on')){const F=[...sh.querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(x=>!x.disabled&&x.offsetParent),i=F.indexOf(a);// keep Tab inside the dialog
   if(F.length&&(e.shiftKey?i<=0:i==F.length-1||i<0))f=()=>F[e.shiftKey?F.length-1:0].focus();else return}
  else if(e.key=='Escape'&&a==$('ta')&&!($('slash').hidden&&$('at').hidden))f=()=>$('slash').hidden=$('at').hidden=true;
  else if(!started||!$('lock').hidden)return;
