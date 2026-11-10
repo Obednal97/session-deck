@@ -16,12 +16,14 @@ It's one Python file and one HTML file, with no build step and no framework.
 - **Live chats.** Every Claude Code session running in tmux shows up as a chat, with its project, whether it's working, waiting for you or done, and an attention count on the ones that need you.
 - **History.** Past sessions, grouped by project and searchable. Resume or fork any of them.
 - **Pins, projects and archive.** Pin chats and projects to the top of the list, archive chats you're done with, and browse every project on its own page, its chats grouped by day. Pins and archive are kept on the Mac, so your phone and computer agree.
-- **Reply and approve.** Type into a session, answer its questions and permission prompts, or use the key bar (Esc, arrows, Tab, Ctrl-C) for anything else.
-- **Start chats.** Pick a folder, a permission mode, model and effort, a git worktree, and which Claude to run (see [Engines](#engines)).
+- **Scheduled.** Your launchd jobs in one place: each schedule in words, the next and last run, whether it worked, the log, and Run now or Pause. Loops running inside chats (`/loop`) are listed too.
+- **Artifacts.** Every artifact your sessions published, found in their transcripts, with the chat it came from. With `rclaude`, it also shows which account owns each one and which still need sharing with your other accounts.
+- **Reply and approve.** Type into a session, answer its questions (full text, several at once, multi-select) and permission prompts, or use the key bar (Esc, arrows, Tab, Ctrl-C) for anything else.
+- **Start and end chats.** Pick a folder, a permission mode, model and effort, a git worktree, and which Claude to run (see [Engines](#engines)), or with `rclaude`, which account. End a chat from its menu; chats idle for 3 days end themselves.
 - **See the work.** Tool calls, edit diffs with real line numbers, the session's git changes, subagents (with tokens, time and nested subagents), and background shell processes, which you can stop.
 - **Terminal view.** The raw tmux pane, resized to fit your screen while it's open.
 - **Uploads.** Paste or attach screenshots and files (up to 1 GB each); the session gets a path it can read.
-- **Notifications.** Web Push when a session finishes or needs permission, with an app badge.
+- **Notifications.** Web Push when a session finishes or needs you, on every device you switch them on for, except the one you're looking at the chat on. App badge included.
 - **Face ID.** Each device signs in with a passkey, bound to your Tailscale login.
 - **Several people** (optional). One shared address for everyone on the Mac: each person gets their own deck, running as their own macOS account, and only sees their own sessions.
 - **Desktop.** Install it as an app from Chrome or Safari, open up to four chats side by side, and hide the list (it peeks out from the left edge).
