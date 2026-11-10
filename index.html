@@ -219,7 +219,7 @@ main,.dl{position:relative;isolation:isolate;background:var(--bg)}.gh{pointer-ev
 .sheet{background:none}.sheet:not(.on){pointer-events:none}
 .sheet::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.5);opacity:0;transition:opacity .36s var(--ez)}.sheet.on::before{opacity:var(--bk,1)}
 /* the panel runs 50vh past the bottom edge so a drag or a shrinking step never shows a gap under it */
-.sheet>div{position:relative;margin-bottom:-50vh;padding-bottom:calc(50vh + 16px + env(safe-area-inset-bottom));max-height:calc(88% + 50vh);overscroll-behavior:contain;transform:translateY(calc(100% - 50vh));transition:transform .36s var(--ez)}
+.sheet>div{position:relative;margin-bottom:-50vh;padding-bottom:calc(50vh + 16px + env(safe-area-inset-bottom));max-height:calc(88% + 50vh);overscroll-behavior:none;transform:translateY(calc(100% - 50vh));transition:transform .36s var(--ez)}
 .sheet.on>div{transform:none}.sheet.drag::before,.sheet.drag>div{transition:none}
 :is(.sheet>div:not(:has(.shd)),.shd)::before{content:'';flex:none;align-self:center;width:36px;height:5px;border-radius:3px;background:var(--l);margin:-8px 0 -4px}
 .u{transform-origin:100% 100%}
