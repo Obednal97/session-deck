@@ -117,6 +117,11 @@ def cwd_of(pid):
 def project_dir(cwd):
     return PROJ / re.sub(r"[/.]", "-", cwd)
 
+def age(pid):
+    """Seconds since a process started (ps etime is [[dd-]hh:]mm:ss)."""
+    t = run("ps", "-o", "etime=", "-p", str(pid)).strip().replace("-", ":").split(":")
+    return sum(int(x) * m for x, m in zip(reversed(t), (1, 60, 3600, 86400))) if all(x.isdigit() for x in t) else 1e9
+
 def newest(d, exclude=()):
     fs = [f for f in d.glob("*.jsonl") if f.stem not in exclude]
     return max(fs, key=lambda f: f.stat().st_mtime, default=None)
@@ -216,6 +221,18 @@ def perm_detail(L, j):
         found = re.findall(r"(\d): (\w+)", l)
         if len(found) >= 3 and i and "?" in L[i - 1]:
             return {"question": L[i - 1].strip().lstrip("\u25cf ").strip(), "options": [{"label": b, "key": a, "desc": ""} for a, b in found], "mode": "keys"}
+
+def input_box(key, wait=0):
+    """What sits in Claude's input box (the ❯ line between the last two rules), "" when empty, None when no box shows.
+    With wait, polls up to that many seconds for the box to appear (a chat that is still starting up)."""
+    end = time.time() + wait
+    while True:
+        L = tm(key, "capture-pane", "-p", "-t", "{P}").splitlines()
+        r = [i for i, l in enumerate(L) if len(l.strip()) >= 20 and l.strip().count("─") > 0.8 * len(l.strip())]
+        if len(r) >= 2 and r[-1] - r[-2] >= 2 and L[r[-2] + 1].lstrip().startswith("❯"):
+            return "\n".join(L[r[-2] + 1:r[-1]]).strip().lstrip("❯").strip()
+        if time.time() >= end: return None
+        time.sleep(0.25)
 
 def pane_screen(key):
     scr = tm(key, "capture-pane", "-e", "-p", "-t", "{P}")
@@ -322,12 +339,13 @@ def _live_sessions():
             claimed.add(sid)
         else:
             cwd, f = cwd_of(p) or "", None
-            fallback.append(len(out))
+            fallback.append((len(out), p))
         out.append({"pane": pid_, "where": loc, "name": wname, "cwd": cwd, "engine": _engine[p], "plan": plan, "pinned": pinned, "file": f, "cmd": cmd,
                     "state": sf.get("status") if sf else None, **pane_screen(pid_)})
-    for i in fallback:  # no <pid>.json: guess from --resume, else the newest transcript in the folder that no other chat has
-        s = out[i]; d = project_dir(s["cwd"]); m = re.search(r"--resume (\S{36})", s["cmd"])
+    for i, p in fallback:  # no <pid>.json: guess from --resume, else the newest transcript in the folder that no other chat has,
+        s = out[i]; d = project_dir(s["cwd"]); m = re.search(r"--resume (\S{36})", s["cmd"])  # written since this chat started
         f = (d / f"{m.group(1)}.jsonl") if m and (d / f"{m.group(1)}.jsonl").exists() else newest(d, claimed)
+        if f and not m and f.stat().st_mtime < time.time() - age(p) - 5: f = None  # a chat that has just started: an earlier chat's
         if f: claimed.add(f.stem)
         s["file"] = f
     for k in [k for k in _engine if k not in table]: del _engine[k]
@@ -647,6 +665,7 @@ def parse_lines(lines, n0, items, delivered, side):
 
 CTRL_C = {}  # pane -> when the deck last sent Ctrl-C
 SENT = {}  # session -> [(text, time)] sent from the deck; Claude Code doesn't save text queued during /compact
+SENT_IDS = {}  # the page's id for each message -> the reply, so a request repeated after a dropped connection isn't sent twice
 
 def tail(f, size=3_000_000):
     with open(f, "rb") as h:
@@ -1868,21 +1887,27 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/send":
             if pane_screen(pane)["menu"]: return self.send(409, {"error": "Claude is asking a question. Answer it first."})
             text = str(body.get("text", ""))[:20000]
+            if body.get("id") and SENT_IDS.get(body["id"]): return self.send(200, SENT_IDS[body["id"]])  # a retried request: sent already
             files = attached(body.get("files", []))
             if files is None: return self.send(400, {"error": "files"})
             imgs = [f for f in files if f.suffix[1:] in IMG]
             if len(imgs) < len(files):  # Claude opens other files itself when it sees the path
                 text = (text.rstrip() + "\n\n" + "\n".join(f"Attached: {f} ({NAMES.get(str(f), f.name)}, {human(f.stat().st_size)})" for f in files if f not in imgs)).strip()
+            input_box(pane, 15)  # a chat that is still starting: wait for its input box, or the paste lands nowhere
             if imgs:  # pasted on their own, the paths become [Image #N]; the text must be a separate paste after them
                 tm(pane, "set-buffer", "-b", "deck", " ".join(f'"{f}"' for f in imgs))
                 tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}"); time.sleep(0.4)
             if text or not imgs:
                 tm(pane, "set-buffer", "-b", "deck", (" " if imgs else "") + text)
                 tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
-            time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
+            for i in range(5):  # Claude drops an Enter that comes while it is still starting up: press it again until the box empties
+                time.sleep(0.15 if i == 0 else 0.8); tm(pane, "send-keys", "-t", "{P}", "Enter"); time.sleep(0.4)
+                if not input_box(pane): break
             sid = next((x.get("session") for x in live_sessions() if x["pane"] == pane), None)
             if sid and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), time.time()))
-            return self.send(200, {"ok": True, "text": text})
+            r = {"ok": True, "text": text}
+            if body.get("id"): SENT_IDS[str(body["id"])[:40]] = r; [SENT_IDS.pop(k) for k in list(SENT_IDS)[:-50]]
+            return self.send(200, r)
         if self.path == "/api/choose":
             m = pane_screen(pane)["menu"]  # same parse as /api/status, so it compares equal to what the page drew
             if not m: return self.send(409, {"error": "That question has gone."})
