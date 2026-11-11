@@ -10,7 +10,7 @@ const COL=parent!==window&&new URLSearchParams(location.search).get('col');if(CO
 :root{color-scheme:dark;--bg:#0e1118;--s:#171b25;--r:#1f2430;--l:#2b3242;--fg:#e7ebf3;--m:#8c97ab;--c:var(--cd,#7d9bff);--o:#f0b25e;--g:#4cc47f;--on:#0e1118}
 @media(prefers-color-scheme:light){:root:not([data-theme=dark]){color-scheme:light;--bg:#f3f5f8;--s:#fff;--r:#eaeef4;--l:#d6dce6;--fg:#161b26;--m:#5b6677;--c:var(--cl,#2f5bd8);--o:#a8650a;--g:#1f8a4c;--on:var(--onl,#fff)}}
 :root[data-theme=light]{color-scheme:light;--bg:#f3f5f8;--s:#fff;--r:#eaeef4;--l:#d6dce6;--fg:#161b26;--m:#5b6677;--c:var(--cl,#2f5bd8);--o:#a8650a;--g:#1f8a4c;--on:var(--onl,#fff)}
-[hidden]{display:none!important}*{box-sizing:border-box}html,body{height:100%;margin:0}
+[hidden]{display:none!important}*{box-sizing:border-box}html,body{height:100%;margin:0}html{-webkit-text-size-adjust:100%;text-size-adjust:100%}/* else iOS enlarges message text in landscape and can keep it */
 body{background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
 header{display:flex;gap:10px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--l)}
 header h1{font-size:16px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
