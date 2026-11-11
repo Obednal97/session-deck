@@ -776,11 +776,13 @@ $('clip').onclick=()=>$('fi').click();$('fi').onchange=()=>{attach([...$('fi').f
 $('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
 $('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
 const vv=window.visualViewport;
-if(vv){let lh=0,ft;/* always pin the page to the visible area: newer iOS shrinks innerHeight with the keyboard too, so guessing "keyboard open" from the two heights failed and left the page scrolled up */
- const top=()=>{document.body.style.top=Math.max(0,vv.offsetTop)+'px'};
- const fit=()=>{top();document.body.style.height=vv.height+'px';clearTimeout(ft);ft=setTimeout(()=>{top();document.body.style.height=vv.height+'px'},350);
+if(vv){let lh=0,ft=[];/* while typing, pin the page to the visible area: newer iOS shrinks innerHeight with the keyboard too, so guessing "keyboard open" from the two heights failed and left the page scrolled up.
+ With nothing being typed in, the page fills the screen and a scrolled viewport is put back: after a rotation iOS can leave it offset (a gap above the header, taps landing off target) */
+ const kb=()=>{const a=document.activeElement;return!!a&&a.matches('textarea,input:not([type=checkbox],[type=radio],[type=range])')},
+  top=()=>{const k=kb(),s=document.body.style;if(!k&&(vv.offsetTop||scrollY||scrollX))scrollTo(0,0);s.top=k?Math.max(0,vv.offsetTop)+'px':'0';s.height=k?vv.height+'px':''};
+ const fit=()=>{top();ft.forEach(clearTimeout);ft=[350,900].map(t=>setTimeout(top,t));
  if(vv.height!==lh){const m=$('main'),atEnd=m.scrollHeight-m.scrollTop-m.clientHeight<120;lh=vv.height;if(atEnd)requestAnimationFrame(()=>m.scrollTop=m.scrollHeight)}};
- vv.addEventListener('resize',fit);vv.addEventListener('scroll',top);fit()}
+ vv.addEventListener('resize',fit);vv.addEventListener('scroll',top);addEventListener('orientationchange',fit);addEventListener('focusout',()=>setTimeout(top));fit()}
 $('ta').addEventListener('focus',()=>document.body.classList.add('kb'));$('ta').addEventListener('blur',()=>document.body.classList.remove('kb'));
 /* attention badges, Web Push and home-screen install */
 $('mb').insertAdjacentHTML('beforeend','<b class=bdg id=mbn hidden></b>');
