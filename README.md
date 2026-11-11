@@ -4,11 +4,11 @@ Your Claude Code sessions on your phone. Session Deck is a small web app that sh
 
 <p>
 <img src="docs/screenshots/phone-chat.png" width="270" alt="A chat with an edit diff on a phone">
-<img src="docs/screenshots/phone-list.png" width="270" alt="The chat list with Projects, Scheduled, Artifacts and pinned items on a phone">
+<img src="docs/screenshots/phone-list.png" width="270" alt="The chat list with Projects, Schedule, Artifacts and pinned items on a phone">
 <img src="docs/screenshots/phone-question.png" width="270" alt="A question from Claude with topic tabs and a recommended answer on a phone">
 </p>
 <p>
-<img src="docs/screenshots/phone-scheduled.png" width="270" alt="Scheduled jobs and loops on a phone">
+<img src="docs/screenshots/phone-scheduled.png" width="270" alt="The Schedule page on a phone">
 <img src="docs/screenshots/phone-agents.png" width="270" alt="Subagents on a phone">
 </p>
 <img src="docs/screenshots/desktop-split.png" alt="Two chats side by side on a desktop">
@@ -21,7 +21,7 @@ It's one Python file and one HTML file, with no build step and no framework.
 - **Live chats.** Every Claude Code session running in tmux shows up as a chat, with its project, whether it's working, waiting for you or done, and an attention count on the ones that need you.
 - **History.** Past sessions, grouped by project and searchable. Resume or fork any of them.
 - **Pins, projects and archive.** Pin chats and projects to the top of the list, archive chats you're done with, and browse every project on its own page, its chats grouped by day. Pins and archive are kept on the Mac, so your phone and computer agree.
-- **Scheduled.** Your launchd jobs in one place: each schedule in words, the next and last run, whether it worked, the log, and Run now or Pause. Loops running inside chats (`/loop`) are listed too.
+- **Schedule.** Your launchd jobs in one place: each schedule in words, the next and last run, whether it worked, the log, and Run now or Pause. On an admin account the Mac's own LaunchDaemons are listed too, read-only. Loops running inside chats (`/loop`) are listed too.
 - **Artifacts.** Every artifact your sessions published, found in their transcripts, with the chat it came from. With `rclaude`, it also shows which account owns each one and which still need sharing with your other accounts.
 - **Reply and approve.** Type into a session, answer its questions (full text, several at once, multi-select) and permission prompts, or use the key bar (Esc, arrows, Tab, Ctrl-C) for anything else.
 - **Start and end chats.** Pick a folder, a permission mode, model and effort, a git worktree, and which Claude to run (see [Engines](#engines)), or with `rclaude`, which account. End a chat from its menu; chats idle for 3 days end themselves.

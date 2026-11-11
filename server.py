@@ -1136,9 +1136,14 @@ def tidy_loop():
         try: tidy_uploads()
         except Exception: pass
         time.sleep(3600)
-# --- Scheduled page: this account's launchd jobs, and the loops (CronCreate) inside live chats ---
-import plistlib, datetime
+# --- Schedule page: this account's launchd jobs, the Mac's own (LaunchDaemons, admins only, read-only), and the loops (CronCreate) inside live chats ---
+import plistlib, datetime, grp, pwd
 AGENTS, DOM = HOME / "Library/LaunchAgents", f"gui/{os.getuid()}"
+DAEMONS = Path("/Library/LaunchDaemons")
+def is_admin():
+    try: return pwd.getpwuid(os.getuid()).pw_name in grp.getgrnam("admin").gr_mem
+    except KeyError: return False
+ADMIN = is_admin()  # only an admin's deck lists the Mac's own jobs; other accounts' decks never see them
 VENDOR = ("com.apple.", "com.google.", "com.microsoft.", "com.adobe.", "homebrew.", "us.zoom.")  # other apps' agents: not yours to run
 SELF = "local.session-deck"  # the deck's own job is never run or paused from the deck
 WD, MON = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"], "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
@@ -1198,7 +1203,7 @@ def jobs(fresh=False):
     if not fresh and _jobs[1] is not None and time.time() - _jobs[0] < 8: return _jobs[1]
     off = set(re.findall(r'"([^"]+)" => (?:disabled|true)', lc("print-disabled", DOM)[1]))
     out = []
-    for p in sorted(AGENTS.glob("*.plist")):
+    for p, dom in [*((p, DOM) for p in sorted(AGENTS.glob("*.plist"))), *((p, "system") for p in (sorted(DAEMONS.glob("*.plist")) if ADMIN else []))]:
         try: d = plistlib.loads(p.read_bytes())
         except Exception: continue
         label = d.get("Label") if isinstance(d, dict) else None
@@ -1206,19 +1211,19 @@ def jobs(fresh=False):
         argv = d.get("ProgramArguments") or [d.get("Program")]
         argv = [str(x) for x in argv if x is not None] if isinstance(argv, list) else []
         logs = list(dict.fromkeys(os.path.expanduser(x) for x in (d.get("StandardOutPath"), d.get("StandardErrorPath")) if isinstance(x, str)))
-        rc, pr = lc("print", f"{DOM}/{label}")
+        rc, pr = lc("print", f"{dom}/{label}")
         g = lambda k: (re.search(rf"^\t{k} = (.+)$", pr, re.M) or [None, None])[1] if not rc else None
         ex = re.match(r"-?\d+", g("last exit code") or ""); sci, si = d.get("StartCalendarInterval"), d.get("StartInterval")
-        trig = [w for k, w in (("KeepAlive", "Kept running"), ("RunAtLoad", "At login"), ("WatchPaths", "When files change"),
+        trig = [w for k, w in (("KeepAlive", "Kept running"), ("RunAtLoad", "At startup" if dom == "system" else "At login"), ("WatchPaths", "When files change"),
                                ("QueueDirectories", "When files arrive"), ("StartOnMount", "When a disk mounts")) if d.get(k)]
         when = cal_words(sci) if cal(sci) else every(si) if isinstance(si, int) and si > 0 else " · ".join(trig) or "Only when started"
-        if (sci or si) and d.get("RunAtLoad"): when += ", and at login"
+        if (sci or si) and d.get("RunAtLoad"): when += ", and at startup" if dom == "system" else ", and at login"
         out.append({"label": label, "name": d.get("Comment") if isinstance(d.get("Comment"), str) else re.sub(r"^(local|com|org|net|io|dev|app|uk|me)\.", "", label).replace(".", " ").replace("-", " ").replace("_", " ").capitalize(),
                     "kind": "sched" if cal(sci) or si else "service", "cal": bool(cal(sci)), "when": when, "next": next_run(sci) if cal(sci) else None,
                     "cmd": short_cmd(argv), "argv": " ".join(x.replace(str(HOME), "~") for x in argv)[:2000], "plist": str(p).replace(str(HOME), "~"),
                     "last": max((os.stat(x).st_mtime for x in logs if os.path.isfile(x)), default=None), "loaded": not rc,
                     "running": (g("pid") or "").isdigit(), "runs": int(g("runs")) if (g("runs") or "").isdigit() else None,
-                    "exit": int(ex.group()) if ex else None, "paused": label in off, "self": label.startswith(SELF),
+                    "exit": int(ex.group()) if ex else None, "paused": dom == DOM and label in off, "self": label.startswith(SELF), "system": dom == "system",
                     "_plist": str(p), "_logs": logs})
     _jobs[:] = [time.time(), out]; return out
 
@@ -1243,6 +1248,7 @@ def job_action(label, action):
     j = job(label)
     if not j: return {"error": "That job isn't in the list."}
     if j["self"]: return {"error": "The deck's own job can't be run or paused from here."}
+    if j["system"]: return {"error": "The Mac's own jobs run as root, so they can't be run or paused from here."}
     t = f"{DOM}/{label}"
     steps = {"run": [("kickstart", t)], "pause": [("disable", t)] + ([("bootout", t)] if j["loaded"] else []),
              "resume": [("enable", t)] + ([] if j["loaded"] else [("bootstrap", DOM, j["_plist"])])}.get(action)

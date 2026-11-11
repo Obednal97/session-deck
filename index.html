@@ -433,7 +433,7 @@ const IC={projects:SVG('<path d="M3 7.5a2 2 0 0 1 2-2h4l2 2.2h8a2 2 0 0 1 2 2V17
  artifacts:SVG('<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/>'),chat:SVG('<path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17h-8l-5 4v-4H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 5z"/>'),
  pin:SVG('<path d="M9 3.5h6l-1 6.5 3.5 3.5h-11L10 10z"/><path d="M12 13.5V21"/>'),archive:SVG('<rect x=3 y=4 width=18 height=5 rx=1.5 /><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>')};
 const MORE='<i class=rmn title="Pin or archive">⋯</i>';
-window.NAV=[{id:'projects',label:'Projects',icon:IC.projects,open:()=>openProjects()},{id:'scheduled',label:'Scheduled',icon:IC.scheduled,open:()=>window.openScheduled&&openScheduled()},
+window.NAV=[{id:'projects',label:'Projects',icon:IC.projects,open:()=>openProjects()},{id:'scheduled',label:'Schedule',icon:IC.scheduled,open:()=>window.openScheduled&&openScheduled()},
  {id:'artifacts',label:'Artifacts',icon:IC.artifacts,open:()=>window.openArtifacts&&openArtifacts()}];
 const DOTS={};window.navDot=(id,on)=>{DOTS[id]=!!on;if(dOpen)drawMenu()};
 const navHTML=()=>`<div class=nav>${NAV.filter(x=>typeof window['open'+x.id[0].toUpperCase()+x.id.slice(1)]=='function').map(x=>`<button class=nrow data-nav="${esc(x.id)}">${x.icon}<span>${esc(x.label)}</span>${DOTS[x.id]?'<i class=ndot></i>':''}</button>`).join('')}</div>`;
@@ -450,7 +450,7 @@ window.openPin=x=>x.type=='chat'?openChat(x.id,x):x.type=='project'?openProj(x.i
 if(COL){const P=parent;prefs=b=>P.prefs(b);isArc=id=>P.isArc(id);window.isPinned=(t,i)=>P.isPinned(t,i);window.pinToggle=x=>P.pinToggle(x);window.openPin=x=>P.openPin(x)}
 function pinRow(x,i){const ic=k=>`<i class=tl style="--h:var(--c)">${IC[k]}</i>`;
  if(x.type=='project'){const n=live.filter(s=>proj(s.cwd)==x.id).length;return`<button class=prow data-p="${esc(x.id)}">${tile(x.id)}<span><b>${esc(x.id)}</b><small>Project${n?' · '+n+' live':''}</small></span>${MORE}</button>`}
- if(x.type!='chat')return`<button class=crow data-pin=${i}>${ic(x.type=='job'?'scheduled':'artifacts')}<span><b>${esc(x.title||x.id)}</b><small>${x.type=='job'?'Scheduled':'Artifact'}${x.sub?' · '+esc(x.sub):''}</small></span>${MORE}</button>`;
+ if(x.type!='chat')return`<button class=crow data-pin=${i}>${ic(x.type=='job'?'scheduled':'artifacts')}<span><b>${esc(x.title||x.id)}</b><small>${x.type=='job'?'Schedule':'Artifact'}${x.sub?' · '+esc(x.sub):''}</small></span>${MORE}</button>`;
  const s=live.find(l=>l.session==x.id),h=s||hist.find(l=>l.session==x.id)||x,on=cur&&cur.session==x.id||OPEN.has(s?s.pane:x.id);
  return`<button class="crow${on?' cur':''}" ${s?`data-pane="${esc(s.pane)}"`:`data-h="${esc(x.id)}" data-c="${esc(h.cwd||'')}"`}>${ic('chat')}<span><b>${esc(h.title||h.name||x.title||'Chat')}</b><small>${h.cwd?esc(proj(h.cwd))+' · ':''}${s?s.working?'<span class=work>working</span>':'live':h.mtime?ago(h.mtime):'pinned'}</small></span>${s?`<i class="sc ${stc(s)}"></i>`:''}${MORE}</button>`}
 // a project's chats by day, like the Claude app: Today, Yesterday, Previous 7 days, Earlier
@@ -465,7 +465,7 @@ let lpT,lpOn=0,lpAt=0,lpX=0,lpY=0;const rowAt=e=>e.target.closest('#dl :is(.crow
 function rowItem(b){const d=b.dataset;if(d.p)return{type:'project',id:d.p,title:d.p};if(d.pin)return PREFS.pins[+d.pin];
  const s=d.pane?live.find(x=>x.pane==d.pane):hist.find(x=>x.session==d.h)||PREFS.pins.find(x=>x.type=='chat'&&x.id==d.h);return s&&(s.session||s.id||d.pane)?{type:'chat',id:s.session||s.id||'',title:s.title||s.name||'',cwd:s.cwd||''}:null}
 function rowMenu(b){const x=rowItem(b);if(!x||Date.now()-lpAt<700)return;lpAt=Date.now();const lp=x.type=='chat'&&(b.dataset.pane||(live.find(l=>l.session==x.id)||{}).pane),c=x.type=='chat',pr=x.type=='project',a=c?isArc(x.id):pr&&arcP(x.id);
- sb.innerHTML=`<h2>${esc(x.title||x.id)}</h2><small class=sub2>${c?esc(x.cwd?proj(x.cwd):'Chat'):pr?'Project':x.type=='job'?'Scheduled':'Artifact'}</small>`+(x.id?`<button class=pick id=apin style="text-align:center">${isPinned(x.type,x.id)?'Unpin':'Pin'}</button>`:'')+
+ sb.innerHTML=`<h2>${esc(x.title||x.id)}</h2><small class=sub2>${c?esc(x.cwd?proj(x.cwd):'Chat'):pr?'Project':x.type=='job'?'Schedule':'Artifact'}</small>`+(x.id?`<button class=pick id=apin style="text-align:center">${isPinned(x.type,x.id)?'Unpin':'Pin'}</button>`:'')+
   ((c||pr)&&x.id?`<button class=pick id=aarc style="text-align:center">${a?'Unarchive':'Archive'}${c&&!a&&live.some(l=>l.session==x.id)?'<small>It stays under Active until it ends</small>':''}</button>`:'')+(lp?'<button class=pick id=endb style="text-align:center;color:#e5484d">End chat</button>':'');showSheet();
  if($('apin'))$('apin').onclick=()=>{hideSheet();pinToggle(x)};if($('aarc'))$('aarc').onclick=()=>{hideSheet();arcSet(x,!a)};if(lp)twice($('endb'),'Tap again to end this chat',()=>endChat(lp))}
 $('dl').addEventListener('contextmenu',e=>{const b=rowAt(e);if(b){e.preventDefault();rowMenu(b)}});
@@ -1063,27 +1063,27 @@ const pinI=(type,id,t)=>window.pinToggle?`<i class=pin data-pin="${type}" data-i
 const until=t=>{const m=Math.round((t-Date.now()/1e3)/60);return m<1?'now':m<90?'in '+m+'m':m<2160?'in '+Math.round(m/60)+'h':'in '+Math.round(m/1440)+'d'};
 const pgSet=h=>{if(h!==PG.key){PG.key=h;sb.innerHTML=h}};
 function pgOpen(k,o,head){if(COL&&parent.deck)return false;closeMenu();PG={k,...o};sb.innerHTML=`<div class=pg data-k=${k}>${head}</div>`;showSheet(-1);pgLoad();return true}
-window.openScheduled=id=>pgOpen('sched',{tab:'s',det:id||null},'<h2>Scheduled</h2><div class=none>Loading…</div>')||parent.openScheduled(id);
+window.openScheduled=id=>pgOpen('sched',{tab:'s',det:id||null},'<h2>Schedule</h2><div class=none>Loading…</div>')||parent.openScheduled(id);
 window.openArtifacts=id=>pgOpen('art',{tab:'all',q:'',hi:id||null},'<h2>Artifacts</h2><div class=seg id=pgtab></div><input id=pgq type=search placeholder="Search artifacts" autocomplete=off><div id=pgl><div class=none>Loading…</div></div>')||parent.openArtifacts(id);
 async function pgLoad(){const me=PG;let d;try{d=await api(me.k=='sched'?'/api/scheduled':'/api/artifacts')}catch(e){return}if(PG===me){me.d=d;pgDraw()}}
 function pgDraw(){if(!PG||!PG.d||!sb.querySelector(`.pg[data-k=${PG.k}]`))return;if(PG.k=='art')return artDraw();ls('schSeen',Date.now()/1e3);window.navDot&&navDot('scheduled',false);PG.det?schDet():schDraw()}
-/* Scheduled: launchd jobs (Scheduled and Services tabs), loops in live chats, and a link to the cloud routines */
+/* Schedule: launchd jobs (Scheduled and Services tabs; yours, then the Mac's own, read-only), loops in live chats, and a link to the cloud routines */
 const jobSt=j=>j.running?['ok','Running']:j.paused?['','Paused']:!j.loaded?['','Not loaded']:null;
 const jobRow=j=>{const s=jobSt(j);return`<button class=crow data-job="${esc(j.label)}">${tile(j.name)}<span><b>${esc(j.name)}</b><small>${esc(j.when)}${j.next&&j.loaded&&!j.paused?' · next '+until(j.next):''}${j.last?' · ran '+(ago(j.last)=='now'?'just now':ago(j.last)+' ago'):''}</small></span>${j.exit&&!j.running?'<i class="sc fail" title="The last run failed"></i>':''}${s?`<em class="pgp ${s[0]}">${s[1]}</em>`:''}${pinI('job',j.label,j.name)}</button>`};
 const loopCard=c=>`<div class=card><button class=crow data-pane="${esc(c.pane)}">${tile(proj(c.cwd))}<span><b>${esc(c.title)}</b><small>${esc(proj(c.cwd))} · open the chat</small></span><em class=pgp>${c.loops.length}</em></button>`+
  c.loops.map(l=>`<button class=crow data-pane="${esc(c.pane)}"><i class="sc work"></i><span><b>${esc(l.prompt||'Loop')}</b><small>${esc(l.when)}</small></span></button>`).join('')+'</div>';
 function schDraw(){const d=PG.d,J=d.jobs.filter(j=>(j.kind=='sched')==(PG.tab=='s')),n=d.jobs.filter(j=>j.kind=='sched').length,nl=d.loops.reduce((a,c)=>a+c.loops.length,0);
- pgSet(`<div class=pg data-k=sched><h2>Scheduled</h2><div class=seg><button data-tab=s aria-pressed=${PG.tab=='s'}>Scheduled<b>${n+nl}</b></button><button data-tab=v aria-pressed=${PG.tab=='v'}>Services<b>${d.jobs.length-n}</b></button></div>`+
+ pgSet(`<div class=pg data-k=sched><h2>Schedule</h2><div class=seg><button data-tab=s aria-pressed=${PG.tab=='s'}>Scheduled<b>${n+nl}</b></button><button data-tab=v aria-pressed=${PG.tab=='v'}>Services<b>${d.jobs.length-n}</b></button></div>`+
   (d.domain?'':'<div class=none>launchd has no session for this account (it isn\'t logged in at the Mac), so its jobs show as not loaded.</div>')+
-  `<section><div class=sec>On this Mac<span>${J.length}</span></div><div class=card>${J.map(jobRow).join('')||'<div class=none>Nothing here.</div>'}</div></section>`+
+  [['Yours',J.filter(j=>!j.system)],['The Mac\'s own (run as root)',J.filter(j=>j.system)]].map(([h,L],i)=>L.length||!i?`<section><div class=sec>${h}<span>${L.length}</span></div><div class=card>${L.map(jobRow).join('')||'<div class=none>Nothing here.</div>'}</div></section>`:'').join('')+
   (PG.tab=='s'?`<section><div class=sec>Loops in chats<span>${nl||''}</span></div>${d.loops.map(loopCard).join('')||'<div class=card><div class=none>No live chat has a loop running.</div></div>'}</section>`:'')+
   '<a class=pgf href="https://claude.ai/code/routines" target=_blank rel="noopener noreferrer">Cloud routines on claude.ai ↗</a></div>')}
 function schDet(){const j=PG.d.jobs.find(x=>x.label==PG.det);if(!j){PG.det=null;return schDraw()}const s=jobSt(j),off=j.paused||!j.loaded;
- pgSet(`<div class=pg data-k=sched><button class=dback data-back style="padding:0;text-align:left">‹ Scheduled</button><div class=ph>${tile(j.name,1)}<span><h3>${esc(j.name)}</h3><small>${esc(j.label)}</small></span>${pinI('job',j.label,j.name)}</div><dl class=info>`+
+ pgSet(`<div class=pg data-k=sched><button class=dback data-back style="padding:0;text-align:left">‹ Schedule</button><div class=ph>${tile(j.name,1)}<span><h3>${esc(j.name)}</h3><small>${esc(j.label)}</small></span>${pinI('job',j.label,j.name)}</div><dl class=info>`+
   drow('Status',s?`<em class="pgp ${s[0]}">${s[1]}</em>`:'Waiting')+drow('Schedule',esc(j.when))+drow('Next run',j.next&&!off?esc(when(j.next*1e3)):'')+drow('Last run',j.last?esc(when(j.last*1e3)):'')+
   drow('Last result',j.exit==null?'':j.exit?`<span style="color:#e5484d">Failed (exit code ${j.exit})</span>`:'Worked')+drow('Runs',j.runs==null?'':j.runs+' since launchd loaded it')+
   drow('Program',`<code>${esc(j.argv)}</code>`)+drow('File',`<code>${esc(j.plist)}</code>`)+'</dl>'+
-  (j.self?'<small class=sub2>This is the deck itself, so it can\'t be run or paused from here.</small>':`<div class=pga><button class=go data-act=run${off?' disabled':''}>Run now</button><button class="pick${off?'':' red'}" data-act=${off?'resume':'pause'}>${off?'Resume':'Pause'}</button></div>`)+
+  (j.system?'<small class=sub2>This runs as root for the whole Mac, so it can\'t be run or paused from here.</small>':j.self?'<small class=sub2>This is the deck itself, so it can\'t be run or paused from here.</small>':`<div class=pga><button class=go data-act=run${off?' disabled':''}>Run now</button><button class="pick${off?'':' red'}" data-act=${off?'resume':'pause'}>${off?'Resume':'Pause'}</button></div>`)+
   '<div class=lbl>Log</div><div id=pglog><div class=none>Loading…</div></div></div>');
  const pb=sb.querySelector('[data-act=pause]');if(pb&&!pb.onclick)twice(pb,'Tap again to pause',()=>schAct('pause'));schLog(j.label)}
 async function schLog(l){let d;try{d=await api('/api/scheduled/log?label='+encodeURIComponent(l))}catch(e){d={logs:[]}}const el=$('pglog');if(!el||!PG||PG.det!=l)return;
@@ -1118,7 +1118,7 @@ sb.addEventListener('click',async e=>{const x=e.target.closest('.pg [data-pin],.
 // while a page is open its list refreshes every 10 s; every minute the nav dots check for runs and artifacts since the pages were last seen
 setInterval(()=>{if(PG&&!PG.det&&!document.hidden&&sh.classList.contains('on'))pgLoad()},1e4);
 async function navDots(){if(COL||!window.navDot||!started||!$('lock').hidden||document.hidden)return;const now=Date.now()/1e3;['schSeen','artSeen'].forEach(k=>ls(k)||ls(k,now));// first run: nothing is new yet
- try{const d=await api('/api/scheduled'),t=ls('schSeen');navDot('scheduled',d.jobs.some(j=>j.last>t&&!j.running&&(j.cal||j.exit)))}catch(e){}
+ try{const d=await api('/api/scheduled'),t=ls('schSeen');navDot('scheduled',d.jobs.some(j=>!j.system&&j.last>t&&!j.running&&(j.cal||j.exit)))}catch(e){}
  try{const d=await api('/api/artifacts'),t=ls('artSeen');navDot('artifacts',d.artifacts.some(a=>a.t>t))}catch(e){}}
 setTimeout(navDots,4e3);setInterval(navDots,6e4);
 </script>
