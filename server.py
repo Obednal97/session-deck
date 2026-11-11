@@ -1155,6 +1155,13 @@ def is_admin():
     try: return pwd.getpwuid(os.getuid()).pw_name in grp.getgrnam("admin").gr_mem
     except KeyError: return False
 ADMIN = is_admin()  # only an admin's deck lists the Mac's own jobs; other accounts' decks never see them
+DDIR = HOME / "Library/Application Support/session-deck"
+JOB_INFO = DDIR / "jobs.json"  # the owner's own names and one-line descriptions, {label: {"name", "about"}}; kept out of the repo
+RUNS_FILE = DDIR / "job-runs.json"  # {label: [launchd's run count, when the deck saw it go up]}, kept by run_watch
+def _rd(f):
+    try: d = json.loads(f.read_text()); return d if isinstance(d, dict) else {}
+    except (OSError, ValueError): return {}
+RUNS = _rd(RUNS_FILE)
 VENDOR = ("com.apple.", "com.google.", "com.microsoft.", "com.adobe.", "homebrew.", "us.zoom.")  # other apps' agents: not yours to run
 SELF = "local.session-deck"  # the deck's own job is never run or paused from the deck
 WD, MON = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"], "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
@@ -1213,7 +1220,7 @@ def jobs(fresh=False):
     Mac has no gui domain: its jobs show as not loaded."""
     if not fresh and _jobs[1] is not None and time.time() - _jobs[0] < 8: return _jobs[1]
     off = set(re.findall(r'"([^"]+)" => (?:disabled|true)', lc("print-disabled", DOM)[1]))
-    out = []
+    out, info = [], _rd(JOB_INFO)
     for p, dom in [*((p, DOM) for p in sorted(AGENTS.glob("*.plist"))), *((p, "system") for p in (sorted(DAEMONS.glob("*.plist")) if ADMIN else []))]:
         try: d = plistlib.loads(p.read_bytes())
         except Exception: continue
@@ -1227,16 +1234,36 @@ def jobs(fresh=False):
         ex = re.match(r"-?\d+", g("last exit code") or ""); sci, si = d.get("StartCalendarInterval"), d.get("StartInterval")
         trig = [w for k, w in (("KeepAlive", "Kept running"), ("RunAtLoad", "At startup" if dom == "system" else "At login"), ("WatchPaths", "When files change"),
                                ("QueueDirectories", "When files arrive"), ("StartOnMount", "When a disk mounts")) if d.get(k)]
-        when = cal_words(sci) if cal(sci) else every(si) if isinstance(si, int) and si > 0 else " · ".join(trig) or "Only when started"
-        if (sci or si) and d.get("RunAtLoad"): when += ", and at startup" if dom == "system" else ", and at login"
-        out.append({"label": label, "name": d.get("Comment") if isinstance(d.get("Comment"), str) else re.sub(r"^(local|com|org|net|io|dev|app|uk|me)\.", "", label).replace(".", " ").replace("-", " ").replace("_", " ").capitalize(),
-                    "kind": "sched" if cal(sci) or si else "service", "cal": bool(cal(sci)), "when": when, "next": next_run(sci) if cal(sci) else None,
+        keep = bool(d.get("KeepAlive"))  # kept running (StartInterval then only restarts it): a service, not a schedule
+        when = cal_words(sci) if cal(sci) else every(si) if isinstance(si, int) and si > 0 and not keep else " · ".join(trig) or "Only when started"
+        if (cal(sci) or si and not keep) and d.get("RunAtLoad"): when += ", and at startup" if dom == "system" else ", and at login"
+        inf = info.get(label) if isinstance(info.get(label), dict) else {}
+        seen = (RUNS.get(label) or [0, None])[1]
+        out.append({"label": label, "name": str(inf.get("name") or "")[:80] or (d.get("Comment") if isinstance(d.get("Comment"), str) else
+                    re.sub(r"^(sh\.brew|homebrew\.mxcl|local|com|org|net|io|dev|app|uk|me)\.", "", label).replace(".", " ").replace("-", " ").replace("_", " ").capitalize()),
+                    "about": str(inf.get("about") or "")[:300] or None,
+                    "kind": "sched" if (cal(sci) or si) and not keep else "service", "cal": bool(cal(sci)), "when": when, "next": next_run(sci) if cal(sci) else None,
                     "cmd": short_cmd(argv), "argv": " ".join(x.replace(str(HOME), "~") for x in argv)[:2000], "plist": str(p).replace(str(HOME), "~"),
-                    "last": max((os.stat(x).st_mtime for x in logs if os.path.isfile(x)), default=None), "loaded": not rc,
+                    "last": max([os.stat(x).st_mtime for x in logs if os.path.isfile(x)] + [seen] * isinstance(seen, (int, float)), default=None), "loaded": not rc,
                     "running": (g("pid") or "").isdigit(), "runs": int(g("runs")) if (g("runs") or "").isdigit() else None,
                     "exit": int(ex.group()) if ex else None, "paused": dom == DOM and label in off, "self": label.startswith(SELF), "system": dom == "system",
                     "_plist": str(p), "_logs": logs})
     _jobs[:] = [time.time(), out]; return out
+
+def run_watch():
+    """launchd keeps no start time, only a run count, so once a minute the deck notes when each job's count went up.
+    A log's time alone misleads: many jobs only write when they find something to do."""
+    while True:
+        try:
+            ch = False
+            for j in jobs(True):
+                n, prev = j["runs"], RUNS.get(j["label"])
+                if not isinstance(n, int) or (prev and prev[0] == n): continue
+                RUNS[j["label"]] = [n, time.time() if prev and n > prev[0] else (prev or [0, None])[1]]; ch = True  # first sight or a reload: no time
+            if ch:
+                DDIR.mkdir(parents=True, exist_ok=True); t = RUNS_FILE.with_suffix(".tmp"); t.write_text(json.dumps(RUNS)); t.replace(RUNS_FILE)
+        except Exception as e: print("run-watch:", e, flush=True)
+        time.sleep(60)
 
 def job(label):
     return next((j for j in jobs(True) if j["label"] == label), None) if isinstance(label, str) else None
@@ -1913,6 +1940,6 @@ if __name__ == "__main__":
     print(f"Session Deck on {', '.join(str(x.server_address) for x in srvs)}  (token: {SECRET_FILE})", flush=True)
     threading.Thread(target=watcher, daemon=True).start()
     threading.Thread(target=tidy_loop, daemon=True).start()
-    threading.Thread(target=term_reaper, daemon=True).start(); threading.Thread(target=idler, daemon=True).start()
+    threading.Thread(target=term_reaper, daemon=True).start(); threading.Thread(target=idler, daemon=True).start(); threading.Thread(target=run_watch, daemon=True).start()
     for x in srvs[1:]: threading.Thread(target=x.serve_forever, daemon=True).start()
     srvs[0].serve_forever()
