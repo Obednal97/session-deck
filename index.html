@@ -84,6 +84,7 @@ body{position:fixed;left:0;right:0;top:0;height:100%;overscroll-behavior:none}
 .menu button small{display:block;color:var(--m);font-size:12px}
 .menu button.sel{border-color:var(--c)}
 .menu .mh{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--m)}.menu .mh b{border:1px solid var(--l);border-radius:99px;padding:2px 9px;font-weight:600}.menu .mh b.on{background:var(--r);color:var(--fg);border-color:var(--c)}.menu .mh b.fin::before{content:'\2713  '}.menu .mh span{margin-left:auto}
+.menu .mdet b{display:block;font-size:13px;color:var(--m);font-weight:600;margin-bottom:4px}.menu .mdet pre{margin:0;padding:8px 10px;border-radius:8px;background:rgba(127,127,127,.12);font:12.5px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;overflow:auto;max-height:40vh}
 .menu .mq2{font-size:15px;line-height:1.4;color:var(--fg);margin:2px 0 4px;white-space:pre-wrap}
 .menu .rec{font-style:normal;font-size:11px;font-weight:600;color:var(--c);border:1px solid var(--c);border-radius:99px;padding:0 7px;margin-left:8px;vertical-align:1px}
 .menu .cb{display:inline-block;width:16px;height:16px;border:1.5px solid var(--m);border-radius:5px;margin-right:9px;vertical-align:-3px}.menu .cb.on{background:var(--c);border-color:var(--c);box-shadow:inset 0 0 0 3px var(--s)}
@@ -727,6 +728,7 @@ let menuKey='';function renderMenu(mn){const el=$('menu');cur.menu=mn;const k=JS
  // a question from Claude: topic tabs when it asks several; "Type something" is the box below, so no button for it
  const T=mn.tabs||[],rec=/\s*\(recommended\)\s*$/i,ci=T.findIndex(t=>t.current);
  el.innerHTML=(T.length?`<div class=mh>${T.map(t=>`<b class="${t.current?'on':''}${t.done?' fin':''}">${esc(t.label)}</b>`).join('')}${T.length>1&&ci>=0?`<span>${ci+1} of ${T.length}</span>`:''}</div>`:'')
+  +(mn.detail?(([h,...r])=>`<div class=mdet><b>${esc(h)}</b>${r.length?`<pre>${esc(r.join('\n'))}</pre>`:''}</div>`)(mn.detail.split('\n')):'')// what a permission prompt asks to run or change
   +(mn.question?`<div class=mq2>${esc(mn.question)}</div>`:'')
   +mn.options.map((o,i)=>{const cb=o.label.match(/^\[(.)\]\s+/),l=cb?o.label.slice(cb[0].length):o.label;if(/^type something\.?$/i.test(l))return'';
    return`<button data-o=${i} class="${i===mn.selected?'sel':''}${/^chat about this$/i.test(l)?' alt':''}${l=='Submit'&&!o.desc?' msub':''}">${cb?`<span class="cb${cb[1]!=' '?' on':''}"></span>`:''}${esc(l.replace(rec,''))}${rec.test(l)?'<i class=rec>Recommended</i>':''}${o.desc?`<small>${esc(o.desc)}</small>`:''}</button>`}).join('')+(mn.amend?'<div class=mq>To tell Claude something with your answer, type it below and tap Yes or No. Send adds it to No.</div>':'')}

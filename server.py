@@ -200,7 +200,18 @@ def parse_menu(plain):
             while j >= 0 and L[j].strip() and not set(L[j].strip()) <= set("\u2500\u2501\u254c-") and not L[j].lstrip().startswith("\u2190") and len(ql) < 12:
                 ql.insert(0, re.sub(r"^[\u2502\u2503|]\s?", "", L[j].strip())); j -= 1  # a question is drawn with a bar down its left
             q = " ".join(ql)
-            if len(opts) >= 2: return {"question": q, "options": opts, "selected": sel, "mode": "arrows", "amend": "Tab to amend" in L[F]}
+            amend = "Tab to amend" in L[F]
+            if len(opts) >= 2: return {"question": q, "options": opts, "selected": sel, "mode": "arrows", "amend": amend,
+                                       "detail": amend and perm_detail(L, j)}
+
+def perm_detail(L, j):
+    """What a permission prompt asks to do (the tool, the command or diff), drawn between the dialog's top rule and the
+    question: "Bash command", what it does, then the command between dashed rules. Tips and rules are left out."""
+    top = next((i for i in range(j, max(-1, j - 60), -1) if L[i].strip() and set(L[i].strip()) <= set("─━")), None)
+    if top is None: return None
+    d = [re.sub(r"^ ?(?:[│┃] ?)?", "", l.rstrip()) for l in L[top + 1:j + 1]]  # keeps a command's indents
+    d = [l for l in d if not set(l.strip()) <= set("╌┄┈-") and not l.startswith("Tip:")] or [""]
+    return "\n".join(d[:40]).strip() or None
     for i, l in enumerate(L):
         found = re.findall(r"(\d): (\w+)", l)
         if len(found) >= 3 and i and "?" in L[i - 1]:
