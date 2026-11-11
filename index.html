@@ -382,7 +382,12 @@ function drawMenu(force){const q=$('q').value.trim();if(nav.v=='root'&&q.length>
    (A.length?`<section><div class=sec>Running<span>${A.length}</span></div><div class=card>${A.map(s=>crowL(s,r)).join('')}</div></section>`:'')+
    (byDay(P.slice(0,n),x=>crowH(x,r))||'<section><div class=sec>History</div><div class=card><div class=none>'+(q?'No matches':'No past chats')+'</div></div></section>')+
    (P.length>n?'<button class=more id=dmore>Show more</button>':'')+(X?`<button class=more data-arc=1>${X} archived chat${X>1?'s':''}</button>`:'')+`<button class=pnew data-c="${esc(r)}">+ New chat in ${esc(nav.p)}</button>`}
- if(h===dKey&&!force)return;dKey=h;$('dl').innerHTML=h}
+ if(h===dKey&&!force)return;dKey=h;const was=rowsAt();$('dl').innerHTML=h;reflow(was)}
+// rows that change place (a chat had activity) slide to it rather than jump: note where each was, then animate from there
+const rowsAt=()=>new Map([...$('dl').querySelectorAll('.card>.crow')].map(r=>[r.closest('section')?.querySelector('.sec')?.firstChild?.textContent+'|'+(r.dataset.pane||r.dataset.h),r]).map(([k,r])=>[k,{r,y:r.getBoundingClientRect().top}]));
+function reflow(was){if(!was.size||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+ rowsAt().forEach(({r,y},k)=>{const o=was.get(k)?.y;if(o==null||Math.abs(o-y)<1)return;
+  r.style.zIndex=1;r.animate([{transform:`translateY(${o-y}px)`},{transform:'none'}],{duration:380,easing:'cubic-bezier(.32,.72,0,1)'}).onfinish=()=>r.style.zIndex=''})}
 async function list(){if(Date.now()-pfAt>3e4)prefs();const d=await api('/api/sessions');live=d.live;hist=d.history;PN={};[...hist,...live].sort((a,b)=>a.mtime-b.mtime).forEach(x=>{const p=proj0(x.cwd);PN[pnk(p)]=p});attnUI();if(dOpen)drawMenu()}
 const setQ=()=>{$('q').value='';$('q').placeholder=nav.v=='root'?'Search all chats':'Filter '+nav.p+' chats';$('dl').scrollTop=0};
 function openMenu(){dOpen=true;$('drawer').classList.add('on');$('scrim').classList.add('on');drawMenu(1);list()}
