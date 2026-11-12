@@ -30,13 +30,15 @@ def load_secrets():
         from cryptography.hazmat.primitives import serialization as ser
         d["vapid_pem"] = old("session-deck-vapid.pem") or ec.generate_private_key(ec.SECP256R1()).private_bytes(
             ser.Encoding.PEM, ser.PrivateFormat.PKCS8, ser.NoEncryption()).decode()
-    new = {k: d.get(k) or old(f) or secrets.token_urlsafe(24) for k, f in (("token", "session-deck.token"), ("cookie_key", "session-deck-cookie.key"))}
-    if new.keys() - d.keys() or not SECRET_FILE.exists():
-        d.update(new); SECRETS.mkdir(parents=True, exist_ok=True, mode=0o700)
-        # Writes through a link (the RAM disk file) rather than replacing it; a new file is made 0600 from the start.
-        fd = os.open(SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as fh: fh.write(json.dumps(d, indent=1) + "\n")
+    new = {k: d.get(k) or (f and old(f)) or secrets.token_urlsafe(24) for k, f in (("token", "session-deck.token"), ("cookie_key", "session-deck-cookie.key"), ("siri_key", None))}
+    if new.keys() - d.keys() or not SECRET_FILE.exists(): d.update(new); save_secrets(d)
     return d
+
+def save_secrets(d):
+    SECRETS.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # Writes through a link (the RAM disk file) rather than replacing it; a new file is made 0600 from the start.
+    fd = os.open(SECRET_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh: fh.write(json.dumps(d, indent=1) + "\n")
 
 TMUXDIR = Path(os.environ.get("TMUX_TMPDIR") or "/private/tmp") / f"tmux-{os.getuid()}"
 _socks = {}  # socket name -> (when checked, has sessions); a new socket is checked at once, so a just-started server shows
@@ -233,6 +235,19 @@ def input_box(key, wait=0):
             return "\n".join(L[r[-2] + 1:r[-1]]).strip().lstrip("❯").strip()
         if time.time() >= end: return None
         time.sleep(0.25)
+
+def deliver(pane, text, imgs=()):
+    """Types a message into a chat and sends it."""
+    input_box(pane, 15)  # a chat that is still starting: wait for its input box, or the paste lands nowhere
+    if imgs:  # pasted on their own, the paths become [Image #N]; the text must be a separate paste after them
+        tm(pane, "set-buffer", "-b", "deck", " ".join(f'"{f}"' for f in imgs))
+        tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}"); time.sleep(0.4)
+    if text or not imgs:
+        tm(pane, "set-buffer", "-b", "deck", (" " if imgs else "") + text)
+        tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
+    for i in range(5):  # Claude drops an Enter that comes while it is still starting up: press it again until the box empties
+        time.sleep(0.15 if i == 0 else 0.8); tm(pane, "send-keys", "-t", "{P}", "Enter"); time.sleep(0.4)
+        if not input_box(pane): break
 
 def pane_screen(key):
     scr = tm(key, "capture-pane", "-e", "-p", "-t", "{P}")
@@ -436,7 +451,7 @@ MODELS, EFFORTS = {"opus", "sonnet", "haiku"}, {"low", "medium", "high", "xhigh"
 def is_git(cwd):
     return subprocess.run(["git", "-C", cwd, "rev-parse", "--is-inside-work-tree"], capture_output=True).returncode == 0
 
-def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=None, name=None, worktree=False, account=None):
+def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=None, name=None, worktree=False, account=None, system=None):
     import shlex
     cwd = os.path.realpath(cwd)
     if not os.path.isdir(cwd) or not cwd.startswith(str(HOME) + "/"): return None
@@ -453,6 +468,7 @@ def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=Non
     if effort: cmd.append("--effort=" + effort)
     if name: cmd.append("--name=" + name)
     if worktree and not resume and is_git(cwd): cmd.append("--worktree")
+    if system: cmd += ["--append-system-prompt", system]
     if os.environ.get("DECK_DRYRUN"): cmd = ["bash", "-c", "exec -a claude cat"]
     full = ["zsh", "-lc", shlex.join(cmd)]
     name = name or os.path.basename(cwd) + (" (local)" if engine == "local" else "")
@@ -1091,6 +1107,54 @@ def end_chat(pane):
     tm(pane, "set-buffer", "-b", "deck", "/exit"); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
     time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
 
+SIRI_NAME = "Siri"
+SIRI_PROMPT = ("The user is speaking to you through Siri on their phone, and your last message of each turn is read aloud to them. "
+               "Do what they ask, then end with one to three short sentences of plain spoken text: no markdown, lists, code, file paths "
+               "or links. Ask one short question if you must. Long jobs are fine: they get a notification when you finish.")
+SIRI, SIRI_LOCK = {}, threading.Lock()  # "pane": the Siri chat
+
+def siri_pane():
+    """The Siri chat's pane: the one this deck started, else a live chat named Siri, else a new one in the folders root."""
+    live = live_sessions()
+    s = next((x for x in live if x["pane"] == SIRI.get("pane")), None) or next((x for x in live if x["name"] == SIRI_NAME), None)
+    if s: SIRI["pane"] = s["pane"]; return s["pane"]
+    eng = next((k for k in ENGINES if engine_exe(k)), None)
+    p = eng and start(str(FOLDERS), eng, None, name=SIRI_NAME, system=SIRI_PROMPT)
+    if not p: return None
+    SIRI["pane"] = p
+    for _ in range(40):  # until Claude is running in it
+        _live[0] = 0
+        if any(x["pane"] == p for x in live_sessions()): break
+        time.sleep(0.5)
+    return p
+
+def spoken(t, n=600):
+    """Claude's reply as something Siri can read out: no markdown, code or links, cut at a sentence."""
+    t = re.sub(r"```.*?```", " ", t, flags=re.S)
+    t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
+    t = re.sub(r"https?://\S+", "a link", t)
+    t = re.sub(r"^\s*(?:#+|[-*+]|\d+\.)\s+", "", t, flags=re.M)
+    t = re.sub(r"\s+", " ", re.sub(r"[`*_#>|]+", "", t)).strip()
+    return t if len(t) <= n else t[:n].rsplit(". ", 1)[0].rstrip(".") + ". The rest is in Session Deck."
+
+def siri_ask(text, wait):
+    """Sends text to the Siri chat and waits up to wait seconds for the turn to end. Returns what Siri should say."""
+    with SIRI_LOCK: pane = siri_pane()
+    if not pane: return "I couldn't start a Claude chat on the Mac."
+    if pane_screen(pane)["menu"]: return "Claude is waiting for you to answer a question in Session Deck."
+    deliver(pane, text); end, idle = time.time() + wait, 0
+    while time.time() < end:
+        time.sleep(1)
+        sc = pane_screen(pane)
+        if sc["menu"]: return "Claude needs you to answer a question in Session Deck: " + spoken(sc["menu"].get("question") or "", 200)
+        sid = next((x["session"] for x in live_sessions() if x["pane"] == pane), None); f = sid and find_file(sid)
+        items = messages(f, 40) if f else []
+        i = next((i for i in range(len(items) - 1, -1, -1) if items[i]["role"] == "user" and not items[i].get("queued") and items[i]["text"].strip() == text.strip()), None)
+        said = [x["text"] for x in items[i + 1:] if x["role"] == "assistant" and x["kind"] == "text"] if i is not None else []
+        idle = idle + 1 if said and not sc["working"] else 0
+        if idle >= 2: return spoken(said[-1])  # idle twice in a row: the turn is over
+    return "Claude is working on it. You'll get a notification when it's done."
+
 IDLE_END = float(os.environ.get("DECK_IDLE_END_DAYS", "3")) * 86400  # 0 turns it off
 def idle_sweep():
     """Ends chats with no activity (nothing written to the transcript) for IDLE_END. Leaves pinned chats, ones that are
@@ -1715,6 +1779,8 @@ class H(BaseHTTPRequestHandler):
         if path.startswith("/api/auth/"): return self.auth(path)
         if not self.authed(): return self.send(401, {"error": "token"})
         if pages_api(self, path): return
+        if path == "/api/siri":
+            return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri", "key": SEC["siri_key"]})
         if path == "/api/push/key":
             v = vapid(); return self.send(200, {"key": b64u(v[1]) if v else None})
         if path == "/api/sessions":
@@ -1821,8 +1887,25 @@ class H(BaseHTTPRequestHandler):
             tmp.unlink(missing_ok=True); return self.send(400, {"error": f"{name}: the upload failed."})
         NAMES[str(p)] = name
         return self.send(200, {"path": str(p), "kind": "image" if ext in IMG else "file", "name": name, "size": p.stat().st_size})
+    def siri(self):
+        """POST /api/siri {"text"} from an iPhone Shortcut: the Tailscale login plus the Siri key (a Shortcut can't use a passkey),
+        or the usual sign-in. Always answers in plain text, so the Shortcut can read out errors too."""
+        say = lambda code, t: self.send(code, t.encode(), "text/plain; charset=utf-8")
+        bad, now = ("siri-bad",), time.time()
+        if sum(now - t < 600 for t in HITS.get(bad, ())) >= 10: return say(429, "Too many wrong Siri keys. Try again in ten minutes.")
+        key = secrets.compare_digest(self.headers.get("X-Siri-Key", "").encode("utf8", "replace"), SEC["siri_key"].encode())
+        if not (self.authed() or key and (self.login() if self.via_ts() else (self.headers.get("Host") or "").split(":")[0] in HOSTS)):
+            limited(bad, 0, 600); return say(401, "Session Deck didn't accept the Siri key. Copy it again from Settings.")
+        raw = self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 20000)).decode("utf8", "replace")
+        try: text = json.loads(raw).get("text", "")
+        except Exception: text = raw
+        text = re.sub(r"\s+", " ", str(text)).strip()
+        if not text: return say(200, "I didn't catch anything to send.")
+        w = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("wait", ["25"])[0]
+        return say(200, siri_ask(text, max(0, min(int(w) if w.isdigit() else 25, 55))))
     def do_POST(self):
         if self.path.startswith("/api/auth/"): return self.auth(self.path.split("?")[0], post=True)
+        if self.path.split("?")[0] == "/api/siri": return self.siri()
         if not self.authed(): return self.send(401, {"error": "token"})
         if self.path.startswith("/api/upload?"): return self.upload()
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -1856,6 +1939,8 @@ class H(BaseHTTPRequestHandler):
             else: end_chat(pane)
             _live[0] = 0; return self.send(200, {"ok": True})  # straight away: the pane may already be gone
         if pages_api(self, self.path, body): return
+        if self.path == "/api/siri/key":  # a new key; the old one stops working at once
+            SEC["siri_key"] = secrets.token_urlsafe(24); save_secrets(SEC); return self.send(200, {"key": SEC["siri_key"]})
         if self.path == "/api/push/subscribe":
             sub = body.get("sub") or {}; keys = sub.get("keys") or {}
             if not (push_ok(sub.get("endpoint")) and isinstance(keys.get("p256dh"), str) and isinstance(keys.get("auth"), str)):
@@ -1893,16 +1978,7 @@ class H(BaseHTTPRequestHandler):
             imgs = [f for f in files if f.suffix[1:] in IMG]
             if len(imgs) < len(files):  # Claude opens other files itself when it sees the path
                 text = (text.rstrip() + "\n\n" + "\n".join(f"Attached: {f} ({NAMES.get(str(f), f.name)}, {human(f.stat().st_size)})" for f in files if f not in imgs)).strip()
-            input_box(pane, 15)  # a chat that is still starting: wait for its input box, or the paste lands nowhere
-            if imgs:  # pasted on their own, the paths become [Image #N]; the text must be a separate paste after them
-                tm(pane, "set-buffer", "-b", "deck", " ".join(f'"{f}"' for f in imgs))
-                tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}"); time.sleep(0.4)
-            if text or not imgs:
-                tm(pane, "set-buffer", "-b", "deck", (" " if imgs else "") + text)
-                tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
-            for i in range(5):  # Claude drops an Enter that comes while it is still starting up: press it again until the box empties
-                time.sleep(0.15 if i == 0 else 0.8); tm(pane, "send-keys", "-t", "{P}", "Enter"); time.sleep(0.4)
-                if not input_box(pane): break
+            deliver(pane, text, imgs)
             sid = next((x.get("session") for x in live_sessions() if x["pane"] == pane), None)
             if sid and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), time.time()))
             r = {"ok": True, "text": text}

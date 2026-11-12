@@ -161,7 +161,8 @@ pre a,.cmdout a{color:var(--c)}
 .kbt{border:0;background:none;color:var(--m);padding:8px 0;flex:none;display:grid}.kbt svg{width:22px;height:22px}.kbt[aria-pressed=true]{color:var(--c)}
 #at span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#at code{min-width:0;font-weight:500}
 .bang{display:inline-block;margin-bottom:6px;border:1px solid var(--o);color:var(--o);border-radius:99px;padding:2px 10px;font:600 11px ui-monospace,monospace}textarea.sh{font-family:ui-monospace,monospace}
-.sg{display:flex;flex-direction:column;gap:6px}.srow{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--r);border:0;border-radius:12px;padding:11px 12px;width:100%;text-align:left;color:var(--fg);font-size:15px}.srow.col{flex-direction:column;align-items:flex-start}.srow.red{color:#e5484d}.srow i{font-style:normal;color:var(--m)}.srow small{color:var(--m)}.srow .seg{flex:none;width:220px;background:var(--bg)}
+.sg{display:flex;flex-direction:column;gap:6px}.srow{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--r);border:0;border-radius:12px;padding:11px 12px;width:100%;text-align:left;color:var(--fg);font-size:15px}.srow.col{flex-direction:column;align-items:flex-start}.srow.red{color:#e5484d}.srow i{font-style:normal;color:var(--m)}.srow small{color:var(--m)}
+.sir{margin:0;padding-left:20px;font-size:14px;line-height:1.45}.sir li{margin:4px 0}.srow .seg{flex:none;width:220px;background:var(--bg)}
 .sw{display:flex;flex-wrap:wrap;gap:12px}.sw button{width:30px;height:30px;border-radius:50%;border:0;padding:0}.sw button[aria-pressed=true]{box-shadow:0 0 0 2px var(--r),0 0 0 4px var(--fg)}
 .sheet .pf{border:0;background:var(--r);border-radius:12px;padding:11px 12px;font-size:15px;color:var(--fg)}.sheet .pf .seg{flex:none;width:140px;margin-left:auto;background:var(--bg)}
 .drawer{touch-action:pan-y}
@@ -421,12 +422,12 @@ $('dl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
 function settings(){closeMenu();let a='Blue';try{a=localStorage.getItem('accent')||'Blue'}catch(e){}const lt=document.documentElement.dataset.theme=='light'||(!document.documentElement.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);
  sb.innerHTML=`<h2>Settings</h2><div class=sg><div class=lbl>Appearance</div><div class=srow><span>Theme</span><div class=seg id=seg><button data-t="">System</button><button data-t=light>Light</button><button data-t=dark>Dark</button></div></div>
  <div class="srow col"><span>Accent colour</span><div class=sw id=sw>${ACC.map(x=>`<button data-a="${x[0]}" aria-label="${x[0]}" title="${x[0]}" aria-pressed=${x[0]==a} style="background:${lt?x[2]:x[1]}"></button>`).join('')}</div></div></div>
- <div class=sg><div class=lbl>Notifications</div><div class=pf id=pf></div></div>`+(TS?`<div class=sg><div class=lbl>Security</div><button class=srow id=spk><span>Passkeys and Face ID</span><i>›</i></button><button class="srow red" id=sso><span>Sign out</span></button></div>`:'')+
+ <div class=sg><div class=lbl>Notifications</div><div class=pf id=pf></div></div><div class=sg><div class=lbl>Siri</div><button class=srow id=ssiri><span>Ask Claude with Siri</span><i>›</i></button></div>`+(TS?`<div class=sg><div class=lbl>Security</div><button class=srow id=spk><span>Passkeys and Face ID</span><i>›</i></button><button class="srow red" id=sso><span>Sign out</span></button></div>`:'')+
  `<div class=sg><div class=lbl>About</div><div class=srow><span>Session Deck</span><small>${esc(location.host)}</small></div></div>`;showSheet(-1);theme(document.documentElement.dataset.theme||'');pushUI()}
 $('set').onclick=settings;
 $('sbody').addEventListener('click',e=>{const t=e.target,th=t.closest('#seg [data-t]');if(th){theme(th.dataset.t);const de=document.documentElement,lt=de.dataset.theme=='light'||(!de.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);return $('sw')&&$('sw').querySelectorAll('button').forEach(b=>{const x=ACC.find(a=>a[0]==b.dataset.a);b.style.background=lt?x[2]:x[1]})}
  const ac=t.closest('#sw [data-a]');if(ac){try{ac.dataset.a=='Blue'?localStorage.removeItem('accent'):localStorage.setItem('accent',ac.dataset.a)}catch(x){}setAcc(ac.dataset.a);return $('sw').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===ac))}
- if(t.closest('#pf'))return pfClick(e);if(t.closest('#spk'))return passkeys(1);if(t.closest('#pkb'))return settings();if(t.closest('#sso'))au('logout',{}).then(()=>au('state')).then(lock)});
+ if(t.closest('#pf'))return pfClick(e);if(t.closest('#spk'))return passkeys(1);if(t.closest('#ssiri'))return siri(1);if(t.closest('#sso'))au('logout',{}).then(()=>au('state')).then(lock)});
 $('nc').onclick=()=>{closeMenu();newChat(nav.v=='proj'?root(nav.p):cur&&cur.cwd||here())};
 let qt;$('q').oninput=()=>{clearTimeout(qt);const v=$('q').value.trim();if(nav.v=='proj'||v.length<3)return drawMenu(1);qt=setTimeout(async()=>{const d=await api('/api/search?q='+encodeURIComponent(v));if($('q').value.trim()!==v)return;
  dKey='';$('dl').innerHTML=`<div class=sec>${d.results.length} chats mention "${esc(v)}"</div><div class=card>`+d.results.map(r=>crowH(r,null,r.snippet)).join('')+'</div>'},350)};
@@ -856,6 +857,13 @@ sb.addEventListener('click',async e=>{const t=e.target;try{
  if(t.dataset.del){if(!confirm('Remove this passkey? Anything signed in with it is signed out.'))return;await au('passkeys/delete',{id:t.dataset.del});const s=await au('state');return s.signedIn?passkeys():lock(s)}
  if(t.id=='pka'){await enrol('',$('pkn').value.trim());return passkeys()}
  if(t.id=='pko'){await au('logout',{});lock(await au('state'))}}catch(x){if($('pkm'))$('pkm').textContent=why(x)}});
+let SIRI;async function siri(dir){try{SIRI=await api('/api/siri')}catch(e){return toast('Could not load the Siri settings.')}closeMenu();
+ sb.innerHTML=`<button class=dback id=pkb style="padding:0;text-align:left">‹ Settings</button><h2>Ask Claude with Siri</h2><p class=sub2>Say "Hey Siri, Ask Claude", then what you want. It goes to a chat called Siri on this Mac, and Siri reads out the reply. Longer jobs carry on here and notify you when they finish.</p>
+ <div class=lbl>Make the shortcut on your iPhone</div><ol class=sir><li>In Shortcuts, tap +, and name it <b>Ask Claude</b>.</li><li>Add <b>Dictate Text</b>.</li><li>Add <b>Get Contents of URL</b>. Paste the address below, then under Show More set Method to <b>POST</b>, add a header <b>X-Siri-Key</b> with the key below, and set Request Body to <b>JSON</b> with a Text field <b>text</b> set to Dictated Text.</li><li>Add <b>Show Result</b> with Contents of URL.</li></ol>
+ <button class=srow data-cp=url><span>Address</span><small>Copy</small></button><button class=srow data-cp=key><span>Siri key</span><small>Copy</small></button>
+ <small class=sub2>Tailscale must be on for the phone to reach this Mac. The key works only with your Tailscale login; if the phone is lost, make a new key and the old one stops working.</small><button class=pick id=sirinew style="text-align:center">Make a new key</button>`;showSheet(dir)}
+sb.addEventListener('click',async e=>{const c=e.target.closest('[data-cp]');if(c&&SIRI)return copyText(SIRI[c.dataset.cp]);
+ if(e.target.id=='sirinew'&&confirm('Make a new Siri key? The shortcut stops working until you paste the new one into it.')){const d=await tell('/api/siri/key',{});if(d&&d.key){SIRI.key=d.key;copyText(d.key)}}});
 async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{const s=live.find(x=>x.pane==localStorage.getItem('last'));if(s)open_(s);else openMenu()})}
 async function boot(){const r=await fetch('api/auth/state'),s=await r.json().catch(()=>({}));TS=!!s.ts||r.status==403;
  if(!TS){if(!TOK){TOK=clean(prompt('Token'));localStorage.setItem('deck',TOK)}started=true;return start()}
@@ -880,6 +888,7 @@ let shT,shA,shH=0,shAt=0;
 function shHead(rs){const p=sb.querySelector(':scope>.pg')||sb,h=[];
  for(let n=p.firstElementChild,l;n&&n.matches(!l?'.dback,h2':l.tagName=='H2'?'small.sub2':l.matches('.dback')?'h2':':not(*)');n=n.nextElementSibling)h.push(l=n);
  if(h.length||rs.some(x=>x.removedNodes.length)){sd.replaceChildren(...h);shMO.takeRecords()}}// not our own move
+sd.addEventListener('click',e=>{if(e.target.closest('#pkb'))settings()});// a sub-page's back link sits in the header, not the body
 const shMO=new MutationObserver(shHead);shMO.observe(sb,{childList:true});
 function showSheet(dir){shHead(shMO.takeRecords());clearTimeout(shT);if(sh.hidden||!sh.classList.contains('on')){sh.hidden=false;sb.scrollTop=0;sh.offsetWidth;sh.classList.add('on');shH=sp.offsetHeight;shAt=performance.now();return}
  if(dir){sb.scrollTop=0;[sd,...sb.children].forEach(c=>enter(c,{opacity:0,transform:`translateX(${dir*32}px)`},{duration:300}))}}
