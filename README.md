@@ -29,7 +29,7 @@ It's one Python file and one HTML file, with no build step and no framework.
 - **Terminal view.** The raw tmux pane, resized to fit your screen while it's open.
 - **Uploads.** Paste or attach screenshots and files (up to 1 GB each); the session gets a path it can read.
 - **Notifications.** Web Push when a session finishes or needs you, on every device you switch them on for, except the one you're looking at the chat on. App badge included.
-- **Siri.** Say "Hey Siri, Ask Claude" and your request goes to a chat called Siri on the Mac; Siri reads out the short reply, and longer jobs notify you when they finish. Settings shows the four-step iPhone Shortcut to make.
+- **Siri.** Say "Hey Siri, Ask Deck" (the name is yours to choose) and your request goes to a chat of that name on the Mac; Siri reads out the short reply, and longer jobs notify you when they finish. Settings › Siri adds the iPhone shortcut in one tap once you've signed it with `make-shortcut.py` on a Mac signed into iCloud, or shows the four steps to make it by hand.
 - **Face ID.** Each device signs in with a passkey, bound to your Tailscale login.
 - **Several people** (optional). One shared address for everyone on the Mac: each person gets their own deck, running as their own macOS account, and only sees their own sessions.
 - **Desktop.** Install it as an app from Chrome or Safari, open up to four chats side by side, and hide the list (it peeks out from the left edge).
@@ -104,7 +104,7 @@ Session Deck can type into your terminals, so anyone who gets into it can run an
 
 - It only listens on `127.0.0.1` (and a Unix socket when installed for several people). Reach it through `tailscale serve` only, never a public port or Tailscale Funnel.
 - Over Tailscale, every request needs your Tailscale login (set by Tailscale, which drops any copy a client sends) and a signed Face ID session cookie bound to that login. Faking the login isn't enough.
-- The one exception is `/api/siri`, for the iPhone Shortcut (which can't use a passkey): it takes your Tailscale login plus a separate Siri key, and only sends to the Siri chat. Make a new key in Settings if a phone is lost; ten wrong keys lock it for ten minutes.
+- The one exception is `/api/siri/<key>`, for the iPhone Shortcut (which can't use a passkey): it takes your Tailscale login plus a separate Siri key, and only sends to the Siri chat. Make a new key in Settings if a phone is lost; ten wrong keys lock it for ten minutes.
 - On the Mac itself, the API takes the token from `session-deck.json` instead. Keep that file private.
 - Setup codes work once and expire: after 10 minutes from `server.py --setup-code`, 24 hours from the installer's `--code`.
 

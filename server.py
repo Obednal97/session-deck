@@ -1107,19 +1107,25 @@ def end_chat(pane):
     tm(pane, "set-buffer", "-b", "deck", "/exit"); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
     time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
 
-SIRI_NAME = "Siri"
-SIRI_PROMPT = ("The user is speaking to you through Siri on their phone, and your last message of each turn is read aloud to them. "
-               "Do what they ask, then end with one to three short sentences of plain spoken text: no markdown, lists, code, file paths "
-               "or links. Ask one short question if you must. Long jobs are fine: they get a notification when you finish.")
 SIRI, SIRI_LOCK = {}, threading.Lock()  # "pane": the Siri chat
+def shortcut():  # the signed iPhone shortcut (make-shortcut.py) that Settings installs: next to server.py, or with the deck's data
+    return next((p for p in (HERE / "ask.shortcut", STORE.parent / "ask.shortcut") if p.exists()), None)
+def siri_name():  # what the user calls it: "Hey Siri, Ask <name>"; also the chat's name
+    try: n = json.loads((PREFS.with_name("siri.json")).read_text()).get("name")
+    except Exception: n = None
+    return n if isinstance(n, str) and re.fullmatch(r"[\w' -]{1,30}", n) else "Deck"
+def siri_prompt(name):
+    return (f"You are {name}. The user is speaking to you through Siri on their phone, and your last message of each turn is read aloud "
+            "to them. Do what they ask, then end with one to three short sentences of plain spoken text: no markdown, lists, code, "
+            "file paths or links. Ask one short question if you must. Long jobs are fine: they get a notification when you finish.")
 
 def siri_pane():
-    """The Siri chat's pane: the one this deck started, else a live chat named Siri, else a new one in the folders root."""
-    live = live_sessions()
-    s = next((x for x in live if x["pane"] == SIRI.get("pane")), None) or next((x for x in live if x["name"] == SIRI_NAME), None)
+    """The Siri chat's pane: a live chat with the Siri name (the one this deck started first), else a new one in the folders root."""
+    live, name = live_sessions(), siri_name()
+    s = next((x for x in live if x["pane"] == SIRI.get("pane") and x["name"] == name), None) or next((x for x in live if x["name"] == name), None)
     if s: SIRI["pane"] = s["pane"]; return s["pane"]
     eng = next((k for k in ENGINES if engine_exe(k)), None)
-    p = eng and start(str(FOLDERS), eng, None, name=SIRI_NAME, system=SIRI_PROMPT)
+    p = eng and start(str(FOLDERS), eng, None, name=name, system=siri_prompt(name))
     if not p: return None
     SIRI["pane"] = p
     for _ in range(40):  # until Claude is running in it
@@ -1140,7 +1146,7 @@ def spoken(t, n=600):
 def siri_ask(text, wait):
     """Sends text to the Siri chat and waits up to wait seconds for the turn to end. Returns what Siri should say."""
     with SIRI_LOCK: pane = siri_pane()
-    if not pane: return "I couldn't start a Claude chat on the Mac."
+    if not pane: return "I couldn't start a chat on the Mac."
     if pane_screen(pane)["menu"]: return "Claude is waiting for you to answer a question in Session Deck."
     deliver(pane, text); end, idle = time.time() + wait, 0
     while time.time() < end:
@@ -1153,7 +1159,7 @@ def siri_ask(text, wait):
         said = [x["text"] for x in items[i + 1:] if x["role"] == "assistant" and x["kind"] == "text"] if i is not None else []
         idle = idle + 1 if said and not sc["working"] else 0
         if idle >= 2: return spoken(said[-1])  # idle twice in a row: the turn is over
-    return "Claude is working on it. You'll get a notification when it's done."
+    return f"{siri_name()} is working on it. You'll get a notification when it's done."
 
 IDLE_END = float(os.environ.get("DECK_IDLE_END_DAYS", "3")) * 86400  # 0 turns it off
 def idle_sweep():
@@ -1777,10 +1783,12 @@ class H(BaseHTTPRequestHandler):
         if path in PWA:
             return self.send(200, (HERE / path[1:]).read_bytes(), PWA[path])
         if path.startswith("/api/auth/"): return self.auth(path)
+        if re.fullmatch(r"/api/siri/shortcut(/[^/]{1,80}\.shortcut)?", path) and shortcut():  # the name at the end names the download;
+            return self.send(200, shortcut().read_bytes(), "application/octet-stream")  # no key or address in it, so no sign-in
         if not self.authed(): return self.send(401, {"error": "token"})
         if pages_api(self, path): return
         if path == "/api/siri":
-            return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri", "key": SEC["siri_key"]})
+            return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri/" + SEC["siri_key"], "name": siri_name(), "shortcut": bool(shortcut())})
         if path == "/api/push/key":
             v = vapid(); return self.send(200, {"key": b64u(v[1]) if v else None})
         if path == "/api/sessions":
@@ -1888,12 +1896,14 @@ class H(BaseHTTPRequestHandler):
         NAMES[str(p)] = name
         return self.send(200, {"path": str(p), "kind": "image" if ext in IMG else "file", "name": name, "size": p.stat().st_size})
     def siri(self):
-        """POST /api/siri {"text"} from an iPhone Shortcut: the Tailscale login plus the Siri key (a Shortcut can't use a passkey),
-        or the usual sign-in. Always answers in plain text, so the Shortcut can read out errors too."""
+        """POST /api/siri/<key> {"text"} from the iPhone Shortcut: the Tailscale login plus the Siri key (in the path, so the shortcut
+        needs just one address; or X-Siri-Key), as a Shortcut can't use a passkey. Or the usual sign-in. Answers in plain text, so
+        the Shortcut reads out errors too."""
         say = lambda code, t: self.send(code, t.encode(), "text/plain; charset=utf-8")
         bad, now = ("siri-bad",), time.time()
         if sum(now - t < 600 for t in HITS.get(bad, ())) >= 10: return say(429, "Too many wrong Siri keys. Try again in ten minutes.")
-        key = secrets.compare_digest(self.headers.get("X-Siri-Key", "").encode("utf8", "replace"), SEC["siri_key"].encode())
+        given = self.path.split("?")[0][len("/api/siri/"):] or self.headers.get("X-Siri-Key", "")
+        key = secrets.compare_digest(given.encode("utf8", "replace"), SEC["siri_key"].encode())
         if not (self.authed() or key and (self.login() if self.via_ts() else (self.headers.get("Host") or "").split(":")[0] in HOSTS)):
             limited(bad, 0, 600); return say(401, "Session Deck didn't accept the Siri key. Copy it again from Settings.")
         raw = self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 20000)).decode("utf8", "replace")
@@ -1905,7 +1915,7 @@ class H(BaseHTTPRequestHandler):
         return say(200, siri_ask(text, max(0, min(int(w) if w.isdigit() else 25, 55))))
     def do_POST(self):
         if self.path.startswith("/api/auth/"): return self.auth(self.path.split("?")[0], post=True)
-        if self.path.split("?")[0] == "/api/siri": return self.siri()
+        if re.fullmatch(r"/api/siri(/[\w-]{20,})?", self.path.split("?")[0]): return self.siri()
         if not self.authed(): return self.send(401, {"error": "token"})
         if self.path.startswith("/api/upload?"): return self.upload()
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -1940,7 +1950,12 @@ class H(BaseHTTPRequestHandler):
             _live[0] = 0; return self.send(200, {"ok": True})  # straight away: the pane may already be gone
         if pages_api(self, self.path, body): return
         if self.path == "/api/siri/key":  # a new key; the old one stops working at once
-            SEC["siri_key"] = secrets.token_urlsafe(24); save_secrets(SEC); return self.send(200, {"key": SEC["siri_key"]})
+            SEC["siri_key"] = secrets.token_urlsafe(24); save_secrets(SEC); return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri/" + SEC["siri_key"]})
+        if self.path == "/api/siri/name":
+            n = re.sub(r"\s+", " ", str(body.get("name", ""))).strip()
+            if not re.fullmatch(r"[\w' -]{1,30}", n): return self.send(400, {"error": "Use up to 30 letters, numbers or spaces."})
+            f = PREFS.with_name("siri.json"); f.parent.mkdir(parents=True, exist_ok=True); f.write_text(json.dumps({"name": n}))
+            return self.send(200, {"name": n})
         if self.path == "/api/push/subscribe":
             sub = body.get("sub") or {}; keys = sub.get("keys") or {}
             if not (push_ok(sub.get("endpoint")) and isinstance(keys.get("p256dh"), str) and isinstance(keys.get("auth"), str)):
