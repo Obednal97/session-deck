@@ -1108,8 +1108,6 @@ def end_chat(pane):
     time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
 
 SIRI, SIRI_LOCK = {}, threading.Lock()  # "pane": the Siri chat
-def shortcut():  # the signed iPhone shortcut (make-shortcut.py) that Settings installs: next to server.py, or with the deck's data
-    return next((p for p in (HERE / "ask.shortcut", STORE.parent / "ask.shortcut") if p.exists()), None)
 def siri_name():  # what the user calls it: "Hey Siri, Ask <name>"; also the chat's name
     try: n = json.loads((PREFS.with_name("siri.json")).read_text()).get("name")
     except Exception: n = None
@@ -1783,12 +1781,10 @@ class H(BaseHTTPRequestHandler):
         if path in PWA:
             return self.send(200, (HERE / path[1:]).read_bytes(), PWA[path])
         if path.startswith("/api/auth/"): return self.auth(path)
-        if re.fullmatch(r"/api/siri/shortcut(/[^/]{1,80}\.shortcut)?", path) and shortcut():  # the name at the end names the download;
-            return self.send(200, shortcut().read_bytes(), "application/octet-stream")  # no key or address in it, so no sign-in
         if not self.authed(): return self.send(401, {"error": "token"})
         if pages_api(self, path): return
         if path == "/api/siri":
-            return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri/" + SEC["siri_key"], "name": siri_name(), "shortcut": bool(shortcut())})
+            return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri/" + SEC["siri_key"], "name": siri_name()})
         if path == "/api/push/key":
             v = vapid(); return self.send(200, {"key": b64u(v[1]) if v else None})
         if path == "/api/sessions":
@@ -1896,7 +1892,7 @@ class H(BaseHTTPRequestHandler):
         NAMES[str(p)] = name
         return self.send(200, {"path": str(p), "kind": "image" if ext in IMG else "file", "name": name, "size": p.stat().st_size})
     def siri(self):
-        """POST /api/siri/<key> {"text"} from the iPhone Shortcut: the Tailscale login plus the Siri key (in the path, so the shortcut
+        """POST /api/siri/<key> from the iPhone Shortcut, the text as the body (Request Body: File) or as {"text"}: the Tailscale login plus the Siri key (in the path, so the shortcut
         needs just one address; or X-Siri-Key), as a Shortcut can't use a passkey. Or the usual sign-in. Answers in plain text, so
         the Shortcut reads out errors too."""
         say = lambda code, t: self.send(code, t.encode(), "text/plain; charset=utf-8")
@@ -1906,9 +1902,15 @@ class H(BaseHTTPRequestHandler):
         key = secrets.compare_digest(given.encode("utf8", "replace"), SEC["siri_key"].encode())
         if not (self.authed() or key and (self.login() if self.via_ts() else (self.headers.get("Host") or "").split(":")[0] in HOSTS)):
             limited(bad, 0, 600); return say(401, "Session Deck didn't accept the Siri key. Copy it again from Settings.")
-        raw = self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 20000)).decode("utf8", "replace")
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower():  # in case Shortcuts streams the body
+            raw = b""
+            while len(raw) < 20000 and (n := int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)):
+                raw += self.rfile.read(n); self.rfile.readline()
+        else: raw = self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 20000))
+        raw = raw.decode("utf8", "replace")
+        m = re.search(r"\r?\n\r?\n(.*?)\r?\n--", raw, re.S) if "multipart/" in self.headers.get("Content-Type", "") else None
         try: text = json.loads(raw).get("text", "")
-        except Exception: text = raw
+        except Exception: text = m.group(1) if m else raw
         text = re.sub(r"\s+", " ", str(text)).strip()
         if not text: return say(200, "I didn't catch anything to send.")
         w = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("wait", ["25"])[0]
