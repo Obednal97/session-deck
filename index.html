@@ -3,6 +3,7 @@
 <link rel=manifest href=manifest.webmanifest><link rel=icon href=icons/192.png><link rel=apple-touch-icon href=icons/180.png><meta name=apple-mobile-web-app-title content="Session Deck">
 <meta name=theme-color content="#0e1118" media="(prefers-color-scheme: dark)"><meta name=theme-color content="#f3f5f8" media="(prefers-color-scheme: light)">
 <script>const ACC=[['Blue','#7d9bff','#2f5bd8'],['Purple','#b197fc','#7048e8'],['Pink','#f783ac','#d6336c'],['Red','#ff8787','#e03131'],['Orange','#ffa94d','#e8590c'],['Yellow','#ffd43b','#f2c200','#1a1a1a'],['Green','#69db7c','#2b8a3e'],['Teal','#63e6be','#0c8599'],['Graphite','#ced4da','#495057']];function setAcc(n){const a=ACC.find(x=>x[0]==n)||ACC[0],st=document.documentElement.style;st.setProperty('--cd',a[1]);st.setProperty('--cl',a[2]);a[3]?st.setProperty('--onl',a[3]):st.removeProperty('--onl')}
+const noTerm=()=>{try{document.documentElement.classList.toggle('noterm',localStorage.getItem('termbtn')=='0')}catch(e){}};noTerm();
 try{const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t;setAcc(localStorage.getItem('accent'))}catch(e){}
 // column mode: this page inside one column of the desktop split view (the outer page adds ?col=<id>)
 const COL=parent!==window&&new URLSearchParams(location.search).get('col');if(COL)document.documentElement.classList.add('col');if(COL=='agp')document.documentElement.classList.add('agpm')</script>
@@ -145,6 +146,7 @@ small .tl{display:inline-grid;vertical-align:-3px;width:16px;height:16px;border-
 .pnew{display:block;margin:14px 0 4px;border:0;background:color-mix(in srgb,var(--c) 14%,transparent);border-radius:12px;padding:11px 12px;color:var(--c);font-weight:600;width:100%;text-align:center}
 .dl .more{display:block;margin:10px auto 0}
 .df{border-top:1px solid var(--l);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;font-size:13px;color:var(--m)}
+.noterm #tv{display:none!important}
 .seg{display:flex;flex:1;background:var(--r);border-radius:9px;padding:2px}.seg button{flex:1;border:0;background:none;border-radius:7px;padding:5px 0;font-size:13px;color:var(--m)}
 .seg button[aria-pressed=true]{background:var(--s);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .note{align-self:center;max-width:min(92%,640px);font-size:12.5px;color:var(--m);background:var(--r);border-radius:14px;padding:5px 12px;text-align:center;overflow-wrap:anywhere}
@@ -421,11 +423,13 @@ $('dl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
  if(b.dataset.h){closeMenu();pickup(b.dataset.h,b.dataset.c,b.querySelector('b').textContent)}};
 function settings(){closeMenu();let a='Blue';try{a=localStorage.getItem('accent')||'Blue'}catch(e){}const lt=document.documentElement.dataset.theme=='light'||(!document.documentElement.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);
  sb.innerHTML=`<h2>Settings</h2><div class=sg><div class=lbl>Appearance</div><div class=srow><span>Theme</span><div class=seg id=seg><button data-t="">System</button><button data-t=light>Light</button><button data-t=dark>Dark</button></div></div>
- <div class="srow col"><span>Accent colour</span><div class=sw id=sw>${ACC.map(x=>`<button data-a="${x[0]}" aria-label="${x[0]}" title="${x[0]}" aria-pressed=${x[0]==a} style="background:${lt?x[2]:x[1]}"></button>`).join('')}</div></div></div>
+ <div class="srow col"><span>Accent colour</span><div class=sw id=sw>${ACC.map(x=>`<button data-a="${x[0]}" aria-label="${x[0]}" title="${x[0]}" aria-pressed=${x[0]==a} style="background:${lt?x[2]:x[1]}"></button>`).join('')}</div></div>
+ <div class=srow><span style="white-space:nowrap">Terminal button</span><div class=seg id=stv>${['On','Off'].map((x,i)=>`<button data-v=${1-i} aria-pressed=${!document.documentElement.classList.contains('noterm')==!i}>${x}</button>`).join('')}</div></div></div>
  <div class=sg><div class=lbl>Notifications</div><div class=pf id=pf></div></div><div class=sg><div class=lbl>Siri</div><button class=srow id=ssiri><span>Siri shortcut</span><i>›</i></button></div>`+(TS?`<div class=sg><div class=lbl>Security</div><button class=srow id=spk><span>Passkeys and Face ID</span><i>›</i></button><button class="srow red" id=sso><span>Sign out</span></button></div>`:'')+
  `<div class=sg><div class=lbl>About</div><div class=srow><span>Session Deck</span><small>${esc(location.host)}</small></div></div>`;showSheet(-1);theme(document.documentElement.dataset.theme||'');pushUI()}
 $('set').onclick=settings;
 $('sbody').addEventListener('click',e=>{const t=e.target,th=t.closest('#seg [data-t]');if(th){theme(th.dataset.t);const de=document.documentElement,lt=de.dataset.theme=='light'||(!de.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);return $('sw')&&$('sw').querySelectorAll('button').forEach(b=>{const x=ACC.find(a=>a[0]==b.dataset.a);b.style.background=lt?x[2]:x[1]})}
+ const tb=t.closest('#stv [data-v]');if(tb){try{tb.dataset.v=='1'?localStorage.removeItem('termbtn'):localStorage.setItem('termbtn','0')}catch(x){}noTerm();if(term&&tb.dataset.v=='0')$('tv').click();return $('stv').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===tb))}
  const ac=t.closest('#sw [data-a]');if(ac){try{ac.dataset.a=='Blue'?localStorage.removeItem('accent'):localStorage.setItem('accent',ac.dataset.a)}catch(x){}setAcc(ac.dataset.a);return $('sw').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===ac))}
  if(t.closest('#pf'))return pfClick(e);if(t.closest('#spk'))return passkeys(1);if(t.closest('#ssiri'))return siri(1);if(t.closest('#sso'))au('logout',{}).then(()=>au('state')).then(lock)});
 $('nc').onclick=()=>{closeMenu();newChat(nav.v=='proj'?root(nav.p):cur&&cur.cwd||here())};
@@ -803,6 +807,8 @@ if(vv){let ft=[];/* while typing, pin the page to the visible area: newer iOS sh
  so what was just above the box stays just above it */
 {const m=$('main');let h=m.clientHeight,b=m.scrollTop+h;m.addEventListener('scroll',()=>{if(m.clientHeight==h)b=m.scrollTop+h},{passive:true});// a scroll that comes with the resize (the browser clamping) mustn't move the mark
  new ResizeObserver(()=>{const n=m.clientHeight;if(h&&n&&n!=h)m.scrollTop=b-n;h=n;b=m.scrollTop+n}).observe(m)}
+/* iOS scrolls the whole page up to the box as the keyboard opens, animated, so the header slid away and back: the first tap focuses the box without that scroll */
+$('ta').addEventListener('touchend',e=>{const t=$('ta');if(document.activeElement===t||e.touches.length)return;e.preventDefault();t.focus({preventScroll:true});t.setSelectionRange(t.value.length,t.value.length)},{passive:false});
 $('ta').addEventListener('focus',()=>document.body.classList.add('kb'));$('ta').addEventListener('blur',()=>document.body.classList.remove('kb'));
 /* attention badges, Web Push and home-screen install */
 $('mb').insertAdjacentHTML('beforeend','<b class=bdg id=mbn hidden></b>');
@@ -1087,7 +1093,7 @@ if(COL){const P=parent.deck,me=COL,o=open_,h=home,l2=list2,p1=poll;let pAt=0;
  $('csp').onclick=()=>P.split(me);$('cx').onclick=()=>P.close(me);
  addEventListener('pointerdown',()=>P.foc(me),true);addEventListener('focusin',()=>P.foc(me));
  addEventListener('keydown',e=>{let f=P.key(e);if(f&&e.code=='KeyW'&&sh.classList.contains('on'))f=hideSheet;if(f){e.preventDefault();e.stopImmediatePropagation();f()}},true);
- addEventListener('storage',e=>{const r=document.documentElement;if(e.key=='theme')e.newValue?r.dataset.theme=e.newValue:delete r.dataset.theme;if(e.key=='accent')setAcc(e.newValue)})}
+ addEventListener('storage',e=>{const r=document.documentElement;if(e.key=='theme')e.newValue?r.dataset.theme=e.newValue:delete r.dataset.theme;if(e.key=='termbtn')noTerm();if(e.key=='accent')setAcc(e.newValue)})}
 /* Scheduled and Artifacts pages, shown in the sheet like Settings. The nav (window.NAV) calls openScheduled(id) and openArtifacts(id), id being
    an item to open straight away; window.navDot marks unseen runs and new artifacts; window.pinToggle and isPinned pin cards. A column hands them up */
 const ls=(k,v)=>{try{return v===undefined?+localStorage.getItem(k)||0:localStorage.setItem(k,v)}catch(e){return 0}};
