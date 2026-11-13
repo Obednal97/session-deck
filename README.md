@@ -29,7 +29,7 @@ It's one Python file and one HTML file, with no build step and no framework.
 - **Terminal view.** The raw tmux pane, resized to fit your screen while it's open.
 - **Uploads.** Paste or attach screenshots and files (up to 1 GB each); the session gets a path it can read.
 - **Notifications.** Web Push when a session finishes or needs you, on every device you switch them on for, except the one you're looking at the chat on. App badge included.
-- **Siri.** Say "Hey Siri, Ask Deck" (the name is yours to choose) and your request goes to a chat of that name on the Mac; Siri reads out the short reply, and longer jobs notify you when they finish. Settings › Siri copies your address and walks you through the three-action iPhone shortcut.
+- **Siri.** Say "Hey Siri, Deck" (the name is yours to choose), then your request when it asks, and it goes to a chat of that name on the Mac; Siri reads out the short reply, and longer jobs notify you when they finish. Settings › Siri copies your address and walks you through the three-action iPhone shortcut.
 - **Face ID.** Each device signs in with a passkey, bound to your Tailscale login.
 - **Several people** (optional). One shared address for everyone on the Mac: each person gets their own deck, running as their own macOS account, and only sees their own sessions.
 - **Desktop.** Install it as an app from Chrome or Safari, open up to four chats side by side, and hide the list (it peeks out from the left edge).

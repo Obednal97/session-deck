@@ -1108,7 +1108,7 @@ def end_chat(pane):
     time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
 
 SIRI, SIRI_LOCK = {}, threading.Lock()  # "pane": the Siri chat
-def siri_name():  # what the user calls it: "Hey Siri, Ask <name>"; also the chat's name
+def siri_name():  # what the user calls it: "Hey Siri, <name>"; also the chat's name
     try: n = json.loads((PREFS.with_name("siri.json")).read_text()).get("name")
     except Exception: n = None
     return n if isinstance(n, str) and re.fullmatch(r"[\w' -]{1,30}", n) else "Deck"
