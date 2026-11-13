@@ -764,7 +764,7 @@ $('slash').onclick=e=>{const b=e.target.closest('[data-c]');if(!b)return;$('slas
 /* terminal key bar, @ file suggestions, ! shell mode */
 const kbShow=on=>{$('kbar').hidden=!on;$('kbt').setAttribute('aria-pressed',on);try{localStorage.setItem('kbar',on?1:0)}catch(e){}};
 try{kbShow(localStorage.getItem('kbar')=='1')}catch(e){kbShow(false)}$('kbt').onclick=()=>kbShow($('kbar').hidden);
-['kbar','at','send','kbt'].forEach(i=>$(i).addEventListener('mousedown',e=>e.preventDefault()));// keep the phone keyboard up
+['kbar','slash','at','send','kbt'].forEach(i=>$(i).addEventListener('mousedown',e=>e.preventDefault()));// keep the phone keyboard up
 let ccT;$('kbar').onclick=async e=>{const b=e.target.closest('[data-k]');if(!b||!cur||!cur.pane)return;const k=b.dataset.k;
  if(k=='C-c'){const arm=!b.classList.contains('arm');clearTimeout(ccT);b.classList.toggle('arm',arm);b.textContent=arm?'Tap again':'Ctrl-C';if(arm)return ccT=setTimeout(()=>{b.classList.remove('arm');b.textContent='Ctrl-C'},2500)}// it can interrupt, clear or exit
  await tell('/api/key',{pane:cur.pane,key:k});setTimeout(()=>{poll();if(term)draw()},300)};
@@ -792,13 +792,15 @@ $('clip').onclick=()=>$('fi').click();$('fi').onchange=()=>{attach([...$('fi').f
 $('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
 $('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
 const vv=window.visualViewport;
-if(vv){let lh=0,ft=[];/* while typing, pin the page to the visible area: newer iOS shrinks innerHeight with the keyboard too, so guessing "keyboard open" from the two heights failed and left the page scrolled up.
+if(vv){let ft=[];/* while typing, pin the page to the visible area: newer iOS shrinks innerHeight with the keyboard too, so guessing "keyboard open" from the two heights failed and left the page scrolled up.
  With nothing being typed in, the page fills the screen and a scrolled viewport is put back: after a rotation iOS can leave it offset (a gap above the header, taps landing off target) */
  const kb=()=>{const a=document.activeElement;return!!a&&a.matches('textarea,input:not([type=checkbox],[type=radio],[type=range])')},
   top=()=>{const k=kb(),s=document.body.style;if(!k&&(vv.offsetTop||scrollY||scrollX))scrollTo(0,0);s.top=k?Math.max(0,vv.offsetTop)+'px':'0';s.height=k?vv.height+'px':''};
- const fit=()=>{top();ft.forEach(clearTimeout);ft=[350,900].map(t=>setTimeout(top,t));
- if(vv.height!==lh){const m=$('main'),atEnd=m.scrollHeight-m.scrollTop-m.clientHeight<120;lh=vv.height;if(atEnd)requestAnimationFrame(()=>m.scrollTop=m.scrollHeight)}};
+ const fit=()=>{top();ft.forEach(clearTimeout);ft=[350,900].map(t=>setTimeout(top,t))};
  vv.addEventListener('resize',fit);vv.addEventListener('scroll',top);addEventListener('orientationchange',fit);addEventListener('focusout',()=>setTimeout(top));fit()}
+/* when the chat area gets shorter or taller (keyboard, a taller box, a menu over the box), keep its bottom edge on the same line of text,
+ so what was just above the box stays just above it */
+{const m=$('main');let h=m.clientHeight;new ResizeObserver(()=>{const n=m.clientHeight;if(h&&n&&n!=h)m.scrollTop+=h-n;h=n}).observe(m)}
 $('ta').addEventListener('focus',()=>document.body.classList.add('kb'));$('ta').addEventListener('blur',()=>document.body.classList.remove('kb'));
 /* attention badges, Web Push and home-screen install */
 $('mb').insertAdjacentHTML('beforeend','<b class=bdg id=mbn hidden></b>');
