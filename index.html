@@ -795,12 +795,14 @@ const vv=window.visualViewport;
 if(vv){let ft=[];/* while typing, pin the page to the visible area: newer iOS shrinks innerHeight with the keyboard too, so guessing "keyboard open" from the two heights failed and left the page scrolled up.
  With nothing being typed in, the page fills the screen and a scrolled viewport is put back: after a rotation iOS can leave it offset (a gap above the header, taps landing off target) */
  const kb=()=>{const a=document.activeElement;return!!a&&a.matches('textarea,input:not([type=checkbox],[type=radio],[type=range])')},
-  top=()=>{const k=kb(),s=document.body.style;if(!k&&(vv.offsetTop||scrollY||scrollX))scrollTo(0,0);s.top=k?Math.max(0,vv.offsetTop)+'px':'0';s.height=k?vv.height+'px':''};
+  top=()=>{const k=kb(),s=document.body.style;if(!k&&(vv.offsetTop||scrollY||scrollX))scrollTo(0,0);s.top=k?Math.max(0,vv.offsetTop,scrollY)+'px':'0';s.height=k?vv.height+'px':''};
  const fit=()=>{top();ft.forEach(clearTimeout);ft=[350,900].map(t=>setTimeout(top,t))};
- vv.addEventListener('resize',fit);vv.addEventListener('scroll',top);addEventListener('orientationchange',fit);addEventListener('focusout',()=>setTimeout(top));fit()}
+ vv.addEventListener('resize',fit);vv.addEventListener('scroll',top);addEventListener('scroll',top);// iOS scrolls the window to the box before visualViewport reports it: follow whichever comes first, or the page jumps up for a moment
+ addEventListener('orientationchange',fit);addEventListener('focusout',()=>setTimeout(top));fit()}
 /* when the chat area gets shorter or taller (keyboard, a taller box, a menu over the box), keep its bottom edge on the same line of text,
  so what was just above the box stays just above it */
-{const m=$('main');let h=m.clientHeight;new ResizeObserver(()=>{const n=m.clientHeight;if(h&&n&&n!=h)m.scrollTop+=h-n;h=n}).observe(m)}
+{const m=$('main');let h=m.clientHeight,b=m.scrollTop+h;m.addEventListener('scroll',()=>{if(m.clientHeight==h)b=m.scrollTop+h},{passive:true});// a scroll that comes with the resize (the browser clamping) mustn't move the mark
+ new ResizeObserver(()=>{const n=m.clientHeight;if(h&&n&&n!=h)m.scrollTop=b-n;h=n;b=m.scrollTop+n}).observe(m)}
 $('ta').addEventListener('focus',()=>document.body.classList.add('kb'));$('ta').addEventListener('blur',()=>document.body.classList.remove('kb'));
 /* attention badges, Web Push and home-screen install */
 $('mb').insertAdjacentHTML('beforeend','<b class=bdg id=mbn hidden></b>');
