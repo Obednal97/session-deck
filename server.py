@@ -181,7 +181,8 @@ def parse_menu(plain):
     if F < 0:  # "Ready to submit your answers?" has no key hints: a numbered ❯ list at the bottom, under a line ending "?"
         end = max((i for i, l in enumerate(L) if l.strip()), default=-1)
         m1 = next((i for i in range(max(0, end - 12), end + 1) if re.match(r"^\s*\u276f\s+\d+\.\s+\S", L[i])), None)
-        if m1 and next((l for l in reversed(L[:m1]) if l.strip()), "").rstrip().endswith("?"): F = end + 1; L = L + [""]
+        # the "?" line is the one above the list, or a little higher: Switch model? has two lines of explanation in between
+        if m1 and any(l.rstrip().endswith("?") for l in [l for l in L[:m1] if l.strip()][-4:]): F = end + 1; L = L + [""]
     if F >= 0:
         M = max((i for i in range(F) if re.match(r"^\s*\u276f\s+\S", L[i])), default=-1)
         if M >= 0:
