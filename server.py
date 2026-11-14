@@ -790,12 +790,14 @@ def with_sent(sid, items, f=None):
     def when(x):
         try: return datetime.datetime.fromisoformat(x["ts"].replace("Z", "+00:00")).timestamp()
         except Exception: return 0
-    keep, end = [], None
+    keep, end, norm = [], None, lambda s: " ".join((s or "").split())  # Claude Code turns a pasted tab into spaces, so compare words only
     for t, at in SENT.get(sid, []):
         if time.time() - at > 900: continue
-        if any(x.get("role") == "user" and (x.get("text") or "").strip() == t[:6000].strip() and when(x) >= at - 5 for x in items): continue  # user_item cuts at 6000
+        n = norm(t)
+        if any(x.get("role") == "user" and when(x) >= at - 5 and (norm(x.get("text")) == n or len(x.get("text") or "") >= 6000 and n.startswith(norm(x["text"]))) for x in items): continue  # user_item cuts at 6000
         if f and end is None: end = tail(f)  # read once per call, not once per message
-        if f and re.search(r'"content":"(?:\\n\\n<pasted_content id=\\"\w+\\">\\n)?' + re.escape(json.dumps(t, ensure_ascii=False)[1:-1]) + r'(?:\\n</pasted_content id=\\"\w+\\">\\n)?"', end): continue  # pasted text is saved in a wrapper
+        ws = r'(?:\s|\\[ntr])+'
+        if f and re.search(r'"content":"(?:%s|<pasted_content id=\\"\w+\\">)*' % ws + ws.join(re.escape(json.dumps(w, ensure_ascii=False)[1:-1]) for w in n.split()) + r'(?:%s|</pasted_content id=\\"\w+\\">)*"' % ws, end): continue  # pasted text is saved in a wrapper
         keep.append((t, at))
     SENT[sid] = keep
     return items + [{"role": "user", "kind": "text", "text": t, "queued": True} for t, _ in keep]
