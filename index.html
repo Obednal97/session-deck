@@ -999,6 +999,10 @@ function gkey(e){const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.cod
  if(c=='Backslash')return()=>colSplit();
  if(c=='KeyB')return side;
  return null}
+// Copied text keeps its structure (bold, lists, links, code) but not the page's colours, which other apps paste as a highlight behind the text
+document.addEventListener('copy',e=>{const s=getSelection();if(!s.rangeCount||s.isCollapsed||e.target.closest?.('input,textarea'))return;const d=document.createElement('div'),c=s.getRangeAt(0).commonAncestorContainer,pre=(c.nodeType==1?c:c.parentElement)?.closest('pre');
+ for(let i=0;i<s.rangeCount;i++)d.append(s.getRangeAt(i).cloneContents());d.querySelectorAll('button,.gn').forEach(x=>x.remove());d.querySelectorAll('[style],[class]').forEach(x=>{x.removeAttribute('style');x.removeAttribute('class')});
+ e.clipboardData.setData('text/html',pre?`<pre>${d.innerHTML}</pre>`:d.innerHTML);e.clipboardData.setData('text/plain',s.toString());e.preventDefault()});
 document.addEventListener('keydown',e=>{const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.code,a=document.activeElement;let f;
  if(e.key=='Escape'&&sh.classList.contains('on'))f=hideSheet;
  else if(e.key=='Tab'&&sh.classList.contains('on')){const F=[...sh.querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(x=>!x.disabled&&x.offsetParent),i=F.indexOf(a);// keep Tab inside the dialog
