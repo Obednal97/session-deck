@@ -249,6 +249,56 @@ def deliver(pane, text, imgs=()):
         time.sleep(0.15 if i == 0 else 0.8); tm(pane, "send-keys", "-t", "{P}", "Enter"); time.sleep(0.4)
         if not input_box(pane): break
 
+AG_ROW = re.compile(r"^(\u276f )?\s*([\u23fa\u25ef]) (.+?)\s*$")  # the agents list under Claude's input: "❯" marks the selected row, ⏺ the agent the input goes to
+
+def agent_rows(pane):
+    """The agents list Claude shows under its input while a chat has subagents, top to bottom: [{name, desc, viewed, sel}]; [] when none shows."""
+    rows = []
+    for l in reversed([l for l in tm(pane, "capture-pane", "-p", "-t", "{P}").splitlines() if l.strip()]):
+        m = AG_ROW.match(l)
+        if not m: break
+        name, _, rest = m.group(3).partition("  ")
+        rows.insert(0, {"name": name.strip(), "desc": re.split(r"\s{2,}", rest.strip())[0], "viewed": m.group(2) == "\u23fa", "sel": bool(m.group(1))})
+    return rows if rows and rows[0]["name"] == "main" else []
+
+def view_agent(pane, ag=None):
+    """Points Claude's input at the main agent (ag None) or at a subagent ({type, desc}), as the terminal does it: Down into the
+    agents list, onto the agent's row, Enter, then Esc to hand the keys back to the input. Every step is checked on screen, so a
+    message never lands in the wrong agent. Returns None when the input goes to the right agent, else what went wrong."""
+    def want(r):
+        if ag is None: return r["name"] == "main"
+        d, rd = ag.get("desc") or "", r["desc"]
+        return r["name"] != "main" and r["name"] == (ag.get("type") or r["name"]) and (rd == d or rd.endswith("\u2026") and len(rd) > 6 and d.startswith(rd[:-1].rstrip()))
+    def key(k, wait=0.25): tm(pane, "send-keys", "-t", "{P}", k); time.sleep(wait); return agent_rows(pane)
+    def fail(msg, rows):
+        if any(r["sel"] for r in rows): key("Escape")
+        return msg
+    rows = agent_rows(pane)
+    if not rows: return None if ag is None else "That subagent has finished, so it can't take messages any more."
+    if not any(r["sel"] for r in rows):
+        if any(r["viewed"] and want(r) for r in rows): return None
+        t = input_box(pane)  # Claude's greyed-out suggestion in an empty box doesn't count
+        if t and t != (pane_screen(pane)["suggestion"] or "").strip(): return "There's text in the terminal's message box. Send or clear it there first."
+        for _ in range(3):  # Down from an empty input opens the list (never Up: that brings back old messages)
+            rows = key("Down", 0.35)
+            if any(r["sel"] for r in rows) or (input_box(pane) or "") not in ("", t or ""): break
+        if not any(r["sel"] for r in rows): return fail("Couldn't open the terminal's agents list. Try again.", rows)
+    for _ in range(60):
+        i = next((i for i, r in enumerate(rows) if r["sel"]), None)
+        if i is None: return "The terminal's agents list closed. Try again."
+        if want(rows[i]): break
+        t = next((j for j, r in enumerate(rows) if want(r)), None)
+        if t is None and i == len(rows) - 1:  # off the bottom of a long list: step down and see if it scrolls
+            nxt = key("Down", 0.15)
+            if [r["name"] + r["desc"] for r in nxt] == [r["name"] + r["desc"] for r in rows]: return fail("That subagent isn't in the terminal's agents list any more.", nxt)
+            rows = nxt; continue
+        rows = key("Down" if t is None or t > i else "Up", 0.12)
+    else: return fail("Couldn't find that subagent in the terminal's agents list.", rows)
+    rows = key("Enter", 0.5)
+    if not any(r["viewed"] and want(r) for r in rows): return fail("Couldn't switch the terminal to that agent.", rows)
+    if any(r["sel"] for r in rows): rows = key("Escape")
+    return "Couldn't hand the keyboard back to the terminal's message box." if any(r["sel"] for r in rows) else None
+
 def pane_screen(key):
     scr = tm(key, "capture-pane", "-e", "-p", "-t", "{P}")
     sug = [x for x in re.findall("\u276f\u00a0\x1b\\[2m(.+?)\x1b\\[0m", scr)
@@ -658,6 +708,8 @@ def parse_lines(lines, n0, items, delivered, side):
                         bt = "\n".join(filter(None, (bo.group(1).strip(), (bo.group(2) or "").strip())))
                         if bt: items.append({"role": "assistant", "kind": "cmdout", "text": bt[:3000], "ts": o.get("timestamp")})
                         continue
+                    mt = o.get("isMeta") and (o.get("origin") or {}).get("kind") == "human" and re.match(r"The user sent a new message while you were working:\n(.*?)(?:\n\nThis is how Claude Code surfaces .*)?$", tx, re.S)
+                    if mt: items.append(user_item(mt.group(1).strip(), o.get("timestamp"))); continue  # typed to a busy subagent: Claude Code wraps it
                     if tx.lstrip().startswith("<") or o.get("isMeta"): continue
                 items.append({"role": t, "kind": "text", "text": tx[:6000], "ts": o.get("timestamp")})
             elif k == "tool_use":
@@ -1995,9 +2047,17 @@ class H(BaseHTTPRequestHandler):
             imgs = [f for f in files if f.suffix[1:] in IMG]
             if len(imgs) < len(files):  # Claude opens other files itself when it sees the path
                 text = (text.rstrip() + "\n\n" + "\n".join(f"Attached: {f} ({NAMES.get(str(f), f.name)}, {human(f.stat().st_size)})" for f in files if f not in imgs)).strip()
+            ag = None
+            if body.get("agent"):  # a subagent of this chat: its own transcript, its own input in the terminal
+                f = re.fullmatch(r"[0-9a-f-]{36}", str(body.get("session", ""))) and find_file(body["session"])
+                ag = next((a for a in agents(f) if a["id"] == body["agent"]), None) if f else None
+                if not ag: return self.send(404, {"error": "That subagent wasn't found."})
+            err = view_agent(pane, ag)
+            if err: return self.send(409, {"error": err})
             deliver(pane, text, imgs)
+            if ag: view_agent(pane); _live[0] = 0  # back to the main agent, where the terminal normally sits
             sid = next((x.get("session") for x in live_sessions() if x["pane"] == pane), None)
-            if sid and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), time.time()))
+            if sid and not ag and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), time.time()))
             r = {"ok": True, "text": text}
             if body.get("id"): SENT_IDS[str(body["id"])[:40]] = r; [SENT_IDS.pop(k) for k in list(SENT_IDS)[:-50]]
             return self.send(200, r)

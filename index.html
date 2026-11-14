@@ -537,7 +537,7 @@ function chatOpts(){return`<details class=more2><summary>Options</summary><div s
  sel('oe','Effort',[['','Default'],['low','Low'],['medium','Medium'],['high','High'],['xhigh','Extra high'],['max','Max']])+
  `<div><div class=lbl>Name</div><input id=on type=text maxlength=60 autocomplete=off placeholder="Optional"></div></div><label class=ck style="margin-top:8px"><input type=checkbox id=ow disabled> New git worktree (fresh chats only)</label></details>`}
 const optVals=()=>({perm:$('op').value,model:$('om').value,effort:$('oe').value,name:$('on').value.trim(),worktree:$('ow').checked});
-function open_(s){if(term&&cur)termOff(cur.pane);cur=s;term=false;$('back').hidden=!stack.length;$('mb').hidden=!!stack.length;agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro;$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';draw()}
+function open_(s){if(term&&cur)termOff(cur.pane);cur=s;term=false;$('back').hidden=!stack.length;$('mb').hidden=!!stack.length;agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro||!!s.agent;if(s.agent)busy=false;$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';draw()}
 let stack=[];$('back').onclick=()=>{$('menu').hidden=true;menuKey='';const p=stack.pop();if(p)open_(p)};
 const tok=n=>(n=n||0)>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
 const dur=(a,b)=>{const s=Math.max(0,Math.round(((b?new Date(b):Date.now())-new Date(a))/1000));return s<60?s+'s':s<3600?Math.floor(s/60)+'m '+s%60+'s':s<172800?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':Math.round(s/86400)+' days'};
@@ -552,7 +552,7 @@ const agentRows=(list,all)=>list.map(a=>{const k=kidsOf(all,a.id),o=agOpen.has(a
 function agTap(e,redraw){const ag=e.target.closest('.agr');if(!ag)return false;const id=ag.dataset.a,k=+ag.dataset.k;
  if(k&&(e.target.closest('[data-t]')||!agOpen.has(id))){agOpen.has(id)?agOpen.delete(id):agOpen.add(id);redraw();return true}
  openAgent(id,ag.dataset.d);return true}
-function openAgent(id,desc){hideSheet();if(rOpen)closeRP();if(COL&&COL!='agp'&&parent.deck&&parent.deck.agent)return parent.deck.agent(cur.session,id,desc);stack.push(cur);open_({session:cur.session,agent:id,title:'Subagent: '+desc,ro:1})}
+function openAgent(id,desc){hideSheet();if(rOpen)closeRP();if(COL&&COL!='agp'&&parent.deck&&parent.deck.agent)return parent.deck.agent(cur.session,id,desc,cur.pane||cur.via);const v=cur.pane||cur.via;stack.push(cur);open_({session:cur.session,agent:id,title:'Subagent: '+desc,ro:v?0:1,via:v})}
 sb.addEventListener('click',e=>agTap(e,()=>{if(info&&$('agl'))$('agl').innerHTML=agentsBlock(info.agents||[],agFull)}));
 function agentsBlock(all,full){const t=kidsOf(all,null),n=all.filter(a=>a.running).length,show=full?t:t.slice(0,6);
  return all.length?`<button class=srow id=agopen><span>Subagents</span><small>${n?n+' running of ':''}${all.length} ›</small></button>`:''}
@@ -623,7 +623,7 @@ async function draw(){if(!cur)return;const me=cur;
  else{const d=cur.session?await api(cur.agent?'/api/agent/'+cur.session+'/'+cur.agent:'/api/session/'+cur.session+'?n='+(cur.n||60)):{items:[]},m=$('main'),atEnd=m.scrollHeight-m.scrollTop-m.clientHeight<80;// a new chat has no transcript until Claude saves the first message; show it meanwhile
   if(cur!==me)return;if(cur.pend&&!cur.pend.s){const p=cur.pend.t.trim();if(Date.now()-cur.pend.at>6e5||(d.items||[]).slice(-15).some(x=>x.role=='user'&&(x.text||'').trim()==p))cur.pend=null}const key=JSON.stringify(d.items)+(cur.pend?cur.pend.t+cur.pend.s:'');if(key===cur.key&&cur.box&&m.contains(cur.box)){if(!cur.ro)await list2();return}
   if(paint(m,render((d.items||[]).concat(cur.pend?[{kind:'pend',role:'user',text:cur.pend.t,s:cur.pend.s}]:[]),1),(d.items||[]).length>=(cur.n||60)&&!cur.agent,atEnd))cur.key=key;jumpUI()}
- if(cur===me&&!cur.ro){await list2()}}
+ if(cur===me&&!cur.ro&&!cur.agent){await list2()}}
 async function list2(){await list();if(!cur)return;const s=live.find(x=>x.pane==cur.pane);if(!s)return;if(s.session&&s.session!==cur.session){cur.session=s.session;cur.key='';cur.n=0};
  $('title').innerHTML=esc(s.title||s.name)+(s.working?' <span class=work>●</span>':'');}
 /* chat painting: blocks that didn't change keep their DOM (selection, open details, loaded images).
@@ -751,7 +751,7 @@ $('menu').onclick=async e=>{const b=e.target.closest('[data-o]');if(!b||!cur.men
  if(await tell('/api/choose',{pane:cur.pane,index:+b.dataset.o,...q,...(note?{text:t}:{})})){if(note){$('ta').value='';grow();taUI()}setTimeout(draw,700)}};
 async function send(t){if(sending)return;const fs=cur.menu?[]:ATT.map(a=>a.path);if(!t.trim()&&!fs.length)return;if(fs.includes(undefined))return toast('Wait for the uploads to finish.');if(cur.menu){if(!await tell('/api/choose',{pane:cur.pane,text:t,...shown()}))return;$('ta').value='';grow();$('menu').hidden=true;menuKey='';return setTimeout(draw,700)}// the message shows at once as "sending…" and Send is held until the server answers (it waits for a chat that is still
  // starting), so a slow first send can't be sent twice; a dropped connection is retried with the same id, which the server sends once
- const me=cur,b={pane:cur.pane,text:t,files:fs,id:Date.now().toString(36)+Math.random().toString(36).slice(2,8)},show=t.trim()&&!'!/'.includes(t.trim()[0]);
+ const me=cur,b={pane:cur.pane||cur.via,...cur.agent&&{session:cur.session,agent:cur.agent},text:t,files:fs,id:Date.now().toString(36)+Math.random().toString(36).slice(2,8)},show=t.trim()&&!'!/'.includes(t.trim()[0]);
  sending=1;sendBtn();if(show){me.pend={t,at:Date.now(),s:1};$('ta').value='';grow();taUI();draw()}
  const r=await tell('/api/send',b).catch(()=>tell('/api/send',b)).catch(()=>{toast('Not sent: no connection. Your message is back in the box.');return false});sending=0;
  if(!r){if(me.pend&&me.pend.s)me.pend=null;if(cur===me){if(show&&!$('ta').value){$('ta').value=t;grow();taUI()}cur.key='';draw()}return sendBtn()}
@@ -773,8 +773,8 @@ let ccT;$('kbar').onclick=async e=>{const b=e.target.closest('[data-k]');if(!b||
  if(k=='C-c'){const arm=!b.classList.contains('arm');clearTimeout(ccT);b.classList.toggle('arm',arm);b.textContent=arm?'Tap again':'Ctrl-C';if(arm)return ccT=setTimeout(()=>{b.classList.remove('arm');b.textContent='Ctrl-C'},2500)}// it can interrupt, clear or exit
  await tell('/api/key',{pane:cur.pane,key:k});setTimeout(()=>{poll();if(term)draw()},300)};
 let atT,atQ=null;function atUI(){const ta=$('ta'),el=$('at'),m=ta.value.slice(0,ta.selectionStart).match(/(?:^|\s)@([^\s@]+)$/);clearTimeout(atT);
- if(!m||!cur||!cur.pane){el.hidden=true;atQ=null;return}const q=atQ=m[1];
- atT=setTimeout(async()=>{let d;try{d=await api('/api/files?pane='+encodeURIComponent(cur.pane)+'&q='+encodeURIComponent(q))}catch(e){return}if(atQ!==q)return;
+ if(!m||!cur||!(cur.pane||cur.via)){el.hidden=true;atQ=null;return}const q=atQ=m[1];
+ atT=setTimeout(async()=>{let d;try{d=await api('/api/files?pane='+encodeURIComponent(cur.pane||cur.via)+'&q='+encodeURIComponent(q))}catch(e){return}if(atQ!==q)return;
   el.hidden=!d.files.length;el.innerHTML=d.files.map(f=>{const i=f.slice(0,-1).lastIndexOf('/')+1;return`<button data-f="${esc(f)}"><code>${esc(f.slice(i))}</code><span>${esc(f.slice(0,i))}</span></button>`}).join('')},200)}
 $('at').onclick=e=>{const b=e.target.closest('[data-f]');if(!b)return;const ta=$('ta'),p=ta.selectionStart,f=b.dataset.f,s=ta.value.slice(0,p).replace(/@[^\s@]*$/,()=>'@'+f+(f.endsWith('/')?'':' '));
  ta.value=s+ta.value.slice(p);ta.setSelectionRange(s.length,s.length);ta.focus();grow();atUI()};
@@ -786,9 +786,9 @@ const ATT=[];let attN=0;
 function attUI(){const el=$('att');el.hidden=!ATT.length;el.innerHTML=ATT.map(a=>`<div class=ach data-id=${a.id} title="${esc(a.name)}">${a.thumb?`<img src="${a.thumb}" alt="">`:FILE+`<span>${esc(a.name)}</span>`}${a.path?'':`<b>${a.pct}%</b><i style="width:${a.pct}%"></i>`}<button aria-label="Remove">×</button></div>`).join('')+'<small class=anote>Very large files (several GB) are better moved with Syncthing.</small>';
  el.querySelectorAll('img').forEach(i=>i.onerror=()=>i.outerHTML=FILE+`<span>${esc(i.parentNode.title)}</span>`);sendBtn()}
 function unattach(a,msg){const i=ATT.indexOf(a);if(i<0)return;ATT.splice(i,1);if(a.xhr.readyState<4)a.xhr.abort();if(a.thumb)URL.revokeObjectURL(a.thumb);attUI();if(msg)toast(msg)}
-function attach(files){if(!cur||!cur.pane)return;for(const f of files){const name=f.name||'pasted image';if(f.size>1<<30){toast(name+' is over 1 GB. Move very large files with Syncthing instead.');continue}
+function attach(files){if(!cur||!(cur.pane||cur.via))return;for(const f of files){const name=f.name||'pasted image';if(f.size>1<<30){toast(name+' is over 1 GB. Move very large files with Syncthing instead.');continue}
  const a={id:++attN,name,pct:0,thumb:/^image\//.test(f.type)?URL.createObjectURL(f):''},x=a.xhr=new XMLHttpRequest();ATT.push(a);
- x.open('POST','api/upload?pane='+encodeURIComponent(cur.pane)+'&name='+encodeURIComponent(name));x.setRequestHeader('X-Deck-Token',TOK);
+ x.open('POST','api/upload?pane='+encodeURIComponent(cur.pane||cur.via)+'&name='+encodeURIComponent(name));x.setRequestHeader('X-Deck-Token',TOK);
  x.upload.onprogress=e=>{const c=$('att').querySelector(`[data-id="${a.id}"]`);if(!e.lengthComputable||!c||!c.querySelector('b'))return;a.pct=Math.round(e.loaded*100/e.total);c.querySelector('b').textContent=a.pct+'%';c.querySelector('i').style.width=a.pct+'%'};
  x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status==200&&r.path){a.path=r.path;attUI()}else unattach(a,r.error||name+': upload failed ('+x.status+').')};
  x.onerror=()=>unattach(a,name+': upload failed. Check the connection.');x.send(f)}attUI()}
@@ -1073,15 +1073,15 @@ if(!COL){
  $('q').parentNode.insertAdjacentHTML('beforebegin','<button class=ic id=sct aria-label="Hide the chat list" title="Hide the chat list"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linejoin=round><rect x=3 y=4 width=18 height=16 rx=2.5 /><path d="M9 4v16"/></svg></button>');$('sct').onclick=side}
 /* desktop split view: a subagent opens in a panel over the right side of the window (the right-hand chat), not in place of the chat */
 const agpOn=()=>!!(window.AGP&&AGP.classList.contains('on'));
-function agpOpen(sess,id,desc){if(!window.AGP){document.body.insertAdjacentHTML('beforeend','<aside class=agp id=agp><iframe title=Subagent></iframe></aside>');window.AGP=$('agp')}
- AGP.firstChild.src='?col=agp&ag='+encodeURIComponent(sess+'/'+id)+'&agd='+encodeURIComponent(desc||'');requestAnimationFrame(()=>AGP.classList.add('on'))}
+function agpOpen(sess,id,desc,via){if(!window.AGP){document.body.insertAdjacentHTML('beforeend','<aside class=agp id=agp><iframe title=Subagent></iframe></aside>');window.AGP=$('agp')}
+ AGP.firstChild.src='?col=agp&ag='+encodeURIComponent(sess+'/'+id)+'&agd='+encodeURIComponent(desc||'')+(via?'&agv='+encodeURIComponent(via):'');requestAnimationFrame(()=>AGP.classList.add('on'))}
 function agpClose(){if(!agpOn())return;AGP.classList.remove('on');setTimeout(()=>{if(!agpOn())AGP.firstChild.src='about:blank'},260)}
 addEventListener('keydown',e=>{if(e.key=='Escape'&&agpOn()&&!sh.classList.contains('on')){e.preventDefault();agpClose()}});
 /* column mode: this page as one column of the split view. The outer page (deck) owns the chat list, settings, sign-in and the window's shortcuts */
 if(COL){const P=parent.deck,me=COL,o=open_,h=home,l2=list2,p1=poll;let pAt=0;
  list=async f=>{const d=await P.shared(f);live=d.live.map(x=>({...x}));hist=d.hist;PN=d.PN;attnUI()};
  lock=s=>{if(!started)window.colWait=1;P.lock(s)};openMenu=()=>P.openMenu();newChat=c=>P.newChat(c);$('mb').onclick=openMenu;
- start=async()=>{try{CFG=await api('/api/config')}catch(e){}P.ready(me);if(me=='agp'){const q=new URLSearchParams(location.search),[ss,a]=(q.get('ag')||'').split('/');await list();open_({session:ss,agent:a,title:'Subagent: '+(q.get('agd')||''),ro:1})}};
+ start=async()=>{try{CFG=await api('/api/config')}catch(e){}P.ready(me);if(me=='agp'){const q=new URLSearchParams(location.search),[ss,a]=(q.get('ag')||'').split('/');await list();const v=q.get('agv')||undefined;open_({session:ss,agent:a,title:'Subagent: '+(q.get('agd')||''),ro:v?0:1,via:v})}};
  const st=()=>{const b=stack[0]||cur;return{x:b&&(b.pane?{pane:b.pane}:b.session?{session:b.session,title:b.title,ro:1,cwd:b.cwd}:null),t:$('title').textContent.replace(/●/g,'').trim()}};
  const head=()=>{const b=stack[0]||cur,s=b&&b.pane&&live.find(x=>x.pane==b.pane),c=b&&(b.cwd||s&&s.cwd);$('cdot').hidden=!s;if(s)$('cdot').className='sc '+stc(s);
   $('ptag').innerHTML=c?tile(proj(c))+`<span>${esc(proj(c))}</span>`:'';P.saw(me,st())};
