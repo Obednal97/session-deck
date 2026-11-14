@@ -84,10 +84,11 @@ def term_reaper():  # a phone that closed or locked mid-view never says goodbye
                 try: term_release(p)
                 except Exception: RESZ.pop(p, None)
 
-def tm(key, *args):
-    """Run tmux against the server and pane named by key ("ssh.63"); "{P}" in args becomes the pane target."""
+def tm(key, *args, ok=False):
+    """Run tmux against the server and pane named by key ("ssh.63"); "{P}" in args becomes the pane target. With ok, whether it worked."""
     sock, n = key.rsplit(".", 1)
-    return run("tmux", "-L", sock, *[f"%{n}" if a == "{P}" else a for a in args])
+    r = subprocess.run(["tmux", "-L", sock, *[f"%{n}" if a == "{P}" else a for a in args]], capture_output=True, text=True, timeout=8)
+    return r.returncode == 0 if ok else r.stdout
 
 PANE_RE = r"[\w-]+\.\d+"
 
@@ -243,17 +244,24 @@ def close_viewer(pane):
         tm(pane, "send-keys", "-t", "{P}", "Escape"); time.sleep(0.5)
 
 def deliver(pane, text, imgs=()):
-    """Types a message into a chat and sends it."""
-    close_viewer(pane); input_box(pane, 15)  # a chat that is still starting: wait for its input box, or the paste lands nowhere
+    """Types a message into a chat and sends it. Returns None once it is sent, else why it wasn't (nothing is left typed in the chat)."""
+    close_viewer(pane)
+    if input_box(pane, 15) is None:  # a chat that is still starting: wait for its input box, or the paste lands nowhere
+        return "Not sent: Claude's message box isn't showing in this chat's terminal."
+    def paste(t): return tm(pane, "set-buffer", "-b", "deck", "--", t, ok=True) and tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}", ok=True)
+    ok = True
     if imgs:  # pasted on their own, the paths become [Image #N]; the text must be a separate paste after them
-        tm(pane, "set-buffer", "-b", "deck", "--", " ".join(f'"{f}"' for f in imgs))
-        tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}"); time.sleep(0.4)
-    if text or not imgs:
-        tm(pane, "set-buffer", "-b", "deck", "--", (" " if imgs else "") + text)
-        tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
-    for i in range(5):  # Claude drops an Enter that comes while it is still starting up: press it again until the box empties
+        ok = paste(" ".join(f'"{f}"' for f in imgs)); time.sleep(0.4)
+    if ok and (text or not imgs): ok = paste((" " if imgs else "") + text)
+    for i in range(5 if ok else 0):  # Claude drops an Enter that comes while it is still starting up: press it again until the box empties
         time.sleep(0.15 if i == 0 else 0.8); tm(pane, "send-keys", "-t", "{P}", "Enter"); time.sleep(0.4)
-        if not input_box(pane): break
+        if not input_box(pane): return
+    s = pane_screen(pane)
+    if (input_box(pane) or "") not in ("", (s["suggestion"] or "").strip()):  # typed but not taken: clear it, as the page puts the text back in its own box
+        if s["working"]: return  # Claude is busy and will take it when it can; Ctrl-C now would interrupt the turn
+        tm(pane, "send-keys", "-t", "{P}", "C-c")
+    elif ok: return
+    return "Not sent: the chat's terminal didn't take the message. Try again."
 
 AG_ROW = re.compile(r"^(\u276f )?\s*([\u23fa\u25ef]) (.+?)\s*$")  # the agents list under Claude's input: "❯" marks the selected row, ⏺ the agent the input goes to
 
@@ -1236,7 +1244,8 @@ def siri_ask(text, wait):
     with SIRI_LOCK: pane = siri_pane()
     if not pane: return "I couldn't start a chat on the Mac."
     if pane_screen(pane)["menu"]: return "Claude is waiting for you to answer a question in Session Deck."
-    deliver(pane, text); end, idle = time.time() + wait, 0
+    if deliver(pane, text): return "I couldn't send that to the chat on the Mac."
+    end, idle = time.time() + wait, 0
     while time.time() < end:
         time.sleep(1)
         sc = pane_screen(pane)
@@ -2119,8 +2128,9 @@ class H(BaseHTTPRequestHandler):
                 if not ag: return self.send(404, {"error": "That subagent wasn't found."})
             err = view_agent(pane, ag)
             if err: return self.send(409, {"error": err})
-            deliver(pane, text, imgs)
+            err = deliver(pane, text, imgs)
             if ag: view_agent(pane); _live[0] = 0  # back to the main agent, where the terminal normally sits
+            if err: _live[0] = 0; return self.send(409, {"error": err})
             sid = next((x.get("session") for x in live_sessions() if x["pane"] == pane), None)
             if sid and not ag and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), time.time()))
             r = {"ok": True, "text": text}
