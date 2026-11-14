@@ -679,6 +679,10 @@ function lbHide(){const L=$('lbx');L.classList.remove('on');setTimeout(()=>{if(!
 window.lbOpen=(list,i)=>COL&&parent.lbOpen?parent.lbOpen(list,i):lbShow(list,i);
 const lbFrom=im=>{const all=[...$('main').querySelectorAll('img')].filter(x=>x.src);window.lbOpen(all.map(x=>x.src),Math.max(0,all.indexOf(im)))};
 $('main').addEventListener('click',e=>{const im=e.target.closest('img');if(im&&im.src){e.stopPropagation();lbFrom(im)}},true);
+// the iPhone home-screen app shows a download as a full-screen preview with no way back, so there Save hands the file to the share sheet (Save to Files, AirDrop…)
+const saveF={};$('main').addEventListener('click',async e=>{const a=e.target.closest('.fch.out a[download]');if(!a||!navigator.standalone||!navigator.share)return;e.preventDefault();const u=a.getAttribute('href').replace('&dl=1','');
+ try{if(!saveF[u]){a.textContent='…';const r=await fetch(u);if(!r.ok)throw new Error('gone');const b=await r.blob();saveF[u]=new File([b],a.download,{type:b.type})}a.textContent='Save';await navigator.share({files:[saveF[u]]})}
+ catch(x){a.textContent='Save';if(x.name=='NotAllowedError')toast('Ready: tap Save again');else if(x.name!='AbortError')toast("Couldn't save that file")}});
 $('main').addEventListener('mouseover',e=>{hovImg=e.target.closest('img')});$('main').addEventListener('mouseout',e=>{if(e.target===hovImg)hovImg=null});
 $('lbx').onclick=lbHide;
 window.lbKey=e=>{if($('lbx').hidden)return false;if(e.key=='Escape'||e.key==' '){e.preventDefault();e.stopPropagation();lbHide()}else if(e.key=='ArrowRight'||e.key=='ArrowLeft'){e.preventDefault();lbShow(lbL,lbI+(e.key=='ArrowRight'?1:-1))}return true};
