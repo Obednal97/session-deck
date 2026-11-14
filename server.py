@@ -236,14 +236,20 @@ def input_box(key, wait=0):
         if time.time() >= end: return None
         time.sleep(0.25)
 
+def close_viewer(pane):
+    """Closes a viewer that covers Claude's input (feedback drafts, background shells: "Esc to close"), where typed text and /exit go nowhere."""
+    for _ in range(3):
+        if input_box(pane) is not None or not re.search(r"(?i)esc to close", tm(pane, "capture-pane", "-p", "-t", "{P}")[-600:]): return
+        tm(pane, "send-keys", "-t", "{P}", "Escape"); time.sleep(0.5)
+
 def deliver(pane, text, imgs=()):
     """Types a message into a chat and sends it."""
-    input_box(pane, 15)  # a chat that is still starting: wait for its input box, or the paste lands nowhere
+    close_viewer(pane); input_box(pane, 15)  # a chat that is still starting: wait for its input box, or the paste lands nowhere
     if imgs:  # pasted on their own, the paths become [Image #N]; the text must be a separate paste after them
-        tm(pane, "set-buffer", "-b", "deck", " ".join(f'"{f}"' for f in imgs))
+        tm(pane, "set-buffer", "-b", "deck", "--", " ".join(f'"{f}"' for f in imgs))
         tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}"); time.sleep(0.4)
     if text or not imgs:
-        tm(pane, "set-buffer", "-b", "deck", (" " if imgs else "") + text)
+        tm(pane, "set-buffer", "-b", "deck", "--", (" " if imgs else "") + text)
         tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
     for i in range(5):  # Claude drops an Enter that comes while it is still starting up: press it again until the box empties
         time.sleep(0.15 if i == 0 else 0.8); tm(pane, "send-keys", "-t", "{P}", "Enter"); time.sleep(0.4)
@@ -1185,10 +1191,10 @@ def watch_once():
 
 def end_chat(pane):
     """/exit in the pane, after clearing a question or a draft. Claude may still ask something first."""
-    s = pane_screen(pane)
+    close_viewer(pane); s = pane_screen(pane)
     if s["menu"] or s["working"]: tm(pane, "send-keys", "-t", "{P}", "Escape"); time.sleep(0.8)
     tm(pane, "send-keys", "-t", "{P}", "C-c"); time.sleep(0.3)  # clears a draft (or a prompt Escape put back) so /exit is typed alone
-    tm(pane, "set-buffer", "-b", "deck", "/exit"); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
+    tm(pane, "set-buffer", "-b", "deck", "--", "/exit"); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
     time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
 
 SIRI, SIRI_LOCK = {}, threading.Lock()  # "pane": the Siri chat
@@ -2041,7 +2047,7 @@ class H(BaseHTTPRequestHandler):
             done = []
             if body.get("claude") and (f or live):
                 if live:
-                    tm(pane, "set-buffer", "-b", "deck", "/rename " + name); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
+                    tm(pane, "set-buffer", "-b", "deck", "--", "/rename " + name); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
                     time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
                 else:
                     with open(f, "a", encoding="utf8") as fh:
@@ -2146,7 +2152,7 @@ class H(BaseHTTPRequestHandler):
                 if not a or a["options"][idx:idx + 1] == m["options"][idx:idx + 1]:  # Tab didn't open the note: send nothing
                     _live[0] = 0; return self.send(409, {"error": "Couldn't add a note to that option. Check the question and try again."})
             if text is not None:
-                time.sleep(0.15); tm(pane, "set-buffer", "-b", "deck", text); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
+                time.sleep(0.15); tm(pane, "set-buffer", "-b", "deck", "--", text); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
             time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter"); _live[0] = 0
             return self.send(200, {"ok": True})
         if self.path == "/api/key" and body.get("key") == "SendNow":  # Claude Code's chat:sendNow (ctrl+x ctrl+s)
