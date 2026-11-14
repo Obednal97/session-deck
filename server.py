@@ -354,7 +354,8 @@ def accounts():
     for l in (run(exe, "status") if exe else "").splitlines()[1:]:
         c = re.split(r"\s{2,}", l.strip())
         if len(c) >= 6 and c[0].isdigit():
-            rows.append({"name": c[1], "status": c[2], "h5": c[3], "week": c[4], "until": c[5] if c[5] != "-" else None})
+            rows.append({"name": c[1], "status": c[2], "h5": c[3], "week": c[4], "until": c[5] if c[5] != "-" else None,
+                         "models": c[9] if len(c) > 9 and c[9] != "-" else None})  # e.g. "fable until Fri 04:00 (in 5d9h)": the plan still works on other models
     _acc[1] = rows; _acc[0] = time.time(); return rows
 
 _mod = [0, None]
