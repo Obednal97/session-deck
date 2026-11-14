@@ -793,9 +793,9 @@ def with_sent(sid, items, f=None):
     keep, end = [], None
     for t, at in SENT.get(sid, []):
         if time.time() - at > 900: continue
-        if any(x.get("role") == "user" and (x.get("text") or "").strip() == t and when(x) >= at - 5 for x in items): continue
+        if any(x.get("role") == "user" and (x.get("text") or "").strip() == t[:6000].strip() and when(x) >= at - 5 for x in items): continue  # user_item cuts at 6000
         if f and end is None: end = tail(f)  # read once per call, not once per message
-        if f and '"content":' + json.dumps(t, ensure_ascii=False) in end: continue
+        if f and re.search(r'"content":"(?:\\n\\n<pasted_content id=\\"\w+\\">\\n)?' + re.escape(json.dumps(t, ensure_ascii=False)[1:-1]) + r'(?:\\n</pasted_content id=\\"\w+\\">\\n)?"', end): continue  # pasted text is saved in a wrapper
         keep.append((t, at))
     SENT[sid] = keep
     return items + [{"role": "user", "kind": "text", "text": t, "queued": True} for t, _ in keep]
