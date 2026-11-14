@@ -203,6 +203,7 @@ pre.dif{--db:var(--s)}.sheet pre.dif{--db:var(--bg)}.hk{margin-top:4px}.dx>.hk:f
 .anote{flex:none;max-width:150px;font-size:11.5px;color:var(--m)}
 .fch{display:flex;gap:8px;align-items:center;background:rgba(0,0,0,.15);border-radius:10px;padding:6px 10px;margin-top:6px;font-size:13px}.fch svg{width:18px;height:18px;flex:none}.fch b{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fch small{opacity:.75;flex:none}
 .chat>img.user{align-self:flex-end;max-width:75%}
+.fch.out{background:var(--s);border:1px solid var(--l);max-width:420px;margin:6px 0}.fch.out b{flex:1}.fch.out a{flex:none;font-weight:600;text-decoration:none;color:var(--c);padding:4px 11px;border-radius:99px;background:var(--r)}.fch.out+.fch.out{margin-top:0}
 .lock{position:fixed;inset:0;z-index:7;background:var(--bg);display:flex;padding-top:env(safe-area-inset-top)}.lock h2{color:var(--fg);margin:0}
 .lock input{width:100%;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px;font:inherit}.lock .enr{display:flex;flex-direction:column;gap:10px}
 .pkr{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--l);padding:8px 0}.pkr span{flex:1;min-width:0}.pkr b{display:block;font-weight:500}.pkr small{color:var(--m);font-size:12.5px}
@@ -477,7 +478,8 @@ function rowItem(b){const d=b.dataset;if(d.p)return{type:'project',id:d.p,title:
  const s=d.pane?live.find(x=>x.pane==d.pane):hist.find(x=>x.session==d.h)||PREFS.pins.find(x=>x.type=='chat'&&x.id==d.h);return s&&(s.session||s.id||d.pane)?{type:'chat',id:s.session||s.id||'',title:s.title||s.name||'',cwd:s.cwd||''}:null}
 function rowMenu(b){const x=rowItem(b);if(!x||Date.now()-lpAt<700)return;lpAt=Date.now();const lp=x.type=='chat'&&(b.dataset.pane||(live.find(l=>l.session==x.id)||{}).pane),c=x.type=='chat',pr=x.type=='project',a=c?isArc(x.id):pr&&arcP(x.id);
  sb.innerHTML=`<h2>${esc(x.title||x.id)}</h2><small class=sub2>${c?esc(x.cwd?proj(x.cwd):'Chat'):pr?'Project':x.type=='job'?'Schedule':'Artifact'}</small>`+(x.id?`<button class=pick id=apin style="text-align:center">${isPinned(x.type,x.id)?'Unpin':'Pin'}</button>`:'')+
-  ((c||pr)&&x.id?`<button class=pick id=aarc style="text-align:center">${a?'Unarchive':'Archive'}${c&&!a&&live.some(l=>l.session==x.id)?'<small>It stays under Active until it ends</small>':''}</button>`:'')+(lp?'<button class=pick id=endb style="text-align:center;color:#e5484d">End chat</button>':'');showSheet();
+  ((c||pr)&&x.id?`<button class=pick id=aarc style="text-align:center">${a?'Unarchive':'Archive'}${c&&!a&&live.some(l=>l.session==x.id)?'<small>It stays under Active until it ends</small>':''}</button>`:'')+(c&&(x.id||lp)?'<button class=pick id=arn style="text-align:center">Rename</button>':'')+(lp?'<button class=pick id=endb style="text-align:center;color:#e5484d">End chat</button>':'');showSheet();
+ if($('arn'))$('arn').onclick=()=>renameStep({id:x.id,pane:lp||'',title:x.title});
  if($('apin'))$('apin').onclick=()=>{hideSheet();pinToggle(x)};if($('aarc'))$('aarc').onclick=()=>{hideSheet();arcSet(x,!a)};if(lp)twice($('endb'),'Tap again to end this chat',()=>endChat(lp))}
 $('dl').addEventListener('contextmenu',e=>{const b=rowAt(e);if(b){e.preventDefault();rowMenu(b)}});
 $('dl').addEventListener('touchstart',e=>{const b=rowAt(e),t=e.touches[0];clearTimeout(lpT);lpOn=0;if(b&&e.touches.length==1){lpX=t.clientX;lpY=t.clientY;lpT=setTimeout(()=>{lpOn=1;rowMenu(b)},500)}},{passive:true});
@@ -579,12 +581,13 @@ async function endChat(p){const b=$('endb'),gone=()=>!live.find(x=>x.pane==p),do
  for(let i=0;i<8;i++){await new Promise(r=>setTimeout(r,1000));await list();if(gone())return done('Chat ended');
   const s=live.find(x=>x.pane==p);if(s.menu&&i>1){hideSheet();if(!cur||cur.pane!=p)open_(s);return toast('Claude asks before it exits. Answer below.')}}
  b.textContent='Still running: close window';twice(b,'Tap again to close the window',async()=>{b.onclick=null;await api('/api/end',{pane:p,kill:true});await list();done('Window closed')})}
-function renameStep(){sb.innerHTML=`<button class=dback id=rback style="padding:0;text-align:left">‹ Chat info</button><h2>Rename</h2><input id=rn type=text value="${esc(cur.title||'')}" autocomplete=off>
+// t: a chat from the row menu {id, pane, title}; without it, the open chat (from Chat info)
+function renameStep(t){const row=t&&t.id!==undefined;if(!row)t={id:cur.session,pane:cur.pane,title:cur.title};sb.innerHTML=(row?'':'<button class=dback id=rback style="padding:0;text-align:left">‹ Chat info</button>')+`<h2>Rename</h2><input id=rn type=text value="${esc(t.title||'')}" autocomplete=off>
  <label class=ck><input type=checkbox id=rc checked> Claude session name</label>
- <label class=ck><input type=checkbox id=rt ${cur.pane?'checked':'disabled'}> tmux window name${cur.pane?'':' (only for live chats)'}</label>
- <button class=go id=rgo>Save</button>`;showSheet(1);$('rback').onclick=showInfo;
- $('rgo').onclick=async()=>{const name=$('rn').value.trim();if(!name)return;const r=await api('/api/rename',{session:cur.session,pane:cur.pane||'',name,claude:$('rc').checked,tmux:$('rt').checked});
-  if(r.done&&r.done.length){cur.title=name;$('title').textContent=name;hideSheet()}}}
+ <label class=ck><input type=checkbox id=rt ${t.pane?'checked':'disabled'}> tmux window name${t.pane?'':' (only for live chats)'}</label>
+ <button class=go id=rgo>Save</button>`;showSheet(1);if(!row)$('rback').onclick=showInfo;
+ $('rgo').onclick=async()=>{const name=$('rn').value.trim();if(!name)return;const r=await api('/api/rename',{session:t.id||'',pane:t.pane||'',name,claude:$('rc').checked,tmux:$('rt').checked});
+  if(r.done&&r.done.length){if(cur&&(t.id?cur.session==t.id:cur.pane==t.pane)){cur.title=name;$('title').textContent=name}hideSheet();if(row)list()}}}
 $('title').onclick=showInfo;
 sb.addEventListener('click',e=>{if(e.target.closest('#agopen')){hideSheet();rpAll=(info&&info.agents)||rpAll;openRP()}});
 setInterval(async()=>{if(sh.hidden||!$('agl')||!cur||!cur.session||cur.agent)return;const me=cur;let d;try{d=await api('/api/info/'+cur.session)}catch(e){return}if(cur!==me||!$('agl'))return;info.agents=d.agents;$('agl').innerHTML=agentsBlock(d.agents||[],agFull)},3000);
@@ -608,10 +611,12 @@ if(window.DOMPurify)DOMPurify.addHook('afterSanitizeAttributes',n=>{if(n.tagName
 const FILE='<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linejoin=round><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
 // a user message: "Attached: <path> (<name>, <size>)" lines from /api/send become file chips
 const ub=t=>{const fs=[];t=(t||'').replace(/^Attached: (\/\S+) \((.*), ([\d.]+ [KM]B)\)$/gm,(m,p,n,s)=>{fs.push(`<span class=fch title="${esc(p)}">${FILE}<b>${esc(n)}</b><small>${esc(s)}</small></span>`);return''}).trim();return(t?md(t):'')+fs.join('')};
+// files Claude made (a pdf, csv, image…) named in a reply: images show, and each file gets a chip to open or save it on this device
+const outF=fs=>(fs||[]).map(f=>(f.img?`<img class=fim src="${esc(f.url)}" alt="${esc(f.name)}" loading=lazy>`:'')+`<span class="fch out">${FILE}<b>${esc(f.name)}</b><small>${esc(f.size)}</small>${f.show?`<a href="${esc(f.url)}" target=_blank rel=noopener>Open</a>`:''}<a href="${esc(f.url)}&dl=1" download="${esc(f.name)}">Save</a></span>`).join('');
 function item(x){const ac=artItem(x);if(ac)return ac;
  if(x.kind=='image')return x.img.map(i=>`<img class=${x.role} data-src="api/img/${imgSrc()}/${i}" alt="">`).join('');if(x.kind=='tool'&&x.diff!=null)return diffItem(x);
  if(x.kind=='tool')return`<div class=t><button>${esc(x.name)} · ${esc(x.summary)}</button><pre hidden>${lk(x.detail)}${x.result?'\n\n→ '+lk(x.result):''}</pre>${x.img?'<div class=imgs>'+x.img.map(i=>`<img data-src="api/img/${imgSrc()}/${i}" alt="">`).join('')+'</div>':''}${x.agent?`<button class=sub data-agent="${esc(x.agent)}" data-desc="${esc(x.summary)}">Open subagent ›</button>`:''}</div>`;
- if(x.kind=='compact')return`<details class=cmp><summary>Context compacted · tap to read the summary</summary><div class=a>${window.marked?DOMPurify.sanitize(marked.parse(x.text)):esc(x.text)}</div></details>`;if(x.kind=='pend')return`<div class="u q${x.s?' s':''}">${ub(x.text)}</div>`;if(x.kind=='cmd')return`<div class=cmd>${esc(x.text)}</div>`;if(x.kind=='note')return`<div class=note>${esc(x.text)}</div>`;if(x.kind=='cmdout')return`<pre class=cmdout>${lk(x.text)}</pre>`;if(x.kind=='text'&&x.role!='user'&&window.marked)return`<div class=a>${DOMPurify.sanitize(marked.parse(x.text))}</div>`;if(x.kind=='text'&&x.role=='user')return`<div class="u${x.queued?' q':''}">${ub(x.text)}</div>`+(x.queued&&cur.pane?'<button class=now>Send now</button>':'');if(x.kind=='text')return`<div class=${x.role=='user'?'u':'a'}>${esc(x.text)}</div>`;
+ if(x.kind=='compact')return`<details class=cmp><summary>Context compacted · tap to read the summary</summary><div class=a>${window.marked?DOMPurify.sanitize(marked.parse(x.text)):esc(x.text)}</div></details>`;if(x.kind=='pend')return`<div class="u q${x.s?' s':''}">${ub(x.text)}</div>`;if(x.kind=='cmd')return`<div class=cmd>${esc(x.text)}</div>`;if(x.kind=='note')return`<div class=note>${esc(x.text)}</div>`;if(x.kind=='cmdout')return`<pre class=cmdout>${lk(x.text)}</pre>`;if(x.kind=='text'&&x.role!='user'&&window.marked)return`<div class=a>${DOMPurify.sanitize(marked.parse(x.text))}</div>`+outF(x.files);if(x.kind=='text'&&x.role=='user')return`<div class="u${x.queued?' q':''}">${ub(x.text)}</div>`+(x.queued&&cur.pane?'<button class=now>Send now</button>':'');if(x.kind=='text')return`<div class=${x.role=='user'?'u':'a'}>${esc(x.text)}</div>`;
  return`<div class=t><button>${esc(x.name)} · ${esc(x.summary)}</button><pre hidden>${lk(x.detail)}${x.result?'\n\n→ '+lk(x.result):''}</pre></div>`}
 function render(items,raw){let out=[],run=[];const flush=()=>{if(run.length>1){const names=[...new Set(run.map(x=>x.name))];const last=run[run.length-1];
   out.push({h:`<div class=tg data-g="${esc(run[0].id||'')}"><button class=tgh><b>${run.length} tool calls</b> · ${esc(names.slice(0,4).join(', '))}${names.length>4?'…':''}<span>${esc(last.summary||'')}</span></button><div class=tgb hidden>${run.map(item).join('')}</div></div>`})}
@@ -672,7 +677,7 @@ let lbL=[],lbI=0,hovImg=null;
 function lbShow(list,i){lbL=list;lbI=(i+list.length)%list.length;$('lbi').src=lbL[lbI];$('lbn').textContent=lbL.length>1?`${lbI+1} of ${lbL.length}`:'';const L=$('lbx');if(L.hidden){L.hidden=false;L.offsetWidth}L.classList.add('on')}
 function lbHide(){const L=$('lbx');L.classList.remove('on');setTimeout(()=>{if(!L.classList.contains('on'))L.hidden=true},180)}
 window.lbOpen=(list,i)=>COL&&parent.lbOpen?parent.lbOpen(list,i):lbShow(list,i);
-const lbFrom=im=>{const all=[...$('main').querySelectorAll('img')].filter(x=>x.src&&x.src.startsWith('blob:'));window.lbOpen(all.map(x=>x.src),Math.max(0,all.indexOf(im)))};
+const lbFrom=im=>{const all=[...$('main').querySelectorAll('img')].filter(x=>x.src);window.lbOpen(all.map(x=>x.src),Math.max(0,all.indexOf(im)))};
 $('main').addEventListener('click',e=>{const im=e.target.closest('img');if(im&&im.src){e.stopPropagation();lbFrom(im)}},true);
 $('main').addEventListener('mouseover',e=>{hovImg=e.target.closest('img')});$('main').addEventListener('mouseout',e=>{if(e.target===hovImg)hovImg=null});
 $('lbx').onclick=lbHide;

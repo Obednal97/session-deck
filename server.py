@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Session Deck: shows live tmux Claude Code sessions as chats and types into them.
 Binds 127.0.0.1 (and DECK_SOCKET) only. Needs the token from <DECK_SECRETS>/session-deck.json for every local /api call."""
-import html, json, os, re, secrets, shutil, subprocess, sys, threading, time, urllib.parse
+import html, json, os, re, secrets, shutil, stat, subprocess, sys, threading, time, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -603,6 +603,35 @@ def full_tool_diff(f, tid):
             if not b and x.get("type") == "tool_use" and x.get("id") == tid and x.get("name") in DIFF_TOOLS: b = x
             if b and x.get("type") == "tool_result" and x.get("tool_use_id") == tid and not x.get("is_error"): pd = pd or patch_diff(o.get("toolUseResult"), (b.get("input") or {}).get("file_path"))
     return clip(pd or tool_diff(b["name"], b.get("input") or {}), 5000, 1_500_000, 5000)[0] if b else None
+# --- Files Claude made: a pdf, csv, image etc. named in a reply shows under it as a chip the phone can open or save ---
+OUT_IMG = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif", "webp": "image/webp", "svg": "image/svg+xml"}
+OUT_SHOW = {**OUT_IMG, "pdf": "application/pdf", "csv": "text/plain; charset=utf-8", "tsv": "text/plain; charset=utf-8", "mp4": "video/mp4", "mov": "video/quicktime",
+            "webm": "video/webm", "mp3": "audio/mpeg", "wav": "audio/wav", "m4a": "audio/mp4"}  # the browser shows these itself; the rest only download
+OUT_EXT = set(OUT_SHOW) | {"xlsx", "xls", "docx", "doc", "pptx", "ppt", "heic", "zip", "ics", "epub"}  # no code or notes (md, json, html): replies name those all the time
+_OX = r"\.(?:%s)" % "|".join(sorted(OUT_EXT))
+OUT_RE = re.compile(r"`([^`\n]+%s)`|\]\(<?([^)\n]+?%s)>?\)|(?<![\w/.~:@-])((?:~/|\.{0,2}/)?(?:[\w.@+-]+/)*[\w.@+-]+%s)(?!\w)" % (_OX, _OX, _OX), re.I)
+
+def out_paths(text, cwd):
+    """Paths in a reply that look like a file made for the user, relative ones against the chat's folder. Whether they exist is checked when shown."""
+    out = []
+    for m in OUT_RE.finditer(text):
+        p = m.group(1) or urllib.parse.unquote(m.group(2) or "") or m.group(3)
+        for p in {p: 0, p.split()[-1]: 0}:  # `open report.pdf`: the whole span, then its last word
+            p = os.path.normpath(os.path.join(cwd or "/", os.path.expanduser(re.sub(r"^file://", "", p.strip()))))
+            if p not in out: out.append(p)
+    return out[:16]
+
+def out_files(paths):
+    out, day = [], (int(time.time()) // 86400 + 2) * 86400  # links last one to two days and stay the same all day, so the page isn't redrawn
+    for p in paths:
+        try: st = os.stat(p)
+        except OSError: continue
+        if not stat.S_ISREG(st.st_mode): continue
+        name, tok = os.path.basename(p), f"{day}.{b64u(p.encode())}"
+        out.append({"name": name, "size": human(st.st_size), "img": p.rsplit(".", 1)[-1].lower() in OUT_IMG, "show": p.rsplit(".", 1)[-1].lower() in OUT_SHOW,
+                    "url": f"api/file/{tok}.{sign(tok)}/{urllib.parse.quote(name)}?v={int(st.st_mtime)}"})
+    return out
+
 def ptext(c):
     """A prompt's text, saved as a string or (when it has images) as blocks; "[Image #N]" goes, as the image shows on its own."""
     if isinstance(c, list): c = "\n".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
@@ -647,6 +676,7 @@ def messages(f, limit=60, side=False):
             elif it["kind"] == "tool" and it["id"] in agents:
                 it = {**it, "agent": agents[it["id"]][0], "summary": agents[it["id"]][1] or it["summary"]}
             else: it = dict(it)
+            if "files" in it: it["files"] = out_files(it["files"])
             out.append(it)
         return out[::-1][-limit:]
 
@@ -712,6 +742,8 @@ def parse_lines(lines, n0, items, delivered, side):
                     if mt: items.append(user_item(mt.group(1).strip(), o.get("timestamp"))); continue  # typed to a busy subagent: Claude Code wraps it
                     if tx.lstrip().startswith("<") or o.get("isMeta"): continue
                 items.append({"role": t, "kind": "text", "text": tx[:6000], "ts": o.get("timestamp")})
+                fs = t == "assistant" and out_paths(tx, o.get("cwd"))
+                if fs: items[-1]["files"] = fs
             elif k == "tool_use":
                 inp = b.get("input", {})
                 summ = inp.get("command") or inp.get("file_path") or inp.get("pattern") or inp.get("description") or ""
@@ -1833,6 +1865,8 @@ class H(BaseHTTPRequestHandler):
         if path in PWA:
             return self.send(200, (HERE / path[1:]).read_bytes(), PWA[path])
         if path.startswith("/api/auth/"): return self.auth(path)
+        m = re.fullmatch(r"/api/file/(\d+)\.([\w-]+)\.([\w-]+)/[^/]*", path, re.A)
+        if m: return self.file(m)
         if not self.authed(): return self.send(401, {"error": "token"})
         if pages_api(self, path): return
         if path == "/api/siri":
@@ -1909,6 +1943,31 @@ class H(BaseHTTPRequestHandler):
                 except ValueError: pass
             return self.send(200, {"screen": tm(m.group(1), "capture-pane", "-p", "-t", "{P}", "-S", "-40")})
         self.send(404, {"error": "nf"})
+    def file(self, m):
+        """A file Claude made, by the signed link out_files gave the page: the link stands in for the passkey cookie, as a new tab or a
+        download may not carry it, but the Tailscale login is still needed. Shown in the browser when it can't run script, else downloaded."""
+        exp, pb, mac = m.groups()
+        ok = self.login() if self.via_ts() else (self.headers.get("Host") or "").split(":")[0] in HOSTS
+        try: p = ub64(pb).decode()
+        except Exception: p = ""
+        ext = p.rsplit(".", 1)[-1].lower()
+        if not ok or not hmac.compare_digest(mac.encode(), sign(exp + "." + pb).encode()) or int(exp) < time.time() or ext not in OUT_EXT or not os.path.isfile(p):
+            return self.send(404, b"This link has expired or the file has gone. Open the chat again for a new one.", "text/plain; charset=utf-8")
+        size = os.path.getsize(p); a, b = 0, size - 1
+        r = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))  # iPhones only play video served in ranges
+        if r and r.group(1): a, b = int(r.group(1)), min(int(r.group(2) or b), b)
+        elif r and r.group(2): a = max(0, size - int(r.group(2)))
+        if a > b and size: self.send_response(416); self.send_header("Content-Range", f"bytes */{size}"); self.send_header("Content-Length", "0"); self.end_headers(); return
+        dl = "dl=1" in self.path.split("?", 1)[-1] or ext not in OUT_SHOW
+        self.send_response(206 if r else 200); self.send_header("Content-Type", "application/octet-stream" if dl else OUT_SHOW[ext])
+        self.send_header("Content-Disposition", f"{'attachment' if dl else 'inline'}; filename*=UTF-8''{urllib.parse.quote(os.path.basename(p))}")
+        if r: self.send_header("Content-Range", f"bytes {a}-{b}/{size}")
+        self.send_header("Accept-Ranges", "bytes"); self.send_header("X-Content-Type-Options", "nosniff")
+        if ext == "svg": self.send_header("Content-Security-Policy", "sandbox")  # opened on its own, an svg runs no script (on a pdf this would stop Chrome's viewer)
+        self.send_header("Content-Length", str(max(0, b - a + 1))); self.send_header("Cache-Control", "private, max-age=86400"); self.end_headers()
+        with open(p, "rb") as fh:
+            fh.seek(a); left = b - a + 1
+            while left > 0 and (blk := fh.read(min(left, 1 << 20))): self.wfile.write(blk); left -= len(blk)
     def upload(self):
         """Raw file body, streamed to the uploads folder under a name the server picks."""
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)

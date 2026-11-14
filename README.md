@@ -28,6 +28,7 @@ It's one Python file and one HTML file, with no build step and no framework.
 - **See the work.** Tool calls, edit diffs with real line numbers, the session's git changes, subagents (with tokens, time and nested subagents), and background shell processes, which you can stop.
 - **Terminal view.** The raw tmux pane, resized to fit your screen while it's open.
 - **Uploads.** Paste or attach screenshots and files (up to 1 GB each); the session gets a path it can read.
+- **Files back.** When Claude makes a PDF, spreadsheet, image or similar and names it in a reply, it shows under the reply to open or save on the device you are using.
 - **Notifications.** Web Push when a session finishes or needs you, on every device you switch them on for, except the one you're looking at the chat on. App badge included.
 - **Siri.** Say "Hey Siri, Deck" (the name is yours to choose), then your request when it asks, and it goes to a chat of that name on the Mac; Siri reads out the short reply, and longer jobs notify you when they finish. Settings › Siri copies your address and walks you through the three-action iPhone shortcut.
 - **Face ID.** Each device signs in with a passkey, bound to your Tailscale login.
