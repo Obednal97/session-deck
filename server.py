@@ -800,7 +800,7 @@ def with_sent(sid, items, f=None):
         if any(x.get("role") == "user" and when(x) >= at - 5 and (norm(x.get("text")) == n or len(x.get("text") or "") >= 6000 and n.startswith(norm(x["text"]))) for x in items): continue  # user_item cuts at 6000
         if f and end is None: end = tail(f)  # read once per call, not once per message
         sp = r'\s|\\[ntr]'  # one space or escaped newline per step: a repeated group of repeats, (?:(?:\s)+)*, backtracks exponentially over a run of blank lines
-        if f and re.search(r'"content":"(?:%s|<pasted_content id=\\"\w+\\">)*' % sp + ("(?:%s)+" % sp).join(re.escape(json.dumps(w, ensure_ascii=False)[1:-1]) for w in n.split()) + r'(?:%s|</pasted_content id=\\"\w+\\">)*"' % sp, end): continue  # pasted text is saved in a wrapper
+        if f and re.search(r'"content":"(?:%s|<pasted_content id=\\"\w+\\">|\[Image #\d+\])*' % sp + ("(?:%s)+" % sp).join(re.escape(json.dumps(w, ensure_ascii=False)[1:-1]) for w in n.split()) + r'(?:%s|</pasted_content id=\\"\w+\\">)*"' % sp, end): continue  # pasted text is saved in a wrapper, and an image as [Image #N] before it
         keep.append((t, at))
     SENT[sid] = keep
     return items + [{"role": "user", "kind": "text", "text": t, "queued": True} for t, _ in keep]
@@ -2133,11 +2133,12 @@ class H(BaseHTTPRequestHandler):
                 if not ag: return self.send(404, {"error": "That subagent wasn't found."})
             err = view_agent(pane, ag)
             if err: return self.send(409, {"error": err})
+            t0 = time.time()  # before delivering: under load Claude Code can record the prompt seconds before deliver returns
             err = deliver(pane, text, imgs)
             if ag: view_agent(pane); _live[0] = 0  # back to the main agent, where the terminal normally sits
             if err: _live[0] = 0; return self.send(409, {"error": err})
             sid = next((x.get("session") for x in live_sessions() if x["pane"] == pane), None)
-            if sid and not ag and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), time.time()))
+            if sid and not ag and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), t0))
             r = {"ok": True, "text": text}
             if body.get("id"): SENT_IDS[str(body["id"])[:40]] = r; [SENT_IDS.pop(k) for k in list(SENT_IDS)[:-50]]
             return self.send(200, r)
