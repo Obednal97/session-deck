@@ -232,7 +232,8 @@ def input_box(key, wait=0):
     end = time.time() + wait
     while True:
         L = tm(key, "capture-pane", "-p", "-t", "{P}").splitlines()
-        r = [i for i, l in enumerate(L) if len(l.strip()) >= 20 and l.strip().count("─") > 0.8 * len(l.strip())]
+        # a named chat (/rename) has its name in the top rule: "──── Done city App Store v1 ─"
+        r = [i for i, l in enumerate(L) if len(l.strip()) >= 20 and (l.strip().count("─") > 0.8 * len(l.strip()) or re.fullmatch(r"─{10,} .+ ─+", l.strip()))]
         if len(r) >= 2 and r[-1] - r[-2] >= 2 and L[r[-2] + 1].lstrip().startswith("❯"):
             return "\n".join(L[r[-2] + 1:r[-1]]).strip().lstrip("❯").strip()
         if time.time() >= end: return None
