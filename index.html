@@ -763,7 +763,13 @@ async function send(t){if(sending)return;const fs=cur.menu?[]:ATT.map(a=>a.path)
  const me=cur,b={pane:cur.pane||cur.via,...cur.agent&&{session:cur.session,agent:cur.agent},text:t,files:fs,id:Date.now().toString(36)+Math.random().toString(36).slice(2,8)},show=t.trim()&&!'!/'.includes(t.trim()[0]);
  sending=1;sendBtn();if(show){me.pend={t,at:Date.now(),s:1};$('ta').value='';grow();taUI();draw()}
  const r=await tell('/api/send',b).catch(()=>tell('/api/send',b)).catch(()=>{toast('Not sent: no connection. Your message is back in the box.');return false});sending=0;
- if(!r){if(me.pend&&me.pend.s)me.pend=null;if(cur===me){if(show&&!$('ta').value){$('ta').value=t;grow();taUI()}cur.key='';draw()}return sendBtn()}
+ if(!r){if(me.pend&&me.pend.s)me.pend=null;
+  if(cur===me||cur&&me.pane&&cur.pane===me.pane){if(show&&!$('ta').value){$('ta').value=t;grow();taUI()}cur.key='';draw()}
+  else if(t.trim()&&me.pane){// sent from a chat you've since left: keep the text as that chat's draft and say which chat it was
+   const why=($('toast').hidden?'':$('toast').textContent).replace(/ Your message is back in the box\.$/,'').replace(/^Not sent:?\s*/,'').replace(/\.$/,'');
+   try{const k='draft:'+me.pane,d=localStorage.getItem(k);localStorage.setItem(k,d&&d.trim()?d+'\n\n'+t:t)}catch(e){}
+   toast('Not sent to "'+(me.title||me.name||'a chat')+'"'+(why?': '+why:'')+'. It\'s saved in that chat\'s message box.')}
+  return sendBtn()}
  t=r.text??t;me.pend=show?{t,at:Date.now()}:null;ATT.splice(0).forEach(a=>a.thumb&&URL.revokeObjectURL(a.thumb));attUI();if(!show&&$('ta').value==b.text)$('ta').value='';grow();slashUI();taUI();sendBtn();if(cur===me){cur.key='';draw()}setTimeout(draw,600)}
 let sending=0;
 $('send').onclick=async()=>{if($('send').classList.contains('stop')){await api('/api/key',{pane:cur.pane,key:'Escape'});return setTimeout(poll,300)}send($('ta').value)};
