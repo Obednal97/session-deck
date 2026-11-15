@@ -799,8 +799,8 @@ def with_sent(sid, items, f=None):
         n = norm(t)
         if any(x.get("role") == "user" and when(x) >= at - 5 and (norm(x.get("text")) == n or len(x.get("text") or "") >= 6000 and n.startswith(norm(x["text"]))) for x in items): continue  # user_item cuts at 6000
         if f and end is None: end = tail(f)  # read once per call, not once per message
-        ws = r'(?:\s|\\[ntr])+'
-        if f and re.search(r'"content":"(?:%s|<pasted_content id=\\"\w+\\">)*' % ws + ws.join(re.escape(json.dumps(w, ensure_ascii=False)[1:-1]) for w in n.split()) + r'(?:%s|</pasted_content id=\\"\w+\\">)*"' % ws, end): continue  # pasted text is saved in a wrapper
+        sp = r'\s|\\[ntr]'  # one space or escaped newline per step: a repeated group of repeats, (?:(?:\s)+)*, backtracks exponentially over a run of blank lines
+        if f and re.search(r'"content":"(?:%s|<pasted_content id=\\"\w+\\">)*' % sp + ("(?:%s)+" % sp).join(re.escape(json.dumps(w, ensure_ascii=False)[1:-1]) for w in n.split()) + r'(?:%s|</pasted_content id=\\"\w+\\">)*"' % sp, end): continue  # pasted text is saved in a wrapper
         keep.append((t, at))
     SENT[sid] = keep
     return items + [{"role": "user", "kind": "text", "text": t, "queued": True} for t, _ in keep]
