@@ -98,7 +98,7 @@ All optional, as environment variables:
 | `DECK_RP_ID` | the Mac's Tailscale name | the HTTPS name passkeys are bound to |
 | `DECK_PREFS` | `~/Library/Application Support/session-deck/prefs.json` | where pins and archived chats are kept |
 | `DECK_SECRETS` | `~/.secrets`, else `~/.config/session-deck` | where `session-deck.json` (token, cookie key, push key) is kept, created on first run |
-| `DECK_AIVA_SOCKET` / `DECK_AIVA_KEY` | `~/Library/Application Support/aiva/aiva.sock` / `~/.secrets/aiva/deck.key` | Aiva's API socket and the key the deck signs its messages and approvals with; the Aiva section shows once Aiva answers |
+| `DECK_AIVA_SOCKET` / `DECK_AIVA_KEY` | `~/Library/Application Support/aiva/aiva.sock` / `~/.secrets/aiva/deck.key` | Aiva's API socket and the key the deck signs its messages and approvals with; the Aiva section shows once Aiva answers, and the deck's address with `#aiva` on the end (`/deck/#aiva`) opens its chat |
 
 ## Security
 
