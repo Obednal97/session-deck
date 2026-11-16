@@ -311,7 +311,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .pg pre.log{margin:0;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--l);font:11.5px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto;color:var(--fg)}
 .pgf{align-self:center;color:var(--c);font-size:13.5px;padding:10px;text-decoration:none}.pgf:hover{text-decoration:underline}
 @media(min-width:700px){.pg .sec{top:-20px}}
-.a>.who{display:block;font-size:12px;font-weight:600;color:var(--m);margin-bottom:2px}.chat>.pga{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.chat>.avn{align-self:flex-start;margin-top:-4px}
+.a>.who{display:block;font-size:12px;font-weight:600;color:var(--m);margin-bottom:2px}.chat>.pga{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.chat>.avn{align-self:flex-start;margin-top:-4px}.chat>.pgo{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.pgo{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pgo>small{grid-column:1/-1;color:var(--m);font-size:12.5px}.pgo .pick{text-align:center}
 .aiva :is(#kbt,#clip,#kbar,#slash,#at,#bang,#att,#sug,#tv,#status,#stats,#menu,#sab){display:none!important}/* Aiva's chat: the session chat's box without the terminal, files and status */
 </style>
 <header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class=chip id=tv hidden>Terminal</button></header>
@@ -1192,14 +1192,18 @@ setTimeout(navDots,4e3);setInterval(navDots,6e4);
 /* Aiva (~/projects/aiva) through /api/aiva/*: a section at the top of the chat list (its latest message, approvals waiting) opens one long-lived chat,
    shown like a session chat with the same box. Polls every 3 s while that's open, else every 30 s. #aiva in the address opens it (a push's link).
    A tier 3 approval needs a passkey sign-in, so a local token sees a note instead */
-let AV={m:[],ap:[],on:null,at:0,pend:'',end:0,down:0};// on: null until Aiva first answers (a Mac without it shows no section), then whether it's running
+let AV={m:[],ap:[],of:{},cf:null,on:null,at:0,pend:'',end:0,down:0};// on: null until Aiva first answers (a Mac without it shows no section), then whether it's running
 const avAgo=t=>(t=typeof t=='number'?t:Date.parse(t)/1e3)?ago(t):'';
 function avSec(){if(AV.on==null)return'';const l=AV.m.findLast(x=>x.role!='ollie'),n=AV.ap.length;
  return`<section><div class=sec>Aiva<span>${n||''}</span></div><div class=card><button class="crow${cur&&cur.aiva?' cur':''}" data-aiva=1>${tile('Aiva')}<span><b>${esc(!AV.on?'Aiva isn\'t running':l?l.text:'No messages yet')}</b><small>${!AV.on?'Messages show once it\'s back':l?avAgo(l.ts)||'Open the chat':'Open the chat'}</small></span>${n?`<em class="ap a2">${n} to approve</em>`:''}</button></div></section>`}
 // a message is a block for paint(): "Aiva · Persona:" becomes a label over the reply, an approval's buttons sit under it
+// an offer's four answers sit under its message while it's open; Always and Never make a standing rule, so they ask first. Answered ones say what you said
+const avOffer=id=>{const o=id&&AV.of[id];if(!o)return'';if(o.status!='open')return`<div class="note avn">${o.status=='expired'?'Expired':'You said '+esc(o.status)}</div>`;
+ if(AV.cf&&AV.cf.id==id)return`<div class=pgo data-of="${esc(id)}"><small>${AV.cf.a=='always'?'Always do this from now on':'Never do this from now on'}? That sets a standing rule.</small><button class=go data-a="${esc(AV.cf.a)}" data-y=1>Confirm</button><button class=pick data-n=1>Cancel</button></div>`;
+ return`<div class=pgo data-of="${esc(id)}"><button class=go data-a=yes>Yes</button><button class=pick data-a=no>No</button><button class=pick data-a=always>Always</button><button class="pick red" data-a=never>Never</button></div>`};
 const avItem=x=>{const p=x.approval_id&&AV.ap.find(a=>a.id==x.approval_id),w=x.role!='ollie'&&(x.text||'').match(/^(Aiva(?: · [^:\n]{1,60})?):\s*/);
  return{x,h:(x.role=='ollie'?`<div class=u>${ub(x.text)}</div>`:`<div class=a>${w?`<small class=who>${esc(w[1])}</small>`:''}${md(w?x.text.slice(w[0].length):x.text||'')}</div>`)+
-  (!p?'':+p.tier>=3&&!TS?'<div class="note avn">Needs a passkey sign-in</div>':`<div class=pga data-ap="${esc(p.id)}"><button class=go data-d=approve>Approve</button><button class="pick red" data-d=reject>Reject</button></div>`)}};
+  avOffer(x.offer_id)+(!p?'':+p.tier>=3&&!TS?'<div class="note avn">Needs a passkey sign-in</div>':`<div class=pga data-ap="${esc(p.id)}"><button class=go data-d=approve>Approve</button><button class="pick red" data-d=reject>Reject</button></div>`)}};
 function avPaint(){const m=$('main');if(AV.on==null&&!AV.down&&!AV.m.length)return;// still loading
  const B=AV.m.map(avItem);if(AV.pend)B.push({h:`<div class="u q s">${ub(AV.pend)}</div>`});if(!B.length)B.push({h:'<div class=h>No messages yet. Say hello.</div>'});
  if(AV.down||AV.on===false)B.push({h:'<div class=note>Aiva isn\'t running</div>'});
@@ -1209,8 +1213,11 @@ function avDraw(){if(dOpen&&nav.v=='root')drawMenu();if(cur&&cur.aiva)draw()}
 // the first load takes the last 200; after that, what's new after the last id, in Aiva's pages of 100, fetching again at once while a page is full
 async function avMore(){const t=!AV.m.length,m=(await api('/api/aiva/messages?'+(t?'tail=200':'after='+AV.m[AV.m.length-1].id))).messages||[],ids=new Set(AV.m.map(x=>x.id));
  AV.m=AV.m.concat(m.filter(x=>!ids.has(x.id))).slice(-300);return!t&&m.length>=100}
+async function avOffers(){const ids=AV.m.map(x=>x.offer_id).filter(Boolean);if(!ids.length)return;let l=(await api('/api/aiva/offers?status=open')).offers||[];
+ if(ids.some(i=>(!AV.of[i]||AV.of[i].status=='open')&&!l.find(o=>o.id==i)))try{l=l.concat((await api('/api/aiva/offers')).offers||[])}catch(e){}
+ for(const o of l)if(ids.includes(o.id)&&(AV.of[o.id]||{}).status!=o.status)AV.of[o.id]={status:o.status}}
 async function avLoad(){AV.at=Date.now();let a;
- try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals')}catch(e){AV.down=e.st==503;if(AV.down&&AV.on!=null){AV.on=false;AV.ap=[]}return avDraw()}
+ try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals');await avOffers()}catch(e){AV.down=e.st==503;if(AV.down&&AV.on!=null){AV.on=false;AV.ap=[]}return avDraw()}
  AV.on=true;AV.down=0;AV.ap=Array.isArray(a)?a:a.approvals||[];avDraw()}
 window.openAiva=()=>{if(COL&&parent.deck)return parent.openAiva();closeMenu();hideSheet();if(rOpen)closeRP();stack=[];AV.end=1;open_({aiva:1,title:'Aiva'})};
 function avHash(){if(COL||location.hash!='#aiva')return false;history.replaceState(null,'',location.pathname+location.search);openAiva();return true}
@@ -1220,6 +1227,10 @@ async function avSend(t){const v=t.trim(),me=cur;if(!v||AV.pend)return;AV.pend=v
  sending=0;sendBtn();if(cur===me){AV.end=1;draw()}}
 async function avDecide(p,d){const bs=p.querySelectorAll('button');bs.forEach(x=>x.disabled=true);
  try{await api('/api/aiva/approvals/'+encodeURIComponent(p.dataset.ap),{decision:d});toast(d=='approve'?'Approved':'Rejected')}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}
-$('main').addEventListener('click',e=>{const b=e.target.closest('.pga[data-ap] [data-d]');if(b&&cur&&cur.aiva)avDecide(b.parentNode,b.dataset.d)});
+async function avAnswer(p,a){const id=p.dataset.of,bs=p.querySelectorAll('button');bs.forEach(x=>x.disabled=true);AV.cf=null;
+ try{const r=await api('/api/aiva/offers/'+encodeURIComponent(id),{answer:a});AV.of[id]={status:r.repeat?(r.status||a):a};toast(r.repeat?'Already answered':'You said '+a)}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad();avDraw()}
+$('main').addEventListener('click',e=>{const f=e.target.closest('.pgo[data-of] button');if(f&&cur&&cur.aiva){const p=f.parentNode;if(f.dataset.n){AV.cf=null;return avPaint()}
+ if(f.dataset.y||f.dataset.a=='yes'||f.dataset.a=='no')return avAnswer(p,f.dataset.a);AV.cf={id:p.dataset.of,a:f.dataset.a};return avPaint()}
+ const b=e.target.closest('.pga[data-ap] [data-d]');if(b&&cur&&cur.aiva)avDecide(b.parentNode,b.dataset.d)});
 setInterval(()=>{const o=cur&&cur.aiva;if(started&&$('lock').hidden&&(!COL||o)&&Date.now()-AV.at>=(o?3e3:3e4)-500)tick(avLoad)},1e3);
 </script>

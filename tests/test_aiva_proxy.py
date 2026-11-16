@@ -92,6 +92,24 @@ class AivaProxy(unittest.TestCase):
             self.assertFalse(any(g["path"].startswith("/approvals/ap_") and "\u00e9" in g["path"] for g in GOT))
         finally: srv.shutdown(); srv.server_close()
 
+    def test_offer_answer_signed_by_overridden(self):
+        h, g = self.post("/api/aiva/offers/of_1-a", {"answer": "always", "by": "x", "extra": 1}, ts=True, se=("me@example.com", "sid"))
+        self.assertEqual((g["path"], json.loads(g["body"])), ("/offers/of_1-a", {"answer": "always", "by": "me@example.com"})); self.verify(g, "1")
+        h, g = self.post("/api/aiva/offers/of_1-a", {"answer": "yes"})
+        self.assertEqual(json.loads(g["body"]), {"answer": "yes", "by": "local"}); self.verify(g, "0")
+
+    def test_offer_bad_answer_or_id_never_reaches_aiva(self):
+        n = len(GOT); h = Stub("/x"); self.assertTrue(server.aiva_api(h, "/api/aiva/offers/of_1", {"answer": "maybe"})); self.assertEqual(h.out[0], 400)
+        self.assertFalse(server.aiva_api(Stub("/x"), "/api/aiva/offers/of_\u00e9", {"answer": "yes"}))
+        self.assertFalse(server.aiva_api(Stub("/x"), "/api/aiva/offers/" + "a" * 65, {"answer": "yes"}))
+        self.assertEqual(len(GOT), n)
+
+    def test_offers_get_status_validated(self):
+        for st in ("open", "yes", "no", "always", "never", "expired"):
+            h = Stub("/api/aiva/offers?status=" + st); self.assertTrue(server.aiva_api(h, "/api/aiva/offers")); self.assertEqual(GOT[-1]["path"], "/offers?status=" + st)
+        n = len(GOT); h = Stub("/api/aiva/offers?status=bad"); self.assertTrue(server.aiva_api(h, "/api/aiva/offers")); self.assertEqual((h.out[0], len(GOT)), (400, n))
+        h = Stub("/api/aiva/offers"); server.aiva_api(h, "/api/aiva/offers"); self.assertEqual(GOT[-1]["path"], "/offers")
+
     def test_other_paths_not_ours(self):
         self.assertFalse(server.aiva_api(Stub("/api/sessions"), "/api/sessions"))
 

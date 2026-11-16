@@ -1626,14 +1626,18 @@ class AivaConn(http.client.HTTPConnection):
 def aiva_api(h, path, body=None):
     """/api/aiva/* for GET (body None) and POST, passed on to Aiva; False when the path is another route's."""
     hd, data = {}, None
-    if body is None and path in ("/api/aiva/status", "/api/aiva/messages", "/api/aiva/approvals"):
+    if body is None and path in ("/api/aiva/status", "/api/aiva/messages", "/api/aiva/approvals", "/api/aiva/offers"):
         q = [(k, v) for k, v in urllib.parse.parse_qsl(urllib.parse.urlparse(h.path).query) if k in ("after", "tail")] if path == "/api/aiva/messages" else []
         if any(not re.fullmatch(r"\d{1,12}", v, re.A) for k, v in q): return h.send(400, {"error": "after and tail are whole numbers"}) or True
+        if path == "/api/aiva/offers":
+            q = [(k, v) for k, v in urllib.parse.parse_qsl(urllib.parse.urlparse(h.path).query) if k == "status"]
+            if any(v not in ("open", "yes", "no", "always", "never", "expired") for k, v in q): return h.send(400, {"error": "bad status"}) or True
         ap = path[9:] + ("?" + urllib.parse.urlencode(q) if q else "")
-    elif body is not None and (path == "/api/aiva/messages" or re.fullmatch(r"/api/aiva/approvals/[\w-]{1,64}", path, re.A)):
+    elif body is not None and (path == "/api/aiva/messages" or re.fullmatch(r"/api/aiva/(?:approvals|offers)/[\w-]{1,64}", path, re.A)):
         ap, se = path[9:], h.via_ts() and h.session()
-        b = {"text": str(body.get("text") or "").strip()} if ap == "/messages" else {"decision": body.get("decision"), "by": se[0] if se else "local"}
-        if not b.get("text") and b.get("decision") not in ("approve", "reject"): return h.send(400, {"error": "bad"}) or True
+        by = se[0] if se else "local"
+        b = {"text": str(body.get("text") or "").strip()} if ap == "/messages" else {"answer": body.get("answer"), "by": by} if ap.startswith("/offers/") else {"decision": body.get("decision"), "by": by}
+        if not b.get("text") and b.get("decision") not in ("approve", "reject") and b.get("answer") not in ("yes", "no", "always", "never"): return h.send(400, {"error": "bad"}) or True
         try: key = AIVA_KEY.read_text().strip().encode()
         except OSError: return h.send(503, {"error": "The deck's Aiva key is missing (run secrets-mount)."}) or True
         data, ts, strong = json.dumps(b).encode(), str(int(time.time())), "1" if se else "0"
