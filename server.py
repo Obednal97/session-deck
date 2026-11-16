@@ -1627,8 +1627,10 @@ def aiva_api(h, path, body=None):
     """/api/aiva/* for GET (body None) and POST, passed on to Aiva; False when the path is another route's."""
     hd, data = {}, None
     if body is None and path in ("/api/aiva/status", "/api/aiva/messages", "/api/aiva/approvals"):
-        ap = path[9:] + ("?" + h.path.partition("?")[2] if "?" in h.path else "")
-    elif body is not None and (path == "/api/aiva/messages" or re.fullmatch(r"/api/aiva/approvals/[\w-]{1,64}", path)):
+        q = [(k, v) for k, v in urllib.parse.parse_qsl(urllib.parse.urlparse(h.path).query) if k in ("after", "tail")] if path == "/api/aiva/messages" else []
+        if any(not re.fullmatch(r"\d{1,12}", v, re.A) for k, v in q): return h.send(400, {"error": "after and tail are whole numbers"}) or True
+        ap = path[9:] + ("?" + urllib.parse.urlencode(q) if q else "")
+    elif body is not None and (path == "/api/aiva/messages" or re.fullmatch(r"/api/aiva/approvals/[\w-]{1,64}", path, re.A)):
         ap, se = path[9:], h.via_ts() and h.session()
         b = {"text": str(body.get("text") or "").strip()} if ap == "/messages" else {"decision": body.get("decision"), "by": se[0] if se else "local"}
         if not b.get("text") and b.get("decision") not in ("approve", "reject"): return h.send(400, {"error": "bad"}) or True
@@ -1641,7 +1643,7 @@ def aiva_api(h, path, body=None):
     c = AivaConn("aiva", timeout=15)
     try: c.request("POST" if data else "GET", ap, data, hd); r = c.getresponse(); code, out = r.status, r.read()
     except (FileNotFoundError, ConnectionRefusedError): return h.send(503, {"error": "Aiva isn't running"}) or True
-    except (OSError, http.client.HTTPException): return h.send(504, {"error": "Aiva didn't answer."}) or True
+    except (OSError, ValueError, http.client.HTTPException): return h.send(504, {"error": "Aiva didn't answer."}) or True
     finally: c.close()
     if code == 401: code, out = 502, {"error": "Aiva didn't accept the deck's signature."}  # the page reads a 401 as its own sign-in failing
     return h.send(code, out) or True

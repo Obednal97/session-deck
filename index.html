@@ -1201,9 +1201,12 @@ const avMsg=x=>{const p=x.approval_id&&AV.ap.find(a=>a.id==x.approval_id);
 function avDraw(){if(dOpen&&nav.v=='root')drawMenu();const el=$('avl');if(!el||!avOpen())return;
  const h=(AV.m.map(avMsg).join('')||(AV.pend?'':'<div class=none>No messages yet. Say hello.</div>'))+(AV.pend?`<div class="u q s">${esc(AV.pend)}</div>`:'')+(AV.on===false?'<div class=note>Aiva isn\'t running</div>':'');
  if(h===AV.key)return;AV.key=h;const end=AV.end||sb.scrollHeight-sb.scrollTop-sb.clientHeight<80;el.innerHTML=h;AV.end=0;if(end)sb.scrollTop=sb.scrollHeight}
-async function avLoad(){AV.at=Date.now();let m,a;
- try{[m,a]=await Promise.all([api('/api/aiva/messages?after='+(AV.m.length?AV.m[AV.m.length-1].id:0)),api('/api/aiva/approvals')])}catch(e){if(e.st==503&&AV.on!=null){AV.on=false;AV.ap=[];avDraw()}return}
- const ids=new Set(AV.m.map(x=>x.id));AV.on=true;AV.m=AV.m.concat((m.messages||[]).filter(x=>!ids.has(x.id))).slice(-300);AV.ap=Array.isArray(a)?a:a.approvals||[];avDraw()}
+// the first load takes the last 200; after that, what's new after the last id, in Aiva's pages of 100, fetching again at once while a page is full
+async function avMore(){const t=!AV.m.length,m=(await api('/api/aiva/messages?'+(t?'tail=200':'after='+AV.m[AV.m.length-1].id))).messages||[],ids=new Set(AV.m.map(x=>x.id));
+ AV.m=AV.m.concat(m.filter(x=>!ids.has(x.id))).slice(-300);return!t&&m.length>=100}
+async function avLoad(){AV.at=Date.now();let a;
+ try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals')}catch(e){if(e.st==503&&AV.on!=null){AV.on=false;AV.ap=[];avDraw()}return}
+ AV.on=true;AV.ap=Array.isArray(a)?a:a.approvals||[];avDraw()}
 window.openAiva=()=>{if(COL&&parent.deck)return parent.openAiva();closeMenu();PG=null;AV.key='';AV.end=1;
  sb.innerHTML='<div class=pg data-k=aiva><h2>Aiva</h2><div class=av id=avl></div><div class=avin><textarea id=avt rows=1 placeholder="Message Aiva" enterkeyhint=send></textarea><button class=send id=avs>Send</button></div></div>';showSheet(-1);avDraw();avLoad()};
 const avGrow=()=>{const t=$('avt');if(t){t.style.height='auto';t.style.height=Math.min(t.scrollHeight,140)+'px'}};
