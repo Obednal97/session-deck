@@ -195,9 +195,9 @@ def parse_menu(plain):
             opts, sel = [], 0
             for i in range(s, F):
                 l = L[i]
-                if l.strip().lstrip("\u276f").strip() == "Submit":  # a multi-select's Submit row sits indented, without a number
+                if l.strip().lstrip("\u276f").strip() in ("Submit", "Next"):  # a multi-select's Submit (or, with more questions to come, Next) row sits indented, without a number
                     if l.lstrip().startswith("\u276f"): sel = len(opts)
-                    opts.append({"label": "Submit", "desc": ""})
+                    opts.append({"label": l.strip().lstrip("\u276f").strip(), "desc": ""})
                 elif is_opt(l):
                     if l[:tc].strip() == "\u276f": sel = len(opts)
                     opts.append({"label": re.sub(r"^\d+\.\s+", "", l[tc:].strip()), "desc": ""})
@@ -2145,8 +2145,14 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/choose":
             m = pane_screen(pane)["menu"]  # same parse as /api/status, so it compares equal to what the page drew
             if not m: return self.send(409, {"error": "That question has gone."})
-            if body.get("question") != m["question"] or body.get("labels") != [o["label"] for o in m["options"]]:
+            unbox = lambda ls: [re.sub(r"^\[.\]\s+", "", str(l)) for l in ls]  # ticking a box doesn't make it another question
+            if body.get("question") != m["question"] or unbox(body.get("labels") or []) != unbox(o["label"] for o in m["options"]):
                 return self.send(409, {"error": "The question changed. Check it and pick again."})
+            if "tab" in body:  # several questions: Left and Right move between them, as in the terminal
+                T = m.get("tabs") or []; c = next((i for i, t in enumerate(T) if t["current"]), None); to = body["tab"]
+                if c is None or not isinstance(to, int) or not 0 <= to < len(T): return self.send(409, {"error": "Couldn't switch question. Try again."})
+                for _ in range(abs(to - c)): tm(pane, "send-keys", "-t", "{P}", "Right" if to > c else "Left"); time.sleep(0.05)
+                _live[0] = 0; return self.send(200, {"ok": True})
             idx, text = body.get("index"), body.get("text")
             amend = None
             if text is not None:
