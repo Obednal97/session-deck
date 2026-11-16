@@ -758,7 +758,7 @@ def parse_lines(lines, n0, items, delivered, side):
                     mt = o.get("isMeta") and (o.get("origin") or {}).get("kind") == "human" and re.match(r"The user sent a new message while you were working:\n(.*?)(?:\n\nThis is how Claude Code surfaces .*)?$", tx, re.S)
                     if mt: items.append(user_item(mt.group(1).strip(), o.get("timestamp"))); continue  # typed to a busy subagent: Claude Code wraps it
                     if tx.lstrip().startswith("<") or o.get("isMeta"): continue
-                items.append({"role": t, "kind": "text", "text": tx[:6000], "ts": o.get("timestamp")})
+                items.append({"role": t, "kind": "text", "text": tx[:6000 if t == "user" else 200_000], "ts": o.get("timestamp")})  # with_sent relies on the user cut; a reply is shown whole
                 fs = t == "assistant" and out_paths(tx, o.get("cwd"))
                 if fs: items[-1]["files"] = fs
             elif k == "tool_use":
