@@ -311,6 +311,8 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .pg pre.log{margin:0;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--l);font:11.5px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto;color:var(--fg)}
 .pgf{align-self:center;color:var(--c);font-size:13.5px;padding:10px;text-decoration:none}.pgf:hover{text-decoration:underline}
 @media(min-width:700px){.pg .sec{top:-20px}}
+.av{display:flex;flex-direction:column;gap:12px}.av>:is(.u,.a){white-space:pre-wrap;overflow-wrap:anywhere}.av>.a{align-self:flex-start;max-width:88%;background:var(--r);border-radius:16px 16px 16px 4px;padding:8px 12px}
+.av>.pga{align-self:flex-start;width:min(100%,320px)}.av>.note{align-self:flex-start}.avin{--pb:calc(16px + env(safe-area-inset-bottom));position:sticky;bottom:calc(-1*var(--pb));margin-bottom:calc(-1*var(--pb));display:flex;gap:8px;align-items:flex-end;background:var(--s);padding:8px 0 var(--pb)}@media(min-width:700px){.avin{--pb:20px}}
 </style>
 <header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class=chip id=tv hidden>Terminal</button></header>
 <div class=off id=off hidden>Reconnecting…</div>
@@ -349,8 +351,8 @@ let TOK=clean(localStorage.getItem('deck')),TS=null;// TS: on the Tailscale rout
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // connection state: 2+ failed rounds show the banner; timers wait out a growing backoff (see tick)
 let fails=0,retryAt=0;const net=ok=>{if(ok){fails=0;retryAt=0}else if(Date.now()>=retryAt){fails++;retryAt=Date.now()+[1,2,5,10,15][Math.min(fails,5)-1]*1e3}$('off').hidden=fails<2};
-async function api(p,b){let r;try{r=await fetch(p.replace(/^\//,''),{method:b?'POST':'GET',headers:{'X-Deck-Token':TOK,'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout?AbortSignal.timeout(2e4):undefined})}catch(e){net(0);throw Object.assign(e,{st:0})}
- if(r.status>=502&&r.status<=504){net(0);throw Object.assign(new Error(r.status),{st:r.status})}net(1);if(r.status==401){if(TS!==false){if(TS)lock();throw new Error('401')}localStorage.removeItem('deck');alert('Token not accepted. Paste it again.');location.reload()}if(r.status==409){const e=new Error('409');e.reason=(await r.json().catch(()=>({}))).error||'The screen changed.';throw e}if(!r.ok)throw Object.assign(new Error(r.status),{st:r.status});return r.json()}
+async function api(p,b){let r;const av=p.startsWith('/api/aiva/');try{r=await fetch(p.replace(/^\//,''),{method:b?'POST':'GET',headers:{'X-Deck-Token':TOK,'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout?AbortSignal.timeout(2e4):undefined})}catch(e){net(0);throw Object.assign(e,{st:0})}
+ if(r.status>=502&&r.status<=504&&!av){net(0);throw Object.assign(new Error(r.status),{st:r.status})}net(1);if(r.status==401){if(TS!==false){if(TS)lock();throw new Error('401')}localStorage.removeItem('deck');alert('Token not accepted. Paste it again.');location.reload()}if(r.status==409){const e=new Error('409');e.reason=(await r.json().catch(()=>({}))).error||'The screen changed.';throw e}if(!r.ok)throw Object.assign(new Error(r.status),{st:r.status},av&&{reason:(await r.json().catch(()=>({}))).error});return r.json()}
 let cur=null,term=false,live=[],timer;
 let inSplit=false,OPEN=new Set();// the outer page: split view on, and the panes and sessions open in its columns
 // a column always takes the computer layout (floating composer, dialogs), however narrow it is
@@ -380,7 +382,7 @@ const crowL=(s,r)=>{const k=rank(s);return`<button class="crow lv${cur&&cur.pane
 const crowH=(h,r,snip)=>`<button class="crow${cur&&cur.session==h.session||OPEN.has(h.session)?' cur':''}" data-h="${esc(h.session)}" data-c="${esc(h.cwd)}"><span><b>${esc(h.title||h.session.slice(0,8))}</b><small>${snip?esc(snip)+' · ':''}${r?(sub(h.cwd,r)?esc(sub(h.cwd,r))+' · ':''):esc(proj(h.cwd))+' · '}${ago(h.mtime)}</small></span>${MORE}</button>`;
 function drawMenu(force){const q=$('q').value.trim();if(nav.v=='root'&&q.length>=3)return;let h;
  if(nav.v=='root'){const A=[...live].sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),H=groups(hist.filter(x=>!isArc(x.session)&&!arcP(proj(x.cwd))));
-  h=navHTML()+(PREFS.pins.length?`<section><div class=sec>Pinned<span>${PREFS.pins.length}</span></div><div class="card pins">${PREFS.pins.map(pinRow).join('')}</div></section>`:'')+`<section><div class=sec>Active<span>${A.length||''}</span></div><div class=card>`+(A.map(s=>crowL(s,null)).join('')||'<div class=none>Nothing running. Start a chat with the pencil above.</div>')+`</div></section><section><div class=sec>History<span>${H.length} projects</span></div><div class=card>`+H.map(prow).join('')+'</div></section>'}
+  h=navHTML()+avSec()+(PREFS.pins.length?`<section><div class=sec>Pinned<span>${PREFS.pins.length}</span></div><div class="card pins">${PREFS.pins.map(pinRow).join('')}</div></section>`:'')+`<section><div class=sec>Active<span>${A.length||''}</span></div><div class=card>`+(A.map(s=>crowL(s,null)).join('')||'<div class=none>Nothing running. Start a chat with the pencil above.</div>')+`</div></section><section><div class=sec>History<span>${H.length} projects</span></div><div class=card>`+H.map(prow).join('')+'</div></section>'}
  else{const r=root(nav.p),f=x=>proj(x.cwd)==nav.p&&(!q||(x.title||'').toLowerCase().includes(q.toLowerCase())),A=live.filter(f),P=hist.filter(x=>f(x)&&!isArc(x.session)),n=nav.n||40,X=hist.filter(x=>proj(x.cwd)==nav.p&&isArc(x.session)).length;
   h=`<button class=dback>‹ Chats</button><div class=ph>${tile(nav.p,1)}<span><h3>${esc(nav.p)}</h3><small>${esc(rel(r))}</small></span></div>`+
    (A.length?`<section><div class=sec>Running<span>${A.length}</span></div><div class=card>${A.map(s=>crowL(s,r)).join('')}</div></section>`:'')+
@@ -412,6 +414,7 @@ $('rpl').addEventListener('click',e=>agTap(e,rpDraw));
 setInterval(()=>{if(!cur||!cur.session){$('sab').hidden=true;return}if(cur.session!==rpS){rpS=cur.session;rpAll=[];rpT=0}if(!document.hidden&&(rOpen?Date.now()-rpT>3e3:Date.now()-rpT>15e3)){rpT=Date.now();rpLoad()}rpBadge()},1e3);
 $('dl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
  if(e.target.closest('.rmn'))return rowMenu(b);
+ if(b.dataset.aiva)return openAiva();
  if(b.dataset.nav)return NAV.find(x=>x.id==b.dataset.nav).open();
  if(b.dataset.pin){closeMenu();return openPin(PREFS.pins[+b.dataset.pin])}
  if(b.dataset.arc)return openProjects('arc',nav.p);
@@ -1186,4 +1189,30 @@ async function navDots(){if(COL||!window.navDot||!started||!$('lock').hidden||do
  try{const d=await api('/api/scheduled'),t=ls('schSeen');navDot('scheduled',d.jobs.some(j=>!j.system&&j.last>t&&!j.running&&(j.cal||j.exit)))}catch(e){}
  try{const d=await api('/api/artifacts'),t=ls('artSeen');navDot('artifacts',d.artifacts.some(a=>a.t>t))}catch(e){}}
 setTimeout(navDots,4e3);setInterval(navDots,6e4);
+/* Aiva (~/projects/aiva) through /api/aiva/*: a section at the top of the chat list (its latest message, approvals waiting) opens one long-lived chat
+   in the sheet. Polls every 3 s while that's open, else every 30 s. A tier 3 approval needs a passkey sign-in, so a local token sees a note instead */
+let AV={m:[],ap:[],on:null,at:0,key:'',pend:''};// on: null until Aiva first answers (a Mac without it shows no section), then whether it's running
+const avOpen=()=>sh.classList.contains('on')&&!!sb.querySelector('.pg[data-k=aiva]');
+const avAgo=t=>(t=typeof t=='number'?t:Date.parse(t)/1e3)?ago(t):'';
+function avSec(){if(AV.on==null)return'';const l=AV.m.findLast(x=>x.role!='ollie'),n=AV.ap.length;
+ return`<section><div class=sec>Aiva<span>${n||''}</span></div><div class=card><button class=crow data-aiva=1>${tile('Aiva')}<span><b>${esc(!AV.on?'Aiva isn\'t running':l?l.text:'No messages yet')}</b><small>${!AV.on?'Messages show once it\'s back':l?avAgo(l.ts)||'Open the chat':'Open the chat'}</small></span>${n?`<em class="ap a2">${n} to approve</em>`:''}</button></div></section>`}
+const avMsg=x=>{const p=x.approval_id&&AV.ap.find(a=>a.id==x.approval_id);
+ return`<div class=${x.role=='ollie'?'u':'a'}>${esc(x.text)}</div>`+(!p?'':+p.tier>=3&&!TS?'<div class=note>Needs a passkey sign-in</div>':`<div class=pga data-ap="${esc(p.id)}"><button class=go data-d=approve>Approve</button><button class="pick red" data-d=reject>Reject</button></div>`)};
+function avDraw(){if(dOpen&&nav.v=='root')drawMenu();const el=$('avl');if(!el||!avOpen())return;
+ const h=(AV.m.map(avMsg).join('')||(AV.pend?'':'<div class=none>No messages yet. Say hello.</div>'))+(AV.pend?`<div class="u q s">${esc(AV.pend)}</div>`:'')+(AV.on===false?'<div class=note>Aiva isn\'t running</div>':'');
+ if(h===AV.key)return;AV.key=h;const end=AV.end||sb.scrollHeight-sb.scrollTop-sb.clientHeight<80;el.innerHTML=h;AV.end=0;if(end)sb.scrollTop=sb.scrollHeight}
+async function avLoad(){AV.at=Date.now();let m,a;
+ try{[m,a]=await Promise.all([api('/api/aiva/messages?after='+(AV.m.length?AV.m[AV.m.length-1].id:0)),api('/api/aiva/approvals')])}catch(e){if(e.st==503&&AV.on!=null){AV.on=false;AV.ap=[];avDraw()}return}
+ const ids=new Set(AV.m.map(x=>x.id));AV.on=true;AV.m=AV.m.concat((m.messages||[]).filter(x=>!ids.has(x.id))).slice(-300);AV.ap=Array.isArray(a)?a:a.approvals||[];avDraw()}
+window.openAiva=()=>{if(COL&&parent.deck)return parent.openAiva();closeMenu();PG=null;AV.key='';AV.end=1;
+ sb.innerHTML='<div class=pg data-k=aiva><h2>Aiva</h2><div class=av id=avl></div><div class=avin><textarea id=avt rows=1 placeholder="Message Aiva" enterkeyhint=send></textarea><button class=send id=avs>Send</button></div></div>';showSheet(-1);avDraw();avLoad()};
+const avGrow=()=>{const t=$('avt');if(t){t.style.height='auto';t.style.height=Math.min(t.scrollHeight,140)+'px'}};
+async function avSend(){const t=$('avt'),v=t.value.trim();if(!v||AV.pend)return;AV.pend=v;t.value='';avGrow();AV.end=1;avDraw();
+ try{await api('/api/aiva/messages',{text:v});await avLoad()}catch(e){if(!t.value)t.value=v;avGrow();toast(e.reason||'Not sent. Your message is back in the box.')}AV.pend='';AV.end=1;avDraw()}
+async function avDecide(id,d){try{await api('/api/aiva/approvals/'+encodeURIComponent(id),{decision:d});toast(d=='approve'?'Approved':'Rejected')}catch(e){toast(e.reason||'That didn\'t work.')}AV.key='';await avLoad();avDraw()}
+sb.addEventListener('input',e=>{if(e.target.id=='avt')avGrow()});
+sb.addEventListener('keydown',e=>{if(e.target.id=='avt'&&e.key=='Enter'&&!e.shiftKey&&!e.isComposing&&matchMedia('(pointer:fine)').matches){e.preventDefault();avSend()}});
+sb.addEventListener('click',e=>{const b=e.target.closest('#avs,.pg[data-k=aiva] [data-d]');if(!b)return;if(b.id=='avs')return avSend();
+ b.parentNode.querySelectorAll('button').forEach(x=>x.disabled=true);avDecide(b.parentNode.dataset.ap,b.dataset.d)});
+setInterval(()=>{if(!COL&&started&&$('lock').hidden&&Date.now()-AV.at>=(avOpen()?3e3:3e4)-500)tick(avLoad)},1e3);
 </script>

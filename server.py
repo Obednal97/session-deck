@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Session Deck: shows live tmux Claude Code sessions as chats and types into them.
 Binds 127.0.0.1 (and DECK_SOCKET) only. Needs the token from <DECK_SECRETS>/session-deck.json for every local /api call."""
-import html, json, os, re, secrets, shutil, stat, subprocess, sys, threading, time, urllib.parse
+import html, http.client, json, os, re, secrets, shutil, socket, stat, subprocess, sys, threading, time, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -1615,6 +1615,36 @@ def pages_api(h, path, body=None):
         r = job_action(body.get("label"), body.get("action")) if path == "/api/scheduled" else mark_shared(body.get("url")) if body.get("shared") is True else {"error": "bad"}
         return h.send(409 if "error" in r else 200, r) or True
     return False
+
+# Aiva (~/projects/aiva), a local assistant on a Unix socket. Reads pass straight through. Writes are signed with the deck's key, and
+# "strong" (a passkey session on the Tailscale route, never the local token) is signed too, so Aiva can hold tier 3 approvals for Face ID.
+AIVA_SOCK = os.environ.get("DECK_AIVA_SOCKET") or str(HOME / "Library/Application Support/aiva/aiva.sock")
+AIVA_KEY = Path(os.environ.get("DECK_AIVA_KEY") or HOME / ".secrets/aiva/deck.key")
+class AivaConn(http.client.HTTPConnection):
+    def connect(self): self.sock = socket.socket(socket.AF_UNIX); self.sock.settimeout(self.timeout); self.sock.connect(AIVA_SOCK)
+
+def aiva_api(h, path, body=None):
+    """/api/aiva/* for GET (body None) and POST, passed on to Aiva; False when the path is another route's."""
+    hd, data = {}, None
+    if body is None and path in ("/api/aiva/status", "/api/aiva/messages", "/api/aiva/approvals"):
+        ap = path[9:] + ("?" + h.path.partition("?")[2] if "?" in h.path else "")
+    elif body is not None and (path == "/api/aiva/messages" or re.fullmatch(r"/api/aiva/approvals/[\w-]{1,64}", path)):
+        ap, se = path[9:], h.via_ts() and h.session()
+        b = {"text": str(body.get("text") or "").strip()} if ap == "/messages" else {"decision": body.get("decision"), "by": se[0] if se else "local"}
+        if not b.get("text") and b.get("decision") not in ("approve", "reject"): return h.send(400, {"error": "bad"}) or True
+        try: key = AIVA_KEY.read_text().strip().encode()
+        except OSError: return h.send(503, {"error": "The deck's Aiva key is missing (run secrets-mount)."}) or True
+        data, ts, strong = json.dumps(b).encode(), str(int(time.time())), "1" if se else "0"
+        hd = {"Content-Type": "application/json", "X-Aiva-Ts": ts, "X-Aiva-Strong": strong,
+              "X-Aiva-Sig": hmac.new(key, "|".join(["POST", ap, ts, hashlib.sha256(data).hexdigest(), strong]).encode(), hashlib.sha256).hexdigest()}
+    else: return False
+    c = AivaConn("aiva", timeout=15)
+    try: c.request("POST" if data else "GET", ap, data, hd); r = c.getresponse(); code, out = r.status, r.read()
+    except (FileNotFoundError, ConnectionRefusedError): return h.send(503, {"error": "Aiva isn't running"}) or True
+    except (OSError, http.client.HTTPException): return h.send(504, {"error": "Aiva didn't answer."}) or True
+    finally: c.close()
+    if code == 401: code, out = 502, {"error": "Aiva didn't accept the deck's signature."}  # the page reads a 401 as its own sign-in failing
+    return h.send(code, out) or True
 # Passkeys (WebAuthn, Face ID) for the Tailscale route; direct local requests keep the token.
 import base64, hashlib, hmac
 from cryptography.hazmat.primitives import hashes, serialization
@@ -1888,7 +1918,7 @@ class H(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/api/file/(\d+)\.([\w-]+)\.([\w-]+)/[^/]*", path, re.A)
         if m: return self.file(m)
         if not self.authed(): return self.send(401, {"error": "token"})
-        if pages_api(self, path): return
+        if pages_api(self, path) or aiva_api(self, path): return
         if path == "/api/siri":
             return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri/" + SEC["siri_key"], "name": siri_name()})
         if path == "/api/push/key":
@@ -2081,7 +2111,7 @@ class H(BaseHTTPRequestHandler):
             if body.get("kill"): tm(pane, "kill-pane", "-t", "{P}")
             else: end_chat(pane)
             _live[0] = 0; return self.send(200, {"ok": True})  # straight away: the pane may already be gone
-        if pages_api(self, self.path, body): return
+        if pages_api(self, self.path, body) or aiva_api(self, self.path.split("?")[0], body): return
         if self.path == "/api/siri/key":  # a new key; the old one stops working at once
             SEC["siri_key"] = secrets.token_urlsafe(24); save_secrets(SEC); return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri/" + SEC["siri_key"]})
         if self.path == "/api/siri/name":
