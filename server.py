@@ -1631,7 +1631,7 @@ def aiva_api(h, path, body=None):
         if any(not re.fullmatch(r"\d{1,12}", v, re.A) for k, v in q): return h.send(400, {"error": "after and tail are whole numbers"}) or True
         if path == "/api/aiva/offers":
             q = [(k, v) for k, v in urllib.parse.parse_qsl(urllib.parse.urlparse(h.path).query) if k == "status"]
-            if any(v not in ("open", "yes", "no", "always", "never", "expired") for k, v in q): return h.send(400, {"error": "bad status"}) or True
+            if any(v not in ("open", "yes", "no", "always", "never", "expired", "all") for k, v in q): return h.send(400, {"error": "bad status"}) or True
         ap = path[9:] + ("?" + urllib.parse.urlencode(q) if q else "")
     elif body is not None and (path == "/api/aiva/messages" or re.fullmatch(r"/api/aiva/(?:approvals|offers)/[\w-]{1,64}", path, re.A)):
         ap, se = path[9:], h.via_ts() and h.session()

@@ -105,7 +105,7 @@ class AivaProxy(unittest.TestCase):
         self.assertEqual(len(GOT), n)
 
     def test_offers_get_status_validated(self):
-        for st in ("open", "yes", "no", "always", "never", "expired"):
+        for st in ("open", "yes", "no", "always", "never", "expired", "all"):
             h = Stub("/api/aiva/offers?status=" + st); self.assertTrue(server.aiva_api(h, "/api/aiva/offers")); self.assertEqual(GOT[-1]["path"], "/offers?status=" + st)
         n = len(GOT); h = Stub("/api/aiva/offers?status=bad"); self.assertTrue(server.aiva_api(h, "/api/aiva/offers")); self.assertEqual((h.out[0], len(GOT)), (400, n))
         h = Stub("/api/aiva/offers"); server.aiva_api(h, "/api/aiva/offers"); self.assertEqual(GOT[-1]["path"], "/offers")

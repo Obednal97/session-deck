@@ -507,7 +507,7 @@ function pjDraw(){if(!$('pjl'))return;const q=pj.q.toLowerCase(),m=s=>s.toLowerC
 $('sbody').addEventListener('click',e=>{const b=e.target.closest('#pjl button,#pjs button,#pjt button');if(!b)return;const D=b.dataset,P=t=>({type:'project',id:t,title:t});
  if(D.s||D.t){D.s?pj.s=D.s:pj.t=D.t;return pjDraw()}if(D.pj)return openProj(D.pj);if(D.h)return pickup(D.h,D.c,b.querySelector('b').textContent);
  (D.pp?pinToggle(P(D.pp)):D.ap?arcSet(P(D.ap),1):D.uap?arcSet(P(D.uap),0):D.ua?arcSet({type:'chat',id:D.ua},0):Promise.resolve()).then(pjDraw)});
-function home(){cur=null;document.body.classList.remove('aiva');$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
+function home(){cur=null;AV.cf=null;document.body.classList.remove('aiva');$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
  $('main').innerHTML='<div class=empty><p>Pick a chat from the menu, or start a new one.</p><button class=go id=eo>Open menu</button><button class=pick id=en style="text-align:center">New chat</button></div>'}
 /* sheets */
 const sh=$('sheet'),sp=$('spanel'),sd=$('shd'),sb=$('sbody');sh.onclick=e=>{if(e.target===sh&&getSelection().isCollapsed)hideSheet()};// not when a text selection drag ends on the backdrop
@@ -542,7 +542,7 @@ function chatOpts(){return`<details class=more2><summary>Options</summary><div s
  sel('oe','Effort',[['','Default'],['low','Low'],['medium','Medium'],['high','High'],['xhigh','Extra high'],['max','Max']])+
  `<div><div class=lbl>Name</div><input id=on type=text maxlength=60 autocomplete=off placeholder="Optional"></div></div><label class=ck style="margin-top:8px"><input type=checkbox id=ow disabled> New git worktree (fresh chats only)</label></details>`}
 const optVals=()=>({perm:$('op').value,model:$('om').value,effort:$('oe').value,name:$('on').value.trim(),worktree:$('ow').checked});
-function open_(s){if(term&&cur)termOff(cur.pane);cur=s;term=false;$('back').hidden=!stack.length&&!s.aiva;$('mb').hidden=!!stack.length||!!s.aiva;document.body.classList.toggle('aiva',!!s.aiva);agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro||!!s.agent;if(s.agent||s.aiva)busy=false;if(s.aiva)$('ta').placeholder='Message Aiva';$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';if(!s.aiva)return draw();requestAnimationFrame(()=>requestAnimationFrame(()=>cur===s&&draw()));tick(avLoad)}// Aiva's is painted after the layout settles, or the resize keeping the bottom line in place scrolls it back up
+function open_(s){if(term&&cur)termOff(cur.pane);if(!s.aiva)AV.cf=null;cur=s;term=false;$('back').hidden=!stack.length&&!s.aiva;$('mb').hidden=!!stack.length||!!s.aiva;document.body.classList.toggle('aiva',!!s.aiva);agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro||!!s.agent;if(s.agent||s.aiva)busy=false;if(s.aiva)$('ta').placeholder='Message Aiva';$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';if(!s.aiva)return draw();requestAnimationFrame(()=>requestAnimationFrame(()=>cur===s&&draw()));tick(avLoad)}// Aiva's is painted after the layout settles, or the resize keeping the bottom line in place scrolls it back up
 let stack=[];$('back').onclick=()=>{if(cur&&cur.aiva&&!stack.length){home();return COL||openMenu()}$('menu').hidden=true;menuKey='';const p=stack.pop();if(p)open_(p)};
 const tok=n=>(n=n||0)>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
 const dur=(a,b)=>{const s=Math.max(0,Math.round(((b?new Date(b):Date.now())-new Date(a))/1000));return s<60?s+'s':s<3600?Math.floor(s/60)+'m '+s%60+'s':s<172800?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':Math.round(s/86400)+' days'};
@@ -1213,11 +1213,11 @@ function avDraw(){if(dOpen&&nav.v=='root')drawMenu();if(cur&&cur.aiva)draw()}
 // the first load takes the last 200; after that, what's new after the last id, in Aiva's pages of 100, fetching again at once while a page is full
 async function avMore(){const t=!AV.m.length,m=(await api('/api/aiva/messages?'+(t?'tail=200':'after='+AV.m[AV.m.length-1].id))).messages||[],ids=new Set(AV.m.map(x=>x.id));
  AV.m=AV.m.concat(m.filter(x=>!ids.has(x.id))).slice(-300);return!t&&m.length>=100}
-async function avOffers(){const ids=AV.m.map(x=>x.offer_id).filter(Boolean);if(!ids.length)return;let l=(await api('/api/aiva/offers?status=open')).offers||[];
- if(ids.some(i=>(!AV.of[i]||AV.of[i].status=='open')&&!l.find(o=>o.id==i)))try{l=l.concat((await api('/api/aiva/offers')).offers||[])}catch(e){}
- for(const o of l)if(ids.includes(o.id)&&(AV.of[o.id]||{}).status!=o.status)AV.of[o.id]={status:o.status}}
+async function avOffers(){const ids=AV.m.map(x=>x.offer_id).filter(Boolean);if(!ids.some(i=>!AV.of[i]||AV.of[i].status=='open'))return;
+ for(const o of(await api('/api/aiva/offers?status=all')).offers||[])if(ids.includes(o.id)&&(AV.of[o.id]||{}).status!=o.status)AV.of[o.id]={status:o.status}}
 async function avLoad(){AV.at=Date.now();let a;
- try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals');await avOffers()}catch(e){AV.down=e.st==503;if(AV.down&&AV.on!=null){AV.on=false;AV.ap=[]}return avDraw()}
+ try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals')}catch(e){AV.down=e.st==503;if(AV.down&&AV.on!=null){AV.on=false;AV.ap=[]}return avDraw()}
+ try{await avOffers()}catch(e){}// an older Aiva without offers, or a slow answer, must not stop the rest
  AV.on=true;AV.down=0;AV.ap=Array.isArray(a)?a:a.approvals||[];avDraw()}
 window.openAiva=()=>{if(COL&&parent.deck)return parent.openAiva();closeMenu();hideSheet();if(rOpen)closeRP();stack=[];AV.end=1;open_({aiva:1,title:'Aiva'})};
 function avHash(){if(COL||location.hash!='#aiva')return false;history.replaceState(null,'',location.pathname+location.search);openAiva();return true}
@@ -1228,7 +1228,7 @@ async function avSend(t){const v=t.trim(),me=cur;if(!v||AV.pend)return;AV.pend=v
 async function avDecide(p,d){const bs=p.querySelectorAll('button');bs.forEach(x=>x.disabled=true);
  try{await api('/api/aiva/approvals/'+encodeURIComponent(p.dataset.ap),{decision:d});toast(d=='approve'?'Approved':'Rejected')}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}
 async function avAnswer(p,a){const id=p.dataset.of,bs=p.querySelectorAll('button');bs.forEach(x=>x.disabled=true);AV.cf=null;
- try{const r=await api('/api/aiva/offers/'+encodeURIComponent(id),{answer:a});AV.of[id]={status:r.repeat?(r.status||a):a};toast(r.repeat?'Already answered':'You said '+a)}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad();avDraw()}
+ try{const r=await api('/api/aiva/offers/'+encodeURIComponent(id),{answer:a});AV.of[id]={status:r.repeat?(r.status||a):a};toast(r.repeat?'Already answered':'You said '+a)}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}
 $('main').addEventListener('click',e=>{const f=e.target.closest('.pgo[data-of] button');if(f&&cur&&cur.aiva){const p=f.parentNode;if(f.dataset.n){AV.cf=null;return avPaint()}
  if(f.dataset.y||f.dataset.a=='yes'||f.dataset.a=='no')return avAnswer(p,f.dataset.a);AV.cf={id:p.dataset.of,a:f.dataset.a};return avPaint()}
  const b=e.target.closest('.pga[data-ap] [data-d]');if(b&&cur&&cur.aiva)avDecide(b.parentNode,b.dataset.d)});
