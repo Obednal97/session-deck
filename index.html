@@ -1192,7 +1192,7 @@ setTimeout(navDots,4e3);setInterval(navDots,6e4);
 /* Aiva (~/projects/aiva) through /api/aiva/*: a section at the top of the chat list (its latest message, approvals waiting) opens one long-lived chat,
    shown like a session chat with the same box. Polls every 3 s while that's open, else every 30 s. #aiva in the address opens it (a push's link).
    A tier 3 approval needs a passkey sign-in, so a local token sees a note instead */
-let AV={m:[],ap:[],of:{},cf:null,on:null,at:0,ot:0,pend:'',end:0,down:0};// on: null until Aiva first answers (a Mac without it shows no section), then whether it's running
+let AV={m:[],ap:[],of:{},cf:null,on:null,at:0,ot:0,mc:{},pend:'',end:0,down:0};// on: null until Aiva first answers (a Mac without it shows no section), then whether it's running
 const avAgo=t=>(t=typeof t=='number'?t:Date.parse(t)/1e3)?ago(t):'';
 function avSec(){if(AV.on==null)return'';const l=AV.m.findLast(x=>x.role!='ollie'),n=AV.ap.length;
  return`<section><div class=sec>Aiva<span>${n||''}</span></div><div class=card><button class="crow${cur&&cur.aiva?' cur':''}" data-aiva=1>${tile('Aiva')}<span><b>${esc(!AV.on?'Aiva isn\'t running':l?l.text:'No messages yet')}</b><small>${!AV.on?'Messages show once it\'s back':l?avAgo(l.ts)||'Open the chat':'Open the chat'}</small></span>${n?`<em class="ap a2">${n} to approve</em>`:''}</button></div></section>`}
@@ -1213,10 +1213,12 @@ function avDraw(){if(dOpen&&nav.v=='root')drawMenu();if(cur&&cur.aiva)draw()}
 // the first load takes the last 200; after that, what's new after the last id, in Aiva's pages of 100, fetching again at once while a page is full
 async function avMore(){const t=!AV.m.length,m=(await api('/api/aiva/messages?'+(t?'tail=200':'after='+AV.m[AV.m.length-1].id))).messages||[],ids=new Set(AV.m.map(x=>x.id));
  AV.m=AV.m.concat(m.filter(x=>!ids.has(x.id))).slice(-300);return!t&&m.length>=100}
-async function avOffers(){const ids=AV.m.map(x=>x.offer_id).filter(Boolean);if(!ids.some(i=>!AV.of[i]||AV.of[i].status=='open')||Date.now()-AV.ot<3e4)return;
- AV.ot=Date.now();const l=(await api('/api/aiva/offers?status=all')).offers||[];// at most every 30 s; an id Aiva doesn't return is gone, so it stops asking
+async function avOffers(){const ids=AV.m.map(x=>x.offer_id).filter(Boolean),mc=AV.mc;
+ // an id never seen before is fetched at once; re-checks (open offers, ids missed once) wait 30 s
+ if(!ids.some(i=>!AV.of[i]&&!mc[i])&&!(Date.now()-AV.ot>=3e4&&ids.some(i=>AV.of[i]?AV.of[i].status=='open':mc[i]<2)))return;
+ AV.ot=Date.now();const l=(await api('/api/aiva/offers?status=all')).offers||[];
  for(const o of l)if(ids.includes(o.id)&&(AV.of[o.id]||{}).status!=o.status)AV.of[o.id]={status:o.status};
- for(const i of ids)if(!l.some(o=>o.id==i))AV.of[i]={status:'gone'}}
+ for(const i of ids)if(!l.some(o=>o.id==i)&&(!AV.of[i]||AV.of[i].status=='open')){mc[i]=(mc[i]||0)+1;if(mc[i]>=2)AV.of[i]={status:'gone'}}}// gone only after two fetches without it
 async function avLoad(){AV.at=Date.now();let a;
  try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals')}catch(e){AV.down=e.st==503;if(AV.down&&AV.on!=null){AV.on=false;AV.ap=[]}return avDraw()}
  try{await avOffers()}catch(e){}// an older Aiva without offers, or a slow answer, must not stop the rest
