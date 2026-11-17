@@ -433,7 +433,7 @@ function settings(){closeMenu();let a='Blue';try{a=localStorage.getItem('accent'
  `<div class=sg><div class=lbl>About</div><div class=srow><span>Session Deck</span><small>${esc(location.host)}</small></div></div>`;showSheet(-1);theme(document.documentElement.dataset.theme||'');pushUI()}
 $('set').onclick=settings;
 $('sbody').addEventListener('click',e=>{const t=e.target,th=t.closest('#seg [data-t]');if(th){theme(th.dataset.t);const de=document.documentElement,lt=de.dataset.theme=='light'||(!de.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);return $('sw')&&$('sw').querySelectorAll('button').forEach(b=>{const x=ACC.find(a=>a[0]==b.dataset.a);b.style.background=lt?x[2]:x[1]})}
- const lc=t.closest('#sloc [data-v]');if(lc){try{lc.dataset.v=='1'?localStorage.removeItem('avloc'):localStorage.setItem('avloc','1')}catch(x){}if(lc.dataset.v=='0')locSend(1);return $('sloc').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===lc))}
+ const lc=t.closest('#sloc [data-v]');if(lc){locSet(lc.dataset.v=='1');if(lc.dataset.v=='1')locSend(1);return $('sloc').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===lc))}
  const tb=t.closest('#stv [data-v]');if(tb){try{tb.dataset.v=='1'?localStorage.removeItem('termbtn'):localStorage.setItem('termbtn','0')}catch(x){}noTerm();if(term&&tb.dataset.v=='0')$('tv').click();return $('stv').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===tb))}
  const ac=t.closest('#sw [data-a]');if(ac){try{ac.dataset.a=='Blue'?localStorage.removeItem('accent'):localStorage.setItem('accent',ac.dataset.a)}catch(x){}setAcc(ac.dataset.a);return $('sw').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===ac))}
  if(t.closest('#pf'))return pfClick(e);if(t.closest('#spk'))return passkeys(1);if(t.closest('#ssiri'))return siri(1);if(t.closest('#sso'))au('logout',{}).then(()=>au('state')).then(lock)});
@@ -1229,7 +1229,7 @@ function avHash(){if(COL||location.hash!='#aiva')return false;history.replaceSta
 addEventListener('hashchange',()=>{if(started&&$('lock').hidden)avHash()});
 const avDevice=()=>/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(innerWidth<700&&(navigator.maxTouchPoints||0)>0)?'phone':'laptop';
 // Optional: while the deck is open and visible and the setting is on, Aiva gets a position at most every 5 minutes.
-const locOn=()=>{try{return localStorage.getItem('avloc')=='1'}catch(e){return false}};let locAt=0,locWarned=0;
+const locSet=on=>{try{on?localStorage.setItem('avloc','1'):localStorage.removeItem('avloc')}catch(e){}};const locOn=()=>{try{return localStorage.getItem('avloc')=='1'}catch(e){return false}};let locAt=0,locWarned=0;
 function locSend(force){if(COL||!locOn()||!navigator.geolocation||document.hidden||Date.now()-locAt<3e5&&!force)return;locAt=Date.now();
  navigator.geolocation.getCurrentPosition(p=>{api('/api/aiva/location',{lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy),ts:Math.floor(p.timestamp/1e3),device:avDevice()}).catch(()=>{})},
   e=>{if(e&&e.code==1&&!locWarned){locWarned=1;toast('Location is blocked for this page, so Aiva can\'t see where you are.')}},{maximumAge:6e4,timeout:2e4})}

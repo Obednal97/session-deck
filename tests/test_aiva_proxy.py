@@ -204,6 +204,25 @@ class Location(unittest.TestCase):
         body = b'{"lat":51.5,"lon":-0.1}'
         self.assertEqual(self.req(body, self.basic(self.SECRET), chunked=True)[0], 200); self.assertEqual(GOT[-1]["body"], body)
 
+    def test_challenge_and_bad_chunks(self):
+        self.assertIn(b'WWW-Authenticate: Basic realm="Aiva location"', self.req(auth=self.basic("nope"))[2])
+        for bad in (b"-5", b"zz", b"1" * 50):
+            h = ["POST /api/aiva/location HTTP/1.1", "Host: 127.0.0.1", "Transfer-Encoding: chunked", "Authorization: " + self.basic(self.SECRET)]
+            with socket.create_connection(self.http.server_address, timeout=5) as c:
+                c.sendall(("\r\n".join(h) + "\r\n\r\n").encode() + bad + b"\r\nabc\r\n0\r\n\r\n"); r = c.recv(300)
+            self.assertIn(b" 400 ", r.split(b"\r\n")[0]); self.assertEqual(GOT, [])
+
+    def test_page_toggle(self):  # On (data-v=1) stores avloc, Off removes it; the pressed state follows the stored value
+        import subprocess, shutil
+        node = shutil.which("node")
+        if not node: self.skipTest("no node")
+        src = (Path(__file__).resolve().parent.parent / "index.html").read_text()
+        self.assertIn("locSet(lc.dataset.v=='1')", src)
+        m = re.search(r"const locSet=.*?;const locOn=\(\)=>\{.*?\};", src)
+        js = m[0] + "\nconst st={};global.localStorage={setItem:(k,v)=>st[k]=v,removeItem:k=>delete st[k],getItem:k=>st[k]??null};" \
+             "locSet(true);if(!locOn())throw 1;locSet(false);if(locOn())throw 2;console.log('ok')"
+        self.assertEqual(subprocess.run([node, "-e", js], capture_output=True, text=True).stdout.strip(), "ok")
+
     def test_no_secret_file_503(self):
         server.AIVA_LOC_SECRET = Path(self.sec.parent, "missing")
         code, out, _ = self.req(auth=self.basic(self.SECRET)); self.assertEqual((code, json.loads(out)["error"]), (503, "Location isn't set up")); self.assertEqual(GOT, [])

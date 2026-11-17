@@ -1663,6 +1663,7 @@ def aiva_forward(h, ap, data, strong="0"):
 # The body goes to Aiva unchanged. Nothing here logs the header, the secret or the body.
 AIVA_LOC_SECRET = Path(os.environ.get("DECK_AIVA_LOCATION_SECRET_FILE") or HOME / ".secrets/aiva/location.secret")
 LOC_MAX = 64 * 1024
+LOC_CHALLENGE = (("WWW-Authenticate", 'Basic realm="Aiva location"'),)
 def aiva_location(h):
     ah = h.headers.get("Authorization") or ""
     if ah:
@@ -1673,14 +1674,18 @@ def aiva_location(h):
         try: pw = base64.b64decode(ah.split(None, 1)[1].strip()).partition(b":")[2] if ah[:6].lower() == "basic " else None
         except (ValueError, IndexError): pw = None
         who = h.login() if h.via_ts() else (h.headers.get("Host") or "").split(":")[0] in HOSTS  # the deck's own login check, as the Siri route
-        if not who or not sec or pw is None or not hmac.compare_digest(pw, sec): limited(bad, 0, 600); return h.send(401, {"error": "unauthorized"}) or True
+        if not who or not sec or pw is None or not hmac.compare_digest(pw, sec): limited(bad, 0, 600); return h.send(401, {"error": "unauthorized"}, hdrs=LOC_CHALLENGE) or True
         strong = "0"
     elif h.authed(): strong = "1" if h.via_ts() and h.session() else "0"
-    else: return h.send(401, {"error": "unauthorized"}) or True
+    else: return h.send(401, {"error": "unauthorized"}, hdrs=LOC_CHALLENGE) or True
     if "chunked" in h.headers.get("Transfer-Encoding", "").lower():
         data = b""
         try:
-            while n := int(h.rfile.readline().split(b";")[0].strip() or b"0", 16):
+            while True:
+                line = h.rfile.readline(40)
+                if not re.fullmatch(rb"[0-9a-fA-F]{1,8}(;[^\r\n]*)?\r?\n", line): return h.send(400, {"error": "bad"}) or True
+                n = int(line.split(b";")[0].strip(), 16)
+                if not n: break
                 if len(data) + n > LOC_MAX: return h.send(413, {"error": "too big"}) or True
                 data += h.rfile.read(n); h.rfile.readline()
         except ValueError: return h.send(400, {"error": "bad"}) or True
@@ -1854,10 +1859,11 @@ def cookie(login=None, sid=None):
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
-    def send(self, code, body, ctype="application/json", csp=None):
+    def send(self, code, body, ctype="application/json", csp=None, hdrs=()):
         b = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code); self.send_header("Content-Type", ctype)
         if csp: self.send_header("Content-Security-Policy", csp)
+        for k, v in hdrs: self.send_header(k, v)
         ck = self.__dict__.pop("_ck", None)  # a session cookie set or slid during this request
         if ck: self.send_header("Set-Cookie", ck)
         self.send_header("Content-Length", str(len(b))); self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(b)
