@@ -1230,7 +1230,7 @@ addEventListener('hashchange',()=>{if(started&&$('lock').hidden)avHash()});
 const avDevice=()=>/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(innerWidth<700&&(navigator.maxTouchPoints||0)>0)?'phone':'laptop';
 // Optional: while the deck is open and visible and the setting is on, Aiva gets a position at most every 5 minutes.
 const locOn=()=>{try{return localStorage.getItem('avloc')=='1'}catch(e){return false}};let locAt=0,locWarned=0;
-function locSend(force){if(!locOn()||!navigator.geolocation||document.hidden||Date.now()-locAt<3e5&&!force)return;if(!force&&!(cur&&cur.aiva||dOpen))return;locAt=Date.now();
+function locSend(force){if(COL||!locOn()||!navigator.geolocation||document.hidden||Date.now()-locAt<3e5&&!force)return;locAt=Date.now();
  navigator.geolocation.getCurrentPosition(p=>{api('/api/aiva/location',{lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy),ts:Math.floor(p.timestamp/1e3),device:avDevice()}).catch(()=>{})},
   e=>{if(e&&e.code==1&&!locWarned){locWarned=1;toast('Location is blocked for this page, so Aiva can\'t see where you are.')}},{maximumAge:6e4,timeout:2e4})}
 setInterval(()=>locSend(0),3e4);document.addEventListener('visibilitychange',()=>locSend(0));

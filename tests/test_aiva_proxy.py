@@ -150,12 +150,14 @@ class Location(unittest.TestCase):
         cls.http = ThreadingHTTPServer(("127.0.0.1", 0), server.H); threading.Thread(target=cls.http.serve_forever, daemon=True).start()
     @classmethod
     def tearDownClass(cls): cls.http.shutdown(); cls.http.server_close(); cls.srv.shutdown(); cls.srv.server_close()
-    def setUp(self): GOT.clear(); server.AIVA_SOCK = self.sock; server.AIVA_LOC_SECRET = self.sec
+    def setUp(self): GOT.clear(); server.AIVA_SOCK = self.sock; server.AIVA_LOC_SECRET = self.sec; server.HITS.pop(("loc-bad",), None)
 
-    def req(self, body=b'{"_type":"location","lat":51.5,"lon":-0.1}', auth=None, token=False, length=None):
+    def req(self, body=b'{"_type":"location","lat":51.5,"lon":-0.1}', auth=None, token=False, length=None, extra=(), chunked=False):
         h = [f"POST /api/aiva/location HTTP/1.1", "Host: 127.0.0.1", "Content-Type: application/json", f"Content-Length: {len(body) if length is None else length}"]
         if auth is not None: h.append("Authorization: " + auth)
         if token: h.append("X-Deck-Token: " + server.TOK)
+        for x in extra: h = [y for y in h if not (x.startswith('Host:') and y.startswith('Host:'))] + [x]
+        if chunked: h = [x for x in h if not x.startswith("Content-Length")] + ["Transfer-Encoding: chunked"]; body = b"%x\r\n%s\r\n0\r\n\r\n" % (len(body), body)
         with socket.create_connection(self.http.server_address, timeout=5) as c:
             c.sendall(("\r\n".join(h) + "\r\n\r\n").encode() + body)
             buf = b""
@@ -185,6 +187,22 @@ class Location(unittest.TestCase):
         for a in (self.basic("nope"), self.basic(""), "Basic !!!", "Bearer abc", "Basic"):
             code, out, head = self.req(auth=a); self.assertEqual(code, 401, a); self.assertNotIn(self.SECRET.encode(), out)
         self.assertEqual(self.req()[0], 401); self.assertEqual(GOT, [])
+
+    def test_login_check(self):
+        ts = lambda l: ("Tailscale-User-Login: " + l,)
+        self.assertEqual(self.req(auth=self.basic(self.SECRET), extra=ts("stranger@example.com"))[0], 401); self.assertEqual(GOT, [])
+        self.assertEqual(self.req(auth=self.basic(self.SECRET), extra=ts("me@example.com"))[0], 200); self.assertEqual(GOT[-1]["path"], "/location")
+        self.assertEqual(self.req(auth=self.basic(self.SECRET), extra=("Host: evil.example",))[0], 401)
+
+    def test_wrong_secret_throttle(self):
+        server.HITS.pop(("loc-bad",), None)
+        for _ in range(20): self.assertEqual(self.req(auth=self.basic("nope"))[0], 401)
+        self.assertEqual(self.req(auth=self.basic(self.SECRET))[0], 429); self.assertEqual(GOT, [])
+        server.HITS.pop(("loc-bad",), None)
+
+    def test_chunked_body(self):
+        body = b'{"lat":51.5,"lon":-0.1}'
+        self.assertEqual(self.req(body, self.basic(self.SECRET), chunked=True)[0], 200); self.assertEqual(GOT[-1]["body"], body)
 
     def test_no_secret_file_503(self):
         server.AIVA_LOC_SECRET = Path(self.sec.parent, "missing")

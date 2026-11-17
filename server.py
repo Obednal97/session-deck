@@ -1666,18 +1666,29 @@ LOC_MAX = 64 * 1024
 def aiva_location(h):
     ah = h.headers.get("Authorization") or ""
     if ah:
+        bad, now = ("loc-bad",), time.time()
+        if sum(now - t < 600 for t in HITS.get(bad, ())) >= 20: return h.send(429, {"error": "too many"}) or True
         try: sec = AIVA_LOC_SECRET.read_text().strip().encode()
         except OSError: return h.send(503, {"error": "Location isn't set up"}) or True
         try: pw = base64.b64decode(ah.split(None, 1)[1].strip()).partition(b":")[2] if ah[:6].lower() == "basic " else None
         except (ValueError, IndexError): pw = None
-        if not sec or pw is None or not hmac.compare_digest(pw, sec): return h.send(401, {"error": "unauthorized"}) or True
+        who = h.login() if h.via_ts() else (h.headers.get("Host") or "").split(":")[0] in HOSTS  # the deck's own login check, as the Siri route
+        if not who or not sec or pw is None or not hmac.compare_digest(pw, sec): limited(bad, 0, 600); return h.send(401, {"error": "unauthorized"}) or True
         strong = "0"
     elif h.authed(): strong = "1" if h.via_ts() and h.session() else "0"
     else: return h.send(401, {"error": "unauthorized"}) or True
-    try: n = int(h.headers.get("Content-Length") or 0)
-    except ValueError: n = -1
-    if n < 0 or n > LOC_MAX: return h.send(413, {"error": "too big"}) or True
-    data = h.rfile.read(n)
+    if "chunked" in h.headers.get("Transfer-Encoding", "").lower():
+        data = b""
+        try:
+            while n := int(h.rfile.readline().split(b";")[0].strip() or b"0", 16):
+                if len(data) + n > LOC_MAX: return h.send(413, {"error": "too big"}) or True
+                data += h.rfile.read(n); h.rfile.readline()
+        except ValueError: return h.send(400, {"error": "bad"}) or True
+    else:
+        try: n = int(h.headers.get("Content-Length") or 0)
+        except ValueError: n = -1
+        if n < 0 or n > LOC_MAX: return h.send(413, {"error": "too big"}) or True
+        data = h.rfile.read(n)
     if not data: return h.send(400, {"error": "bad"}) or True
     return aiva_forward(h, "/location", data, strong)
 # Passkeys (WebAuthn, Face ID) for the Tailscale route; direct local requests keep the token.
