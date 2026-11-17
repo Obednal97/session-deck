@@ -1625,7 +1625,7 @@ class AivaConn(http.client.HTTPConnection):
 
 def aiva_api(h, path, body=None):
     """/api/aiva/* for GET (body None) and POST, passed on to Aiva; False when the path is another route's."""
-    hd, data = {}, None
+    data, strong = None, "0"
     if body is None and path in ("/api/aiva/status", "/api/aiva/messages", "/api/aiva/approvals", "/api/aiva/offers"):
         q = [(k, v) for k, v in urllib.parse.parse_qsl(urllib.parse.urlparse(h.path).query) if k in ("after", "tail")] if path == "/api/aiva/messages" else []
         if any(not re.fullmatch(r"\d{1,12}", v, re.A) for k, v in q): return h.send(400, {"error": "after and tail are whole numbers"}) or True
@@ -1636,21 +1636,50 @@ def aiva_api(h, path, body=None):
     elif body is not None and (path == "/api/aiva/messages" or re.fullmatch(r"/api/aiva/(?:approvals|offers)/[\w-]{1,64}", path, re.A)):
         ap, se = path[9:], h.via_ts() and h.session()
         by = se[0] if se else "local"
-        b = {"text": str(body.get("text") or "").strip()} if ap == "/messages" else {"answer": body.get("answer"), "by": by} if ap.startswith("/offers/") else {"decision": body.get("decision"), "by": by}
+        b = {"text": str(body.get("text") or "").strip(), "device": body.get("device") if body.get("device") in ("phone", "laptop") else "unknown"} if ap == "/messages" else {"answer": body.get("answer"), "by": by} if ap.startswith("/offers/") else {"decision": body.get("decision"), "by": by}
         if not b.get("text") and b.get("decision") not in ("approve", "reject") and b.get("answer") not in ("yes", "no", "always", "never"): return h.send(400, {"error": "bad"}) or True
+        data, strong = json.dumps(b).encode(), "1" if se else "0"
+    else: return False
+    return aiva_forward(h, ap, data, strong)
+
+def aiva_forward(h, ap, data, strong="0"):
+    """Send to Aiva (POST when data is bytes, else GET), signed with the deck's key; the answer goes back to the caller as Aiva gave it."""
+    hd = {}
+    if data is not None:
         try: key = AIVA_KEY.read_text().strip().encode()
         except OSError: return h.send(503, {"error": "The deck's Aiva key is missing (run secrets-mount)."}) or True
-        data, ts, strong = json.dumps(b).encode(), str(int(time.time())), "1" if se else "0"
+        ts = str(int(time.time()))
         hd = {"Content-Type": "application/json", "X-Aiva-Ts": ts, "X-Aiva-Strong": strong,
               "X-Aiva-Sig": hmac.new(key, "|".join(["POST", ap, ts, hashlib.sha256(data).hexdigest(), strong]).encode(), hashlib.sha256).hexdigest()}
-    else: return False
     c = AivaConn("aiva", timeout=15)
-    try: c.request("POST" if data else "GET", ap, data, hd); r = c.getresponse(); code, out = r.status, r.read()
+    try: c.request("POST" if data is not None else "GET", ap, data, hd); r = c.getresponse(); code, out = r.status, r.read()
     except (FileNotFoundError, ConnectionRefusedError): return h.send(503, {"error": "Aiva isn't running"}) or True
     except (OSError, ValueError, http.client.HTTPException): return h.send(504, {"error": "Aiva didn't answer."}) or True
     finally: c.close()
     if code == 401: code, out = 502, {"error": "Aiva didn't accept the deck's signature."}  # the page reads a 401 as its own sign-in failing
     return h.send(code, out) or True
+
+# Location from Ollie's phone (OwnTracks, HTTP mode, Basic auth with the location secret) or from the deck page itself (the usual token or session).
+# The body goes to Aiva unchanged. Nothing here logs the header, the secret or the body.
+AIVA_LOC_SECRET = Path(os.environ.get("DECK_AIVA_LOCATION_SECRET_FILE") or HOME / ".secrets/aiva/location.secret")
+LOC_MAX = 64 * 1024
+def aiva_location(h):
+    ah = h.headers.get("Authorization") or ""
+    if ah:
+        try: sec = AIVA_LOC_SECRET.read_text().strip().encode()
+        except OSError: return h.send(503, {"error": "Location isn't set up"}) or True
+        try: pw = base64.b64decode(ah.split(None, 1)[1].strip()).partition(b":")[2] if ah[:6].lower() == "basic " else None
+        except (ValueError, IndexError): pw = None
+        if not sec or pw is None or not hmac.compare_digest(pw, sec): return h.send(401, {"error": "unauthorized"}) or True
+        strong = "0"
+    elif h.authed(): strong = "1" if h.via_ts() and h.session() else "0"
+    else: return h.send(401, {"error": "unauthorized"}) or True
+    try: n = int(h.headers.get("Content-Length") or 0)
+    except ValueError: n = -1
+    if n < 0 or n > LOC_MAX: return h.send(413, {"error": "too big"}) or True
+    data = h.rfile.read(n)
+    if not data: return h.send(400, {"error": "bad"}) or True
+    return aiva_forward(h, "/location", data, strong)
 # Passkeys (WebAuthn, Face ID) for the Tailscale route; direct local requests keep the token.
 import base64, hashlib, hmac
 from cryptography.hazmat.primitives import hashes, serialization
@@ -2085,6 +2114,7 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path.startswith("/api/auth/"): return self.auth(self.path.split("?")[0], post=True)
         if re.fullmatch(r"/api/siri(/[\w-]{20,})?", self.path.split("?")[0]): return self.siri()
+        if self.path.split("?")[0] == "/api/aiva/location": return aiva_location(self)
         if not self.authed(): return self.send(401, {"error": "token"})
         if self.path.startswith("/api/upload?"): return self.upload()
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")

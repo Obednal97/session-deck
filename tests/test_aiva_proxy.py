@@ -1,5 +1,5 @@
 """The /api/aiva/* proxy: a fake Aiva on a temp Unix socket records what the deck forwards."""
-import hashlib, hmac, json, os, re, socket, socketserver, sys, tempfile, threading, time, unittest
+import base64, hashlib, hmac, json, os, re, socket, socketserver, sys, tempfile, threading, time, unittest
 from http.server import ThreadingHTTPServer
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -22,7 +22,7 @@ class Fake(BaseHTTPRequestHandler):
     def reply(self, body=b""):
         GOT.append({"method": self.command, "path": self.path, "headers": dict(self.headers), "body": body})
         p, _, q = self.path.partition("?")
-        b = json.dumps({"messages": messages(q)} if self.command == "GET" and p == "/messages" else {"ok": True, "path": self.path}).encode()
+        b = b"[]" if p == "/location" else json.dumps({"messages": messages(q)} if self.command == "GET" and p == "/messages" else {"ok": True, "path": self.path}).encode()
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def do_GET(self): self.reply()
     def do_POST(self): self.reply(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
@@ -115,8 +115,12 @@ class AivaProxy(unittest.TestCase):
 
     def test_post_signed_not_strong_locally(self):
         h, g = self.post("/api/aiva/messages", {"text": "hello"})
-        self.assertEqual((g["path"], json.loads(g["body"])), ("/messages", {"text": "hello"}))
+        self.assertEqual((g["path"], json.loads(g["body"])), ("/messages", {"text": "hello", "device": "unknown"}))
         self.verify(g, "0"); self.assertEqual(h.out[0], 200)
+
+    def test_device_passed_through(self):
+        for d, want in (("phone", "phone"), ("laptop", "laptop"), ("tablet", "unknown"), (None, "unknown")):
+            self.post("/api/aiva/messages", {"text": "hi", "device": d}); self.assertEqual(json.loads(GOT[-1]["body"])["device"], want)
 
     def test_post_strong_with_passkey_session(self):
         h, g = self.post("/api/aiva/approvals/ap_1234abcd", {"decision": "approve", "by": "someone else"}, ts=True, se=("me@example.com", "sid"))
@@ -133,5 +137,74 @@ class AivaProxy(unittest.TestCase):
         for path, body in (("/api/aiva/status", None), ("/api/aiva/messages", {"text": "hi"})):
             h = Stub(path); self.assertTrue(server.aiva_api(h, path, body))
             self.assertEqual(h.out, (503, {"error": "Aiva isn't running"}))
+
+
+
+class Location(unittest.TestCase):
+    SECRET = "s3cret-" + "x" * 20
+    @classmethod
+    def setUpClass(cls):
+        AivaProxy.setUpClass.__func__(cls)
+        cls.sec = Path(tempfile.mkdtemp(), "location.secret"); cls.sec.write_text(cls.SECRET + "\n")
+        server.AIVA_LOC_SECRET = cls.sec
+        cls.http = ThreadingHTTPServer(("127.0.0.1", 0), server.H); threading.Thread(target=cls.http.serve_forever, daemon=True).start()
+    @classmethod
+    def tearDownClass(cls): cls.http.shutdown(); cls.http.server_close(); cls.srv.shutdown(); cls.srv.server_close()
+    def setUp(self): GOT.clear(); server.AIVA_SOCK = self.sock; server.AIVA_LOC_SECRET = self.sec
+
+    def req(self, body=b'{"_type":"location","lat":51.5,"lon":-0.1}', auth=None, token=False, length=None):
+        h = [f"POST /api/aiva/location HTTP/1.1", "Host: 127.0.0.1", "Content-Type: application/json", f"Content-Length: {len(body) if length is None else length}"]
+        if auth is not None: h.append("Authorization: " + auth)
+        if token: h.append("X-Deck-Token: " + server.TOK)
+        with socket.create_connection(self.http.server_address, timeout=5) as c:
+            c.sendall(("\r\n".join(h) + "\r\n\r\n").encode() + body)
+            buf = b""
+            while True:
+                d = c.recv(65536)
+                if not d: break
+                buf += d
+                head, _, rest = buf.partition(b"\r\n\r\n")
+                m = re.search(rb"Content-Length: (\d+)", head)
+                if rest and m and len(rest) >= int(m[1]): break
+        head, _, rest = buf.partition(b"\r\n\r\n")
+        return int(head.split()[1]), rest, head
+
+    def basic(self, pw, user="owntracks"): return "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode()
+
+    def test_secret_accepted_signed_and_body_unchanged(self):
+        body = b'{"_type":"location","lat":51.5,"lon":-0.1,"tst":1}'
+        code, out, _ = self.req(body, self.basic(self.SECRET))
+        self.assertEqual((code, json.loads(out)), (200, []))
+        g = GOT[-1]; self.assertEqual((g["path"], g["body"]), ("/location", body))
+        hd = g["headers"]; self.assertEqual(hd["X-Aiva-Strong"], "0")
+        parts = ["POST", "/location", hd["X-Aiva-Ts"], hashlib.sha256(body).hexdigest(), "0"]
+        self.assertEqual(hd["X-Aiva-Sig"], hmac.new(KEY.encode(), "|".join(parts).encode(), hashlib.sha256).hexdigest())
+        self.assertNotIn(self.SECRET, json.dumps(hd))
+
+    def test_wrong_or_missing_secret_401(self):
+        for a in (self.basic("nope"), self.basic(""), "Basic !!!", "Bearer abc", "Basic"):
+            code, out, head = self.req(auth=a); self.assertEqual(code, 401, a); self.assertNotIn(self.SECRET.encode(), out)
+        self.assertEqual(self.req()[0], 401); self.assertEqual(GOT, [])
+
+    def test_no_secret_file_503(self):
+        server.AIVA_LOC_SECRET = Path(self.sec.parent, "missing")
+        code, out, _ = self.req(auth=self.basic(self.SECRET)); self.assertEqual((code, json.loads(out)["error"]), (503, "Location isn't set up")); self.assertEqual(GOT, [])
+
+    def test_token_path(self):
+        code, out, _ = self.req(b'{"lat":51.5,"lon":-0.1,"acc":20,"ts":1,"device":"laptop"}', token=True)
+        self.assertEqual((code, json.loads(out)), (200, [])); self.assertEqual(GOT[-1]["path"], "/location")
+        self.assertEqual(self.req(b'{"lat":1}', token=False)[0], 401)
+
+    def test_body_cap(self):
+        code, _, _ = self.req(b"x" * 10, self.basic(self.SECRET), length=65 * 1024); self.assertEqual(code, 413)
+        big = b'{"a":"' + b"x" * (64 * 1024 - 10) + b'"}'
+        self.assertEqual(self.req(big, self.basic(self.SECRET))[0], 200); self.assertEqual(len(GOT[-1]["body"]), len(big))
+
+    def test_logs_hold_no_secret(self):
+        import io, contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            self.req(b'{"lat":51.123456}', self.basic(self.SECRET)); self.req(b'{"lat":51.123456}', self.basic("wrong"))
+        self.assertNotIn(self.SECRET, buf.getvalue()); self.assertNotIn("51.123456", buf.getvalue())
 
 if __name__ == "__main__": unittest.main()
