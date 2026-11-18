@@ -1,15 +1,18 @@
 """SSH hosts: address parsing, ~/.ssh/config names, the host store; connections in a throwaway tmux server (decktest)."""
-import http.client, json, os, signal, subprocess, sys, tempfile, threading, time, unittest
+import http.client, json, os, signal, subprocess, sys, tempfile, threading, time, unittest, urllib.parse
 from pathlib import Path
 
 TMP = tempfile.mkdtemp()
 os.environ.update(DECK_SECRETS=TMP, DECK_STORE=f"{TMP}/passkeys.json", DECK_PREFS=f"{TMP}/prefs.json", DECK_RP_ID="localhost", DECK_TS_USER="me@example.com",
                   DECK_SSH_HOSTS=f"{TMP}/ssh-hosts.json", DECK_TMUX_SOCKET="decktest", DECK_SHOW_TEST="1", DECK_SSH_CM=f"{TMP}/cm",
-                  DECK_SSH_BIN=str(Path(__file__).resolve().parent / "fake_ssh.sh"), FAKE_SSH_MASTER=f"{TMP}/master")
+                  DECK_SSH_BIN=str(Path(__file__).resolve().parent / "fake_ssh.sh"), FAKE_SSH_MASTER=f"{TMP}/master", FAKE_SSH_JUMP=f"{TMP}/jump")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import server
 # another test module may have imported server first, with its own settings: never let these tests reach the real tmux servers or ssh
 server.TMUX_SOCKS, server.SSH_BIN, server.SSH_CM, server.SSH_HOSTS = ["decktest"], os.environ["DECK_SSH_BIN"], Path(os.environ["DECK_SSH_CM"]), Path(os.environ["DECK_SSH_HOSTS"])
+
+def guard():  # a real check, not assert (python -O drops those): never run against the real tmux servers or ssh
+    if server.TMUX_SOCKS != ["decktest"] or not server.SSH_BIN.endswith(("/fake_ssh.sh", "/fake_ssh_run.sh")): raise RuntimeError("tests would reach the real tmux or ssh")
 
 
 class Hosts(unittest.TestCase):
@@ -21,7 +24,9 @@ class Hosts(unittest.TestCase):
         self.assertEqual(p("home"), {"user": None, "host": "home", "port": None})
         self.assertEqual(p("root@[fd7a::1]:22")["host"], "fd7a::1")
         self.assertEqual(p("u@[fd7a::1]"), {"user": "u", "host": "fd7a::1", "port": None})
-        for bad in ("-oProxyCommand=x", "a b", "h;rm", "u@h:0", "u@h:70000", "$(id)@h", "", "u@-h", None):
+        self.assertEqual(p("Admin_1@my_host"), {"user": "Admin_1", "host": "my_host", "port": None})
+        self.assertEqual(p("_svc@_alias:2200"), {"user": "_svc", "host": "_alias", "port": 2200})
+        for bad in ("-oProxyCommand=x", "a b", "h;rm", "host; rm -rf ~", "u@h:0", "u@h:70000", "$(id)@h", "", "u@-h", "-l@h", "u v@h", "'u'@h", 'u@"h"', "u@h`id`", None):
             self.assertIsNone(p(bad), bad)
 
     def test_config_names(self):
@@ -97,7 +102,7 @@ def until(fn, secs=5):
 class Conns(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        assert server.TMUX_SOCKS == ["decktest"] and server.SSH_BIN.endswith("/fake_ssh.sh")
+        guard()
         subprocess.run(["tmux", "-L", "decktest", "kill-server"], capture_output=True)
         server._socks.pop("decktest", None)
         cls.srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.H); cls.srv.daemon_threads = True
@@ -142,15 +147,17 @@ class Conns(unittest.TestCase):
         self.assertEqual(server.tm(p, "show-options", "-v", "-t", "{P}", "status").strip(), "off")
         p2 = server.ssh_open(self.h["id"])
         self.assertEqual(until(lambda: self.term(p2))["session"], f"ssh-{self.h['id']}-2")
-        # sessions named ssh-* or deck-view-* never count as chats, even when they run something called claude
-        for n in ("ssh-zz-1", "deck-view-0123abcd", "plainchat"):
+        # SSH terminals (marked @deck_ssh) and deck-view-* sessions never count as chats, even when they run something called claude;
+        # a session that is only named ssh-* is the user's own and does
+        for n in ("ssh-zz-1", "deck-view-0123abcd", "plainchat", "ssh-mine"):
             subprocess.run(["tmux", "-L", "decktest", "new-session", "-d", "-s", n, "bash", "-c", "exec -a claude cat"], check=True)
+        subprocess.run(["tmux", "-L", "decktest", "set-option", "-t", "=ssh-zz-1:", "@deck_ssh", "zz"], check=True)
         server._socks.pop("decktest", None)
-        def live(): server._live[0] = 0; return [s["where"].split(":")[0] for s in server.live_sessions() if s["pane"].startswith("decktest.")]
-        until(lambda: "plainchat" in live())
-        self.assertEqual(live(), ["plainchat"])
+        def live(): server._live[0] = 0; return sorted(s["where"].split(":")[0] for s in server.live_sessions() if s["pane"].startswith("decktest."))
+        until(lambda: len(live()) == 2)
+        self.assertEqual(live(), ["plainchat", "ssh-mine"])
         self.assertNotIn(p, {s["pane"] for s in server.live_sessions()})
-        for n in ("ssh-zz-1", "deck-view-0123abcd", "plainchat"): subprocess.run(["tmux", "-L", "decktest", "kill-session", "-t", "=" + n])
+        for n in ("ssh-zz-1", "deck-view-0123abcd", "plainchat", "ssh-mine"): subprocess.run(["tmux", "-L", "decktest", "kill-session", "-t", "=" + n])
 
     def test_password_typed_once(self):
         p = server.ssh_open(self.h["id"], "s3cret")
@@ -158,7 +165,7 @@ class Conns(unittest.TestCase):
         time.sleep(2)  # the fake asks "password: " again; the deck must not answer it
         s = self.screen(p)
         self.assertEqual((s.count("AUTH"), s.count("s3cret")), (1, 1), s)
-        self.assertTrue(s.rstrip().endswith("password:"), s)
+        self.assertTrue(s.rstrip().endswith("pi@10.0.0.5's password:"), s)
         self.assertNotIn("s3cret", subprocess.run(["tmux", "-L", "decktest", "list-buffers"], capture_output=True, text=True).stdout)
 
     def test_newest_feeder_only(self):  # a reconnect while an earlier feeder still waits: only the newest one types
@@ -167,7 +174,7 @@ class Conns(unittest.TestCase):
         server.tm(p, "send-keys", "-t", "{P}", "x", "Enter")  # the user answers the first prompt by hand; the fake now waits at "password: "
         until(lambda: "AUTH x" in self.screen(p))
         server.tm(p, "send-keys", "-t", "{P}", "-l", "line"); server.tm(p, "send-keys", "-t", "{P}", "Enter")  # cat's output: the prompt is no longer last
-        old = threading.Thread(target=server.pw_feed, args=(p, "first", 8), daemon=True); old.start(); time.sleep(0.5)
+        old = threading.Thread(target=server.pw_feed, args=(p, "first", self.h, 8), daemon=True); old.start(); time.sleep(0.5)
         self.assertEqual(self.post("/api/ssh/reconnect", {"pane": p, "password": "second"}), (200, {"ok": True}))
         self.assertTrue(until(lambda: "AUTH second" in self.screen(p)), self.screen(p))
         old.join(10); time.sleep(1)
@@ -177,14 +184,28 @@ class Conns(unittest.TestCase):
         for ok in ("pi@10.0.0.5's password:", "(pi@10.0.0.5) Password:", "(pi@h) password:"): self.assertTrue(server.PW_PROMPT.search(ok), ok)
         for no in ("Password:", "password:", "[sudo] password for pi:", "Enter password:", "New password:", "(a b) Password:"): self.assertFalse(server.PW_PROMPT.search(no), no)
 
-    def test_master_up_no_typing(self):  # through a live master there's no ssh prompt: a later "Password:" from su, sudo or mysql never gets it
+    def test_master_up_no_typing(self):  # through a live master there's no ssh prompt: a later prompt, even one that looks exactly like ssh's, never gets it
         m = Path(os.environ["FAKE_SSH_MASTER"]); m.touch(); self.addCleanup(m.unlink, missing_ok=True)
+        ask = "pi@10.0.0.5's password:"
+        self.assertTrue(server.PW_PROMPT.search(ask))  # only the master check keeps the password back
         p = server.ssh_open(self.h["id"], "s3cret")
-        self.assertTrue(until(lambda: "Password:" in self.screen(p)), self.screen(p))
+        self.assertTrue(until(lambda: ask in self.screen(p)), self.screen(p))
         self.assertEqual(self.post("/api/ssh/reconnect", {"pane": p, "password": "s3cret"}), (200, {"ok": True}))
-        self.assertTrue(until(lambda: "Password:" in self.screen(p)), self.screen(p))
+        self.assertTrue(until(lambda: ask in self.screen(p)), self.screen(p))
         time.sleep(1.5)
         self.assertNotIn("s3cret", self.screen(p))
+        m.unlink(); self.assertEqual(self.post("/api/ssh/reconnect", {"pane": p, "password": "s3cret"}), (200, {"ok": True}))  # and with no master it is typed
+        self.assertTrue(until(lambda: "AUTH s3cret" in self.screen(p)), self.screen(p))
+
+    def test_jump_prompt_not_typed(self):  # a ProxyJump host's own password prompt never gets the target's password
+        j = Path(os.environ["FAKE_SSH_JUMP"]); j.touch(); self.addCleanup(j.unlink, missing_ok=True)
+        p = server.ssh_open(self.h["id"], "s3cret")
+        self.assertTrue(until(lambda: "jump@bastion's password:" in self.screen(p)), self.screen(p))
+        time.sleep(1.5)
+        self.assertNotIn("JUMP", self.screen(p))
+        server.tm(p, "send-keys", "-t", "{P}", "jp", "Enter")  # the user answers the jump host; the target's prompt then gets the saved password
+        self.assertTrue(until(lambda: "AUTH s3cret" in self.screen(p)), self.screen(p))
+        self.assertIn("JUMP jp", self.screen(p))
 
     def test_password_not_in_ps(self):
         pw = os.urandom(8).hex()  # unique, so no other process's command line can contain it by chance
@@ -214,14 +235,33 @@ class Conns(unittest.TestCase):
         self.assertEqual((h["temp"], h["host"], h["user"], h["id"][0]), (True, "10.9.9.9", "root", "t"))
         self.assertEqual(self.post("/api/ssh/close", {"pane": r["pane"]}), (200, {"ok": True}))
         self.assertIsNone(self.term(r["pane"]))
-        self.assertFalse(any(h.get("temp") for h in server.ssh_state()["hosts"]))
+        self.assertFalse(any(h["id"] == t["host"] for h in server.ssh_state()["hosts"]))
         self.assertEqual(self.post("/api/ssh/close", {"pane": r["pane"]})[0], 400)
+
+    def test_temp_host_survives_restart(self):  # a throwaway host comes back from its sessions; a terminal with no record is still listed
+        pw = os.urandom(8).hex()
+        code, r = self.post("/api/ssh/connect", {"temp": {"addr": "root@10.9.9.9:2200", "auth": "password"}, "password": pw})
+        self.assertEqual(code, 200, r)
+        t = until(lambda: self.term(r["pane"]))
+        self.assertNotIn(pw, subprocess.run(["tmux", "-L", "decktest", "show-options", "-t", f"={t['session']}:"], capture_output=True, text=True).stdout)
+        server.SSH_TEMP.clear()  # as after a restart
+        st = server.ssh_state(); h = next(h for h in st["hosts"] if h["id"] == t["host"])
+        self.assertEqual((h["temp"], h["name"], h["host"], h["user"], h["port"], h["auth"]), (True, "10.9.9.9", "10.9.9.9", "root", 2200, "password"))
+        self.assertFalse(any("rec" in x for x in st["terms"]))
+        server.SSH_TEMP.clear(); self.assertEqual(server.ssh_host(t["host"])["host"], "10.9.9.9")  # a reconnect before any list finds it too
+        server.tm(r["pane"], "set-option", "-u", "-t", f"={t['session']}:", "@deck_ssh_host"); server.SSH_TEMP.clear()
+        h = next(h for h in server.ssh_state()["hosts"] if h["id"] == t["host"])
+        self.assertEqual((h["lost"], h["name"]), (True, "10.9.9.9"))
+        self.assertIsNone(server.ssh_host(t["host"]))
+        self.assertEqual(self.post("/api/ssh/close", {"pane": r["pane"]}), (200, {"ok": True}))
+        self.assertIsNone(self.term(r["pane"]))
+        self.assertFalse(any(h["id"] == t["host"] for h in server.ssh_state()["hosts"]))
 
     def test_connect_rejects(self):
         for b in ({"host": "nope"}, {"temp": {"addr": "-oProxyCommand=x", "auth": "key"}}, {"temp": {"addr": "h", "auth": "config"}}, {"temp": {"addr": "h", "auth": "x"}},
                   {"host": self.h["id"], "password": "x" * 1025}, {"host": self.h["id"], "password": "a\nb"}):
             self.assertEqual(self.post("/api/ssh/connect", b)[0], 400, b)
-        self.assertFalse(any(h.get("temp") for h in server.ssh_state()["hosts"]))
+        self.assertFalse(any(h.get("temp") and not h.get("lost") for h in server.ssh_state()["hosts"]))  # earlier tests' terminals stand in for hosts they deleted
         server.ssh_hosts_write([{**self.h, "host": "-oProxyCommand=x"}])  # a tampered hosts file
         self.assertEqual(self.post("/api/ssh/connect", {"host": self.h["id"]})[0], 400)
 
@@ -234,6 +274,7 @@ class Remote(unittest.TestCase):
     """Attach, Get file, Install key and forget a host key, with fake_ssh_run.sh as ssh: the "server" is this Mac with HOME at a temp folder."""
     @classmethod
     def setUpClass(cls):
+        guard()
         cls.old = server.SSH_BIN, server.SSH_KEY, server.KNOWN_HOSTS, server.UPL
         server.UPL = Path(TMP) / "uploads"
         cls.home = Path(tempfile.mkdtemp()); os.environ.update(FAKE_SSH_HOME=str(cls.home), FAKE_SSH_DOWN=f"{TMP}/down", FAKE_SSH_NOKEY=f"{TMP}/nokey")
@@ -279,6 +320,23 @@ class Remote(unittest.TestCase):
         self.assertTrue(until(lambda: d["path"] in server.tm(self.pane, "capture-pane", "-p", "-t", "{P}")))
         for b in ({"pane": self.pane, "text": "x" * 4097}, {"pane": self.pane, "text": 5}, {"pane": "decktest.99999", "text": "x"}):
             self.assertEqual(self.post("/api/ssh/type", b)[0], 400, b)
+
+    def test_put_any_file(self):  # to a server a file goes as it is, under its own name: no type check, no HEIC conversion, no .txt
+        files = {"backup.tar.gz": b"\x1f\x8b\x08\x00" + os.urandom(3000) + b"\x00\x00", "nginx.conf": b"server { listen 80; }\n",
+                 "IMG_1.HEIC": b"\x00\x00\x00\x18ftypheic" + os.urandom(100), "a b;$(id).sh": b"#!/bin/sh\n"}
+        up = self.home / ".cache/session-deck/uploads"; (up / "old").mkdir(parents=True, exist_ok=True); (up / "old/f").write_bytes(b"x"); (up / "gone").mkdir(exist_ok=True)
+        for x in (up / "old/f", up / "gone"): os.utime(x, (time.time() - 15 * 86400,) * 2)
+        seen = set()
+        for name, body in [*files.items(), ("nginx.conf", b"again\n")]:
+            r = self.req("POST", f"/api/upload?pane={self.pane}&name={urllib.parse.quote(name)}", body, "application/octet-stream")
+            d = json.loads(r.read())
+            self.assertEqual(r.status, 200, d)
+            want = {"a b;$(id).sh": "a_b__id.sh"}.get(name, name)  # made safe to type
+            self.assertEqual(d["path"].rsplit("/", 1)[1], want); self.assertNotIn(d["path"], seen); seen.add(d["path"])
+            self.assertEqual((self.home / d["path"][2:]).read_bytes(), body, name)  # the second nginx.conf has its own folder: the first is kept
+        self.assertEqual(sorted((self.home / x[2:]).read_bytes() for x in seen if x.endswith("/nginx.conf")), [b"again\n", b"server { listen 80; }\n"])
+        self.assertEqual((os.path.exists(up / "old/f"), os.path.exists(up / "gone")), (False, False))  # what's over 14 days old goes; its folder an hour after it's empty
+        self.assertEqual(list(server.UPL.glob("*-*-*/*")), [])
 
     def test_get(self):
         (self.home / "three").write_bytes(b"abc")
@@ -331,7 +389,10 @@ class Remote(unittest.TestCase):
 
     def test_forgetkey(self):
         server.KNOWN_HOSTS.write_text("[10.0.0.5]:2222 ssh-ed25519 AAAA1\n10.0.0.5 ssh-ed25519 AAAA2\nother ssh-ed25519 AAAA3\n")
-        self.assertEqual(self.post("/api/ssh/forgetkey", {"host": self.h["id"]}), (200, {"removed": 2}))
+        self.assertEqual(self.post("/api/ssh/forgetkey", {"host": self.h["id"]}), (200, {"removed": 1}))  # port 2222: only [h]:p, the plain name is another server's
+        self.assertEqual(server.KNOWN_HOSTS.read_text(), "10.0.0.5 ssh-ed25519 AAAA2\nother ssh-ed25519 AAAA3\n")
+        h22, _ = server.ssh_host_save({"addr": "pi@10.0.0.5:22", "auth": "key"})
+        self.assertEqual(self.post("/api/ssh/forgetkey", {"host": h22["id"]}), (200, {"removed": 1}))
         self.assertEqual(server.KNOWN_HOSTS.read_text(), "other ssh-ed25519 AAAA3\n")
         self.assertEqual(self.post("/api/ssh/forgetkey", {"host": "nope"})[0], 400)
 

@@ -486,12 +486,12 @@ def _live_sessions():
     by_pid = pid_sessions()
     panes = []
     for sock in sockets():
-        for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}:#{window_index}\t#{window_name}\t#{pane_pid}").splitlines():
+        for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}:#{window_index}\t#{@deck_ssh}\t#{window_name}\t#{pane_pid}").splitlines():
             if l.startswith("%"): panes.append(f"{sock}.{l[1:]}")
     out, claimed, fallback, lau = [], set(), [], None
     for l in panes:
-        pid_, loc, wname, ppid = l.split("\t")
-        if not ppid.isdigit() or loc.startswith(("ssh-", "deck-view-")): continue  # still starting (no pid yet), or an SSH terminal or a terminal viewer
+        pid_, loc, mark, wname, ppid = l.split("\t")
+        if not ppid.isdigit() or mark or loc.startswith("deck-view-"): continue  # still starting (no pid yet), or an SSH terminal or a terminal viewer
         ds = descendants(table, int(ppid)) + [(int(ppid), table.get(int(ppid), (0, ''))[1])]
         claude = [(p, c) for p, c in ds if re.search(r"(^|/)claude( |$)", c) and "bg-pty" not in c and "daemon" not in c and "remote-control" not in c]
         if not claude:
@@ -1900,7 +1900,7 @@ SSH_AUTH = ("password", "key", "config")
 
 def parse_addr(s):
     """[user@]host[:port] or [user@][v6][:port] as {"user", "host", "port"}, or None: nothing that could reach ssh as an option or shell text."""
-    m = re.fullmatch(r"(?:([a-z_][a-z0-9_.-]{0,31})@)?([A-Za-z0-9][A-Za-z0-9.-]{0,252}|\[[0-9A-Fa-f:.]+\])(?::([0-9]{1,5}))?", s) if isinstance(s, str) else None
+    m = re.fullmatch(r"(?:([A-Za-z0-9_][A-Za-z0-9_.-]{0,31})@)?([A-Za-z0-9_][A-Za-z0-9_.-]{0,252}|\[[0-9A-Fa-f:.]+\])(?::([0-9]{1,5}))?", s) if isinstance(s, str) else None
     if not m: return None
     u, h, p = m.groups()
     if p is not None and not 1 <= int(p) <= 65535: return None
@@ -1947,7 +1947,7 @@ def ssh_host_delete(hid):
 # share one master connection. A saved password is typed once into OpenSSH's own prompt, so host-key questions stay in front of the user.
 SSH_BIN = os.environ.get("DECK_SSH_BIN", "ssh")
 SSH_CM = Path(os.environ.get("DECK_SSH_CM") or f"/private/tmp/deck-ssh-{os.getuid()}")  # short: Unix socket paths stop at 104 bytes
-SSH_TEMP = {}  # throwaway hosts (connect without saving) by id, in memory only, until their last terminal goes
+SSH_TEMP = {}  # throwaway hosts (connect without saving) by id, until their last terminal goes; their sessions keep the address (@deck_ssh_host), never a password
 PW_PROMPT = re.compile(r"'s password:$|^\(\S+\) [Pp]assword:$")  # OpenSSH's own prompts only, not su, sudo, passwd or mysql -p
 _term_lock, _pw_lock, FEED = threading.RLock(), threading.Lock(), {}  # FEED: pane -> its newest feeder; an older one (before a reconnect) stops
 
@@ -1971,8 +1971,16 @@ def ssh_master(host):
     try: return subprocess.run(a, capture_output=True, timeout=8).returncode == 0
     except subprocess.TimeoutExpired: return True  # unsure: don't type
 
+def ssh_g(host):
+    """ssh's own settings for a host (ssh -G): user, hostname, port as it works them out from the address and ~/.ssh/config."""
+    a = ssh_argv(host); i = a.index("--"); a[i:i] = ["-G"]
+    return dict(l.split(" ", 1) for l in run(*a).splitlines() if " " in l)
+
 def ssh_host(hid):
-    return SSH_TEMP.get(hid) or next((h for h in ssh_hosts() if h.get("id") == hid), None) if isinstance(hid, str) and re.fullmatch(r"\w{1,32}", hid) else None
+    if not (isinstance(hid, str) and re.fullmatch(r"\w{1,32}", hid)): return None
+    h = SSH_TEMP.get(hid) or next((h for h in ssh_hosts() if h.get("id") == hid), None)
+    if not h and hid[0] == "t": ssh_state(); h = SSH_TEMP.get(hid)  # a throwaway host from before a restart, rebuilt from its sessions
+    return h
 
 def ssh_open(hid, password=None):
     """A new terminal on a host (saved or throwaway): its pane key, or None. Raises ValueError for a tampered host."""
@@ -1985,20 +1993,24 @@ def ssh_open(hid, password=None):
         s = next(f"ssh-{hid}-{n}" for n in range(1, 10000) if f"ssh-{hid}-{n}" not in names)
         # one tmux call, so the session is marked and kept on exit before an ssh that fails at once can end it
         r = run("tmux", "-L", sock, "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", s, "-x", "120", "-y", "40", "-n", h.get("name") or h["host"], *argv,
-                ";", "set-option", "-t", f"={s}:", "@deck_ssh", hid, ";", "set-option", "-t", f"={s}:", "status", "off", ";", "set-option", "-w", "-t", f"={s}:", "remain-on-exit", "on")
+                ";", "set-option", "-t", f"={s}:", "@deck_ssh", hid, ";", "set-option", "-t", f"={s}:", "status", "off", ";", "set-option", "-w", "-t", f"={s}:", "remain-on-exit", "on",
+                *([";", "set-option", "-t", f"={s}:", "@deck_ssh_host", json.dumps({k: h.get(k) for k in ("name", "host", "user", "port", "auth")})] if h.get("temp") else []))
     _live[0] = 0; _socks.pop(sock, None)  # this may have started the tmux server
     if not r.strip().startswith("%"): return None
     pane = f"{sock}.{r.strip()[1:]}"
-    if feed: threading.Thread(target=pw_feed, args=(pane, password), daemon=True).start()
+    if feed: threading.Thread(target=pw_feed, args=(pane, password, h), daemon=True).start()
     return pane
 
-def pw_feed(pane, pw, wait=60):
-    """Types the password once, when OpenSSH's prompt is the screen's last line; never again (a wrong password, a later "password:").
-    It reaches tmux on stdin, never argv, and the buffer is deleted on every path."""
+def pw_feed(pane, pw, host, wait=60):
+    """Types the password once, when OpenSSH's prompt for the host itself (its user and hostname from ssh -G, so never a ProxyJump's)
+    is the screen's last line; never again (a wrong password, a later "password:"). It reaches tmux on stdin, never argv, and the
+    buffer is deleted on every path."""
     me = FEED[pane] = object(); end = time.time() + wait
-    while time.time() < end and FEED.get(pane) is me:
+    try: g = ssh_g(host); uh = re.escape(f"{g['user']}@{g['hostname']}")
+    except (KeyError, ValueError, OSError, subprocess.TimeoutExpired): uh = None  # unsure who asks: type nothing
+    while uh and time.time() < end and FEED.get(pane) is me:
         lines = [l for l in tm(pane, "capture-pane", "-p", "-t", "{P}").splitlines() if l.strip()]
-        if lines and PW_PROMPT.search(lines[-1].rstrip()):
+        if lines and PW_PROMPT.search(lines[-1].rstrip()) and re.search(rf"(?:^|\s)(?:{uh}'s password:|\({uh}\) [Pp]assword:)$", lines[-1].rstrip(), re.I):
             with _pw_lock:  # one buffer name per tmux server: two connects at once mustn't swap passwords
                 try:
                     if FEED.get(pane) is me and subprocess.run(["tmux", "-L", pane.rsplit(".", 1)[0], "load-buffer", "-b", "deckpw", "-"], input=pw, text=True, capture_output=True, timeout=8).returncode == 0 \
@@ -2012,20 +2024,30 @@ def pw_feed(pane, pw, wait=60):
 def ssh_terms():
     out = []
     for sock in sockets():
-        for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{@deck_ssh}\t#{pane_id}\t#{session_name}\t#{pane_dead}\t#{session_created}\t#{window_name}").splitlines():
-            x = l.split("\t", 5)
-            if len(x) == 6 and x[0] and x[1].startswith("%"):
-                out.append({"pane": f"{sock}.{x[1][1:]}", "session": x[2], "host": x[0], "dead": x[3] == "1", "created": int(x[4]) if x[4].isdigit() else 0, "title": x[5]})
+        for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{@deck_ssh}\t#{pane_id}\t#{session_name}\t#{pane_dead}\t#{session_created}\t#{@deck_ssh_host}\t#{window_name}").splitlines():
+            x = l.split("\t", 6)
+            if len(x) == 7 and x[0] and x[1].startswith("%"):
+                out.append({"pane": f"{sock}.{x[1][1:]}", "session": x[2], "host": x[0], "dead": x[3] == "1", "created": int(x[4]) if x[4].isdigit() else 0, "rec": x[5], "title": x[6]})
     return out
 
 def valid_term(p):
     return isinstance(p, str) and bool(re.fullmatch(PANE_RE, p)) and p in {t["pane"] for t in ssh_terms()}
 
 def ssh_state():
+    """Saved hosts, throwaway hosts (from memory, else rebuilt from their sessions' record) and every SSH terminal. A terminal whose
+    host is neither (no record, or a saved host deleted elsewhere) gets a stand-in under its own name, so it can still be opened and closed."""
     with _term_lock:
-        terms = ssh_terms(); used = {t["host"] for t in terms}
+        terms, hs = ssh_terms(), ssh_hosts(); used, ids = {t["host"] for t in terms}, {h.get("id") for h in hs}
         for k in [k for k in SSH_TEMP if k not in used]: del SSH_TEMP[k]
-        return {"hosts": ssh_hosts() + list(SSH_TEMP.values()), "terms": terms}
+        lost = {}
+        for t in terms:
+            if t["host"] in ids or t["host"] in SSH_TEMP: continue
+            try:
+                r = json.loads(t["rec"]); h = {"id": t["host"], "name": str(r["name"])[:60], "host": r["host"], "user": r["user"], "port": r["port"], "auth": r["auth"], "perm": "default", "temp": True}
+                if h["auth"] not in SSH_AUTH: raise ValueError("auth")
+                ssh_argv(h); SSH_TEMP[t["host"]] = h  # refuses an address parse_addr wouldn't give
+            except Exception: lost[t["host"]] = {"id": t["host"], "name": t["title"] or t["session"], "host": "", "auth": "", "temp": True, "lost": True}
+        return {"hosts": hs + list(SSH_TEMP.values()) + list(lost.values()), "terms": [{k: v for k, v in t.items() if k != "rec"} for t in terms]}
 
 # SSH: remote commands, over the host's shared connection in batch mode, so a password host with no live master fails at once (exit 255)
 # instead of asking. Only POSIX sh, mkdir, cat, find and wc run on the server (and grep for Install key); nothing is installed there.
@@ -2051,11 +2073,13 @@ def ssh_err(r):
     return l[0][:200] if l else f"The server said no (exit {r.returncode})."
 
 def ssh_put(host, local, name):
-    """Copies an upload to the server's uploads folder (where files over 14 days old go first) and deletes the Mac's copy: its server path, as ~/...
-    Raises RuntimeError with the reason."""
-    f = f"{time.strftime('%Y-%m-%d')}-{secrets.token_hex(3)}{local.suffix}"
+    """Copies an upload, as it is, to its own folder in the server's uploads folder (where what's over 14 days old goes first), under its
+    name made safe to type, and deletes the Mac's copy: its server path, as ~/... Raises RuntimeError with the reason."""
+    f = f"{time.strftime('%Y-%m-%d')}-{secrets.token_hex(3)}/{re.sub(r'[^A-Za-z0-9._+-]', '_', os.path.basename(name)).lstrip('.')[:120] or 'file'}"
     try:
-        with open(local, "rb") as fh: r = ssh_run(host, f'umask 077; d="$HOME"/{REMOTE_UP}; mkdir -p "$d" && find "$d" -type f -mtime +14 -delete; cat > "$d"/{f}', fh, 3600)
+        with open(local, "rb") as fh:
+            r = ssh_run(host, f'umask 077; d="$HOME"/{REMOTE_UP}; mkdir -p "$d" && find "$d" -type f -mtime +14 -delete; find "$d" -mindepth 1 -type d -empty -mmin +60 -delete; '
+                       f'mkdir "$d"/{f.split("/")[0]} && cat > "$d"/{f}', fh, 3600)  # an emptied folder goes an hour later, so never one an upload has just made
     finally: local.unlink(missing_ok=True); NAMES.pop(str(local), None)
     if r.returncode: raise RuntimeError(f"{name} didn't reach the server. {ssh_err(r)}")
     return f"~/{REMOTE_UP}/{f}"
@@ -2079,7 +2103,7 @@ def ssh_get(host, path):
 
 def ssh_install_key(host):
     """Adds the Mac's public key to the server's authorized_keys (once) over the live connection, then the host signs in with the key. An error, or None."""
-    if host.get("auth") != "password": return "Only a host that signs in with a password needs this."
+    if host.get("auth") != "password" or host.get("temp"): return "Only a saved host that signs in with a password can have this."
     if not SSH_KEY.exists():
         SSH_KEY.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-q", "-f", str(SSH_KEY)], capture_output=True, timeout=30)
@@ -2099,9 +2123,9 @@ def ssh_forget_key(host):
     ssh_argv(host)  # refuses a tampered address
     h, p = host["host"], host.get("port")
     if host.get("auth") == "config":  # the alias's real name and port, as ssh works them out
-        g = dict(l.split(" ", 1) for l in run(SSH_BIN, "-G", "--", h).splitlines() if " " in l); h, p = g.get("hostname", h), g.get("port")
+        g = ssh_g(host); h, p = g.get("hostname", h), g.get("port")
     if not KNOWN_HOSTS.exists(): return 0
-    return "".join(run("ssh-keygen", "-R", n, "-f", str(KNOWN_HOSTS)) for n in [h] + ([f"[{h}]:{p}"] if p and str(p) != "22" else [])).count(" found: ")
+    return run("ssh-keygen", "-R", f"[{h}]:{p}" if p and str(p) != "22" else h, "-f", str(KNOWN_HOSTS)).count(" found: ")  # known_hosts names a non-22 port's host [h]:p
 
 def cbor(b, i=0):
     """Minimal CBOR decoder (ints, bytes, text, arrays, maps, bools): enough for attestationObject and COSE keys."""
@@ -2403,8 +2427,8 @@ class H(BaseHTTPRequestHandler):
         sv = os.statvfs(d)
         if sv.f_bavail * sv.f_frsize < n + (2 << 30): return self.send(507, {"error": "The Mac is low on disk space."})
         self.connection.settimeout(120)  # a phone that drops off mid-upload mustn't hold a thread for ever
-        head = self.rfile.read(min(n, 1 << 20)); ext = sniff(head, name)
-        if not ext: return self.send(415, {"error": f"{name}: that type of file can't be attached."})
+        head = self.rfile.read(min(n, 1 << 20)); ext = None if term else sniff(head, name)  # to a server any file goes as it is
+        if not ext and not term: return self.send(415, {"error": f"{name}: that type of file can't be attached."})
         tmp, left = d / f"{secrets.token_hex(8)}.part", n - len(head)
         try:
             with open(tmp, "wb") as fh:
@@ -2413,13 +2437,15 @@ class H(BaseHTTPRequestHandler):
                     b = self.rfile.read(min(left, 1 << 20))
                     if not b: raise OSError("cut off")
                     fh.write(b); left -= len(b)
-            if ext == "zip": ext = office(tmp)
-            p = tmp.with_suffix(".jpg" if ext == "heic" else "." + ext)
-            if ext == "heic":
-                subprocess.run(["sips", "-s", "format", "jpeg", str(tmp), "--out", str(p)], capture_output=True, timeout=120)
-                if not p.exists(): raise OSError("sips")
-                tmp.unlink(); ext = "jpg"
-            else: tmp.rename(p)
+            if term: p = tmp  # goes on to the server as it is
+            else:
+                if ext == "zip": ext = office(tmp)
+                p = tmp.with_suffix(".jpg" if ext == "heic" else "." + ext)
+                if ext == "heic":
+                    subprocess.run(["sips", "-s", "format", "jpeg", str(tmp), "--out", str(p)], capture_output=True, timeout=120)
+                    if not p.exists(): raise OSError("sips")
+                    tmp.unlink(); ext = "jpg"
+                else: tmp.rename(p)
         except Exception:
             tmp.unlink(missing_ok=True); return self.send(400, {"error": f"{name}: the upload failed."})
         out = {"path": str(p), "kind": "image" if ext in IMG else "file", "name": name, "size": p.stat().st_size}
@@ -2546,7 +2572,7 @@ class H(BaseHTTPRequestHandler):
                 if not h: return self.send(400, {"error": "That host isn't saved any more."})
                 feed = pw and not ssh_master(h)
                 if not tm(pane, "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h), ok=True): return self.send(400, {"error": "Couldn't reconnect."})
-                if feed: threading.Thread(target=pw_feed, args=(pane, pw), daemon=True).start()
+                if feed: threading.Thread(target=pw_feed, args=(pane, pw, h), daemon=True).start()
                 return self.send(200, {"ok": True})
             except ValueError: return self.send(400, {"error": "That host's address isn't valid."})
             except OSError as e: return self.send(500, {"error": f"Couldn't start ssh: {e}"})

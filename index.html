@@ -859,7 +859,7 @@ function attach(files){if(!cur||!(cur.pane||cur.via))return;for(const f of files
  x.upload.onprogress=e=>{const c=$('att').querySelector(`[data-id="${a.id}"]`);if(!e.lengthComputable||!c||!c.querySelector('b'))return;a.pct=Math.round(e.loaded*100/e.total);c.querySelector('b').textContent=a.pct+'%';c.querySelector('i').style.width=a.pct+'%'};
  x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status==200&&r.path){a.path=r.path;attUI()}else unattach(a,r.error||name+': upload failed ('+x.status+').')};
  x.onerror=()=>unattach(a,name+': upload failed. Check the connection.');x.send(f)}attUI()}
-$('clip').onclick=()=>$('fi').click();$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
+const FIA=$('fi').accept;$('clip').onclick=()=>{$('fi').accept=FIA;$('fi').click()};$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
 $('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
 $('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
 const vv=window.visualViewport;
@@ -976,7 +976,7 @@ sd.addEventListener('click',e=>{if(e.target.closest('#pkb'))settings()});// a su
 const shMO=new MutationObserver(shHead);shMO.observe(sb,{childList:true});
 function showSheet(dir){shHead(shMO.takeRecords());clearTimeout(shT);if(sh.hidden||!sh.classList.contains('on')){sh.hidden=false;sb.scrollTop=0;sh.offsetWidth;sh.classList.add('on');shH=sp.offsetHeight;shAt=performance.now();return}
  if(dir){sb.scrollTop=0;[sd,...sb.children].forEach(c=>enter(c,{opacity:0,transform:`translateX(${dir*32}px)`},{duration:300}))}}
-function hideSheet(){if(sh.hidden)return;if(shA)shA.cancel();sh.classList.remove('on','drag');sp.style.transform='';sh.style.removeProperty('--bk');
+function hideSheet(){sb.querySelectorAll('input[type=password]').forEach(i=>i.value='');if(sh.hidden)return;if(shA)shA.cancel();sh.classList.remove('on','drag');sp.style.transform='';sh.style.removeProperty('--bk');
  if(sh.contains(document.activeElement))document.activeElement.blur();clearTimeout(shT);shT=setTimeout(()=>{if(!sh.classList.contains('on'))sh.hidden=true},RM.matches?0:380)}
 new ResizeObserver(()=>{const h=sp.offsetHeight,d=h-shH;shH=h;if(!d||sh.hidden||!sh.classList.contains('on')||sh.classList.contains('drag')||performance.now()-shAt<380)return;
  if(shA)shA.cancel();shA=enter(sp,{transform:`translateY(${Math.max(d,-innerHeight/2)/(DLG.matches?2:1)}px)`},{duration:340})}).observe(sp);
@@ -1306,7 +1306,7 @@ function sshSec(){const T=SSH.terms,f=sshc(),n=h=>T.filter(t=>t.host==h.id).leng
 function sshOpen(p){const t=SSH.terms.find(x=>x.pane==p);if(!t)return toast('That terminal has closed.');const h=sshH(t.host);open_({ssh:1,pane:p,host:t.host,title:(h?h.name:t.title)+(sshN(t)>1?' · '+sshN(t):'')})}
 // the terminal view: Disconnected (the connection dropped, the pane stays) with Reconnect, or closed
 function sshUI(){const b=$('sshb');if(!cur||!cur.ssh){b.hidden=true;b.dataset.k='';return}const t=SSH.terms.find(x=>x.pane==cur.pane),h=sshH(cur.host),k=!t?'gone':t.dead?'dead':'';b.hidden=!k;
- if(k&&b.dataset.k!=k+cur.pane)b.innerHTML=k=='dead'?'<span>Disconnected</span><button id=sshre>Reconnect</button>':`<span>This terminal has closed.</span>${h?'<button id=sshnt>New terminal</button>':''}`;b.dataset.k=k&&k+cur.pane;
+ if(k&&b.dataset.k!=k+cur.pane)b.innerHTML=k=='dead'?'<span>Disconnected</span><button id=sshre>Reconnect</button>':`<span>This terminal has closed.</span>${h&&!h.lost?'<button id=sshnt>New terminal</button>':''}`;b.dataset.k=k&&k+cur.pane;
  const x=$('xhp');if(x&&sh.classList.contains('on')&&x.dataset.k!=sshK(x.dataset.h))sshHost(x.dataset.h,1)}
 $('sshb').onclick=e=>{if(e.target.id=='sshre')sshRe(cur.pane);if(e.target.id=='sshnt')sshConnect(cur.host)};
 // a password for a password host: the saved one, else nothing when another terminal there is up (its shared connection needs none), else asked for
@@ -1340,10 +1340,10 @@ const sshK=hid=>JSON.stringify([sshH(hid),sshT(hid),pwHas(hid)]);
 function sshHost(hid,re){const h=sshH(hid);if(!h){if(re)hideSheet();return toast('That host has gone.')}closeMenu();const T=sshT(hid),B=(id,t,c)=>`<button class=pick id=${id} style="text-align:center${c?';color:#e5484d':''}">${t}</button>`;
  sb.innerHTML=`<div class=pg id=xhp data-h="${esc(hid)}" data-k="${esc(sshK(hid))}"><div class=ph>${tile(h.name,1)}<span><h3>${esc(h.name)}</h3><small>${esc(sshAddr(h))}${h.temp?' · not saved':''}</small></span></div>
  <section><div class=sec>Terminals<span>${T.length||''}</span></div><div class=card>${T.map(t=>`<div class=arow>${tRow(t,1)}<button class="kill op" data-st="${esc(t.pane)}">Open</button><button class=kill data-sx="${esc(t.pane)}">Close</button></div>`).join('')||'<div class=none>No open terminals.</div>'}</div></section>
- <button class=go id=xnt>New terminal</button>`+(h.temp?'':(pwHas(hid)?`<div class=two>${B('xed','Edit')}${B('xfg','Forget saved password')}</div>`:B('xed','Edit')))+
- (h.auth=='password'&&T.some(t=>!t.dead)?B('xik','Install key (sign in without a password)'):'')+B('xrk','Remove old host key')+(h.temp?'':B('xdl','Delete host',1))+'</div>';if(!re)showSheet(-1);
+ ${h.lost?'':'<button class=go id=xnt>New terminal</button>'}`+(h.temp?'':(pwHas(hid)?`<div class=two>${B('xed','Edit')}${B('xfg','Forget saved password')}</div>`:B('xed','Edit')))+
+ (h.auth=='password'&&!h.temp&&T.some(t=>!t.dead)?B('xik','Install key (sign in without a password)'):'')+(h.lost?'':B('xrk','Remove old host key'))+(h.temp?'':B('xdl','Delete host',1))+'</div>';if(!re)showSheet(-1);
  $('xhp').querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{hideSheet();stack=[];sshOpen(b.dataset.st)});$('xhp').querySelectorAll('[data-sx]').forEach(b=>twice(b,'Tap to close',()=>sshClose(b.dataset.sx)));
- $('xnt').onclick=()=>sshConnect(hid);twice($('xrk'),'Tap again to remove it',async()=>{let r;try{r=await api('/api/ssh/forgetkey',{host:hid})}catch(e){r={}}sshHost(hid,1);
+ if(h.lost)return;$('xnt').onclick=()=>sshConnect(hid);twice($('xrk'),'Tap again to remove it',async()=>{let r;try{r=await api('/api/ssh/forgetkey',{host:hid})}catch(e){r={}}sshHost(hid,1);
   toast(r.removed?'Old host key removed. The next connect shows the fingerprint to check.':r.removed===0?'This Mac had no key saved for this host.':'Couldn\'t remove it.')});
  if($('xik'))$('xik').onclick=async()=>{const b=$('xik');b.disabled=true;b.textContent='Installing…';try{await api('/api/ssh/installkey',{host:hid},6e4)}catch(e){b.disabled=false;b.textContent='Install key (sign in without a password)';return toast(e.reason||'Couldn\'t install the key.')}
   pwForget(hid);toast('Key installed. This host now signs in with the Mac\'s key.');await list().catch(()=>{});sshHost(hid,1)};// the saved password is no longer needed
@@ -1356,7 +1356,7 @@ function sshAttach(files){const p=cur.pane;for(const f of files){const name=f.na
  x.upload.onprogress=e=>{if(e.lengthComputable)toast(name+': '+Math.round(e.loaded*100/e.total)+'%')};x.onerror=()=>toast(name+': upload failed. Check the connection.');
  x.onload=async()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status!=200||!r.path)return toast(r.error||name+': upload failed ('+x.status+').');
   try{await api('/api/ssh/type',{pane:p,text:r.path+' '});toast(name+' is on the server');if(LT&&cur&&cur.pane==p)LT.focus()}catch(e){toast(e.reason||'Couldn\'t type its path.')}};x.send(f)}}
-$('sclip').onclick=()=>$('fi').click();$('sget').onclick=()=>cur&&cur.ssh&&sshGet();
+$('sclip').onclick=()=>{$('fi').accept='';$('fi').click()};$('sget').onclick=()=>cur&&cur.ssh&&sshGet();
 // Get file: a path on the server comes back as a file to open or save on this device (the deck's 1 GB limit)
 function sshGet(){const p=cur.pane,h=sshH(cur.host);sb.innerHTML=`<h2>Get a file</h2><small class=sub2>From ${esc(h?h.name:'the server')}, up to 1 GB, to open or save here.</small>
  <input id=gfp type=text autocomplete=off autocapitalize=off autocorrect=off spellcheck=false placeholder="~/notes.txt or /etc/hostname"><div id=gfr></div><button class=go id=gfg>Get file</button>`;showSheet(-1);
