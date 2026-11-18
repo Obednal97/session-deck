@@ -304,6 +304,13 @@ class Chats(unittest.TestCase):
         self.assertIsNone(self.get("/api/status/" + pane)[1]["login"])  # the screen has moved on: no card, and nothing more is typed
         self.assertEqual(self.post("/api/login", {"pane": pane, "code": "abc"})[0], 409)
 
+    def test_roomy_remote_chat(self):  # an unwatched remote chat gets room, so Claude on the server redraws its screens whole
+        sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="plain"); T("resize-window", "-t", f"={s}:", "-x", "45", "-y", "30")
+        o, _ = self.term(); T("resize-window", "-t", f"={o}:", "-x", "45", "-y", "30")  # a plain SSH terminal, not a chat: left alone
+        server.roomy()
+        self.assertEqual(T("display", "-p", "-t", f"={s}:", "#{window_width} #{window_height}"), "%d %d" % server.ROOMY)
+        self.assertEqual(T("display", "-p", "-t", f"={o}:", "#{window_width} #{window_height}"), "45 30")
+
     def test_deck_chat_listed(self):
         sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="plain")
         self.claude(sid, status="busy")
@@ -891,7 +898,7 @@ class Login(unittest.TestCase):
             self.assertIsNone(server.parse_menu(scr))
 
     def test_url_cut_off_the_top(self):  # no start of the link on screen: no link, rather than part of one
-        cut = CODE_CHAT.split("https://")[0] + wrap(URL).split("\n", 2)[2] + "\n\n  Paste code here if prompted\n" + BOX
+        cut = CODE_CHAT.split("https://")[0] + wrap(URL).split("\n", 2)[2] + "\n\n  Paste code here if prompted\n" + BOX + "\n  Esc to cancel\n"
         self.assertEqual(server.login_screen(cut)["url"], None)
 
     def test_lookalike_host(self):
@@ -907,6 +914,14 @@ class Login(unittest.TestCase):
 
     def test_not_a_sign_in(self):
         self.assertIsNone(server.login_screen("❯ hello\n\nClaude said: paste code here if prompted, then OAuth error: x\n"))
+        rule = "─" * 50
+        chat = "● Here is the screen:\n\n" + CODE_START + "\n" + rule + "\n❯ \n" + rule + "\n  ⏵⏵ accept edits on\n\n"  # a chat quoting it: its own box is last
+        self.assertIsNone(server.login_screen(chat))
+        self.assertIsNone(server.login_screen(chat.replace("Paste code here if prompted\n" + BOX + "\n Esc to go back\n", "Paste code here if prompted\n\n")))
+
+    def test_code_box_with_text(self):  # a long code already in the box wraps it over several lines
+        scr = CODE_START.replace(BOX, " ╭" + "─" * 40 + "╮\n │ abcdefghijklmnopqrstuvwxyzabcdefghijklmn │\n │ opqrstuvwxyz                             │\n │ 0123                                     │\n ╰" + "─" * 40 + "╯\n")
+        self.assertEqual(server.login_screen(scr)["url"], URL)
 
     def test_method_is_a_question(self):
         m = server.parse_menu(METHOD)

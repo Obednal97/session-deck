@@ -165,9 +165,9 @@ def term_bridge(h, pane, cols, rows):
 ROOMY = (120, 50)
 def roomy():
     """A chat window nobody is attached to keeps the size it last had, often a phone's: questions then wrap and their
-    top falls off the screen. Give such windows room (tmux sizes them to a client again once one attaches)."""
-    for s in live_sessions():
-        p = s["pane"]
+    top falls off the screen. Give such windows room (tmux sizes them to a client again once one attaches). Remote chats too:
+    their ssh passes the size on, and Claude on the server redraws (its sign-in link then fits on the screen)."""
+    for p in [s["pane"] for s in live_sessions()] + [t["pane"] for t in ssh_terms() if t["claude"] and not t["dead"]]:
         if p in VIEWING: continue
         w, h, n = (tm(p, "display", "-p", "-t", "{P}", "#{window_width} #{window_height} #{session_attached}").split() + ["", "", ""])[:3]
         if n == "0" and (w, h) != tuple(map(str, ROOMY)):
@@ -325,8 +325,10 @@ def login_screen(plain):
             if not l.strip(): break
             t.append(l.strip())
         return {"step": "error", "url": None, "text": " ".join(t)}
-    p = next((i for i in range(len(L) - 1, max(-1, len(L) - 8), -1) if L[i].strip() == "Paste code here if prompted"), None)
-    if p is None: return None
+    # the screen's own shape, not a line a chat could quote: the code box right under "Paste code here", the key hint last
+    if not L or L[-1].strip() not in ("Esc to cancel", "Esc to go back"): return None
+    p = next((i for i in range(len(L) - 1, -1, -1) if L[i].strip() == "Paste code here if prompted"), None)
+    if p is None or p + 1 >= len(L) or not L[p + 1].lstrip().startswith("\u256d"): return None
     u = next((i for i in range(p - 1, -1, -1) if L[i].startswith("https://")), None)
     v = u
     while v is not None and v < p and L[v].strip() and not L[v].startswith(" "): v += 1  # the link: flush-left lines up to a blank one
