@@ -216,6 +216,7 @@ def until(fn, secs=5):
 
 TMUX_SHIM = """#!/bin/sh
 for a in "$@"; do printf '%s\\n' "$a"; done >> "$HOME/tmux.log"; echo >> "$HOME/tmux.log"
+[ "$1" = -u ] && shift
 [ "$1" = new-session ] && exec cat
 [ "$1" = has-session ] && { [ -e "$HOME/tmux.has" ]; exit; }
 exit 0
@@ -497,9 +498,9 @@ class Chats(unittest.TestCase):
         self.assertEqual(st, 200)
         s, o = self.made(d["pane"]); u = o["claude"]; rt = f"deck-{u}"
         login = 'exec "${SHELL:-/bin/sh}" -lc ' + shlex.quote(f"cd -- /root/x && exec claude --permission-mode default --session-id {u}")
-        self.assertEqual(o["rcmd"], f"tmux new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off")
+        self.assertEqual(o["rcmd"], f"tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off")
         self.assertEqual((o["rkind"], o["rtmux"], o["rcwd"]), ("tmux", rt, "/root/x"))
-        self.assertEqual(until(self.tmux_calls), [["new-session", "-A", "-s", rt, "-c", "/root/x", login, ";", "set-option", "-t", rt, "status", "off"]])  # as the server's tmux gets it
+        self.assertEqual(until(self.tmux_calls), [["-u", "new-session", "-A", "-s", rt, "-c", "/root/x", login, ";", "set-option", "-t", rt, "status", "off"]])  # as the server's tmux gets it; -u: UTF-8 whatever the server's locale, or Claude's box comes out as ACS lines and "_"
         self.assertEqual(self.opt(s, "ssh"), self.hid)
 
     def test_rinfo(self):
@@ -546,11 +547,11 @@ class Chats(unittest.TestCase):
             T("set-option", "-t", f"={s}:", "@deck_claude", sid); got.clear(); n = len(self.tmux_calls())
             self.assertEqual(self.post("/api/ssh/reconnect", {"pane": pane}), (200, {"ok": True}))
             login = 'exec "${SHELL:-/bin/sh}" -lc ' + shlex.quote(f"cd -- /root/x && exec claude --permission-mode default --resume {sid}")
-            want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(sid)}tmux new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off"
+            want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(sid)}tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off"
             self.assertEqual(got, [server.ssh_argv(self.h, [want], tty=True)])  # attached if it's there, else resumed: never --session-id again
             self.assertNotIn("--session-id", want)
             self.assertTrue(until(lambda: len(self.tmux_calls()) == n + 2)); self.assertEqual(self.tmux_calls()[-2][0], "has-session")
-            self.assertEqual(self.tmux_calls()[-1][:5], ["new-session", "-A", "-s", rt, "-c"]); self.assertEqual(self.tmux_calls()[-1][6], login)
+            self.assertEqual(self.tmux_calls()[-1][:6], ["-u", "new-session", "-A", "-s", rt, "-c"]); self.assertEqual(self.tmux_calls()[-1][7], login)
             self.kill(s)
         self.info(False); pane, _ = server.rstart(self.hid, "/root/x", "claude", perm="acceptEdits", effort="high"); s, o = self.made(pane)
         cur = str(uuid.uuid4()); T("set-option", "-t", f"={s}:", "@deck_claude", cur)  # a /clear since: the chat is now cur
@@ -573,7 +574,7 @@ class Chats(unittest.TestCase):
         def run(cmd): r = subprocess.run(server.ssh_argv(self.h, [cmd]), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30); return r.returncode, r.stdout
         for tmux in (False, True):
             self.info(tmux); pane, err = server.rstart(self.hid, "~", "claude", resume=R); s, o = self.made(pane)
-            self.assertTrue(until(lambda: any(c[0] == "new-session" for c in self.tmux_calls()) if tmux else T("display", "-p", "-t", f"={s}:", "#{pane_dead}") == "1"))  # the chat's own start has run
+            self.assertTrue(until(lambda: any(c[:2] == ["-u", "new-session"] for c in self.tmux_calls()) if tmux else T("display", "-p", "-t", f"={s}:", "#{pane_dead}") == "1"))  # the chat's own start has run
             if not tmux: self.assertIn("CLAUDE RAN", (self.home / "claude.ran").read_text())  # the server's stand-in claude, never the Mac's own
             self.assertIn(self.rg(R), o["rcmd"] if tmux else shlex.split(o["rcmd"])[3])
             for f in (self.home / "tmux.log", self.home / "tmux.has"): f.unlink(missing_ok=True)
@@ -581,11 +582,11 @@ class Chats(unittest.TestCase):
             self.assertEqual(run(o["rcmd"]), (1, "Claude is still running on the server.\n"), tmux)  # no exec, no tmux session made: ssh ends with 1, so the chat shows as dropped
             self.assertEqual([c[0] for c in self.tmux_calls()], ["has-session"] if tmux else [])
             if tmux:  # the server's tmux session is there: attached, whatever runs in it
-                (self.home / "tmux.has").touch(); self.assertEqual(run(o["rcmd"])[0], 0); self.assertEqual(self.tmux_calls()[-1][:2], ["new-session", "-A"])
+                (self.home / "tmux.has").touch(); self.assertEqual(run(o["rcmd"])[0], 0); self.assertEqual(self.tmux_calls()[-1][:3], ["-u", "new-session", "-A"])
                 (self.home / "tmux.has").unlink()
             live.unlink()
             if not tmux: self.assertEqual(run(o["rcmd"]), (0, f"CLAUDE RAN --permission-mode default --resume {R}\n"))
-            else: self.assertEqual(run(o["rcmd"])[0], 0); self.assertEqual(self.tmux_calls()[-1][:4], ["new-session", "-A", "-s", f"deck-{R}"])
+            else: self.assertEqual(run(o["rcmd"])[0], 0); self.assertEqual(self.tmux_calls()[-1][:5], ["-u", "new-session", "-A", "-s", f"deck-{R}"])
         self.info(False); pane, _ = server.rstart(self.hid, "~", "claude", resume=R, fork=True); s, o = self.made(pane)
         self.assertNotIn("sessionId", o["rcmd"])  # a fork may copy a running session
         self.assertNotIn("sessionId", self.made(server.rstart(self.hid, "~", "claude")[0])[1]["rcmd"])  # nor does a fresh chat need it
@@ -601,7 +602,7 @@ class Chats(unittest.TestCase):
         new = str(uuid.uuid4()); T("set-option", "-t", f"={a}:", "@deck_claude", new)  # a /clear before the drop
         server.reattach()
         login = 'exec "${SHELL:-/bin/sh}" -lc ' + shlex.quote(f"cd -- /root/x && exec claude --permission-mode default --resume {new}")
-        rt = oa["rtmux"]; want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(new)}tmux new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off"
+        rt = oa["rtmux"]; want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(new)}tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off"
         self.assertEqual(got, [server.ssh_argv(self.h, [want], batch=True, tty=True)])  # only the key host's tmux chat; never one that could ask for a password
         self.assertIn("BatchMode=yes", got[0]); self.assertEqual(got[0][got[0].index("--") - 1], "-t")
         self.assertTrue(until(lambda: T("display", "-p", "-t", f"={a}:", "#{pane_dead}") == "0"))

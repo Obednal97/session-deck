@@ -2400,12 +2400,13 @@ def rstart(hid, cwd, engine, resume=None, fork=False, perm=None, model=None, eff
 def rcmd(cwd, argv, rt=None):
     """The server command for a chat: Claude (argv) in a login shell in cwd, in tmux session rt when given (attached when it's still there).
     A resume first checks on the server, after sign-in, that no live Claude has that session (RGUARD), so a link that broke without the
-    server noticing never gets a second Claude, whatever the deck's scan said; it fails with ssh's exit 1, so the chat shows as dropped."""
+    server noticing never gets a second Claude, whatever the deck's scan said; it fails with ssh's exit 1, so the chat shows as dropped.
+    tmux -u: on a server session with no UTF-8 locale, tmux would draw Claude's box as ACS lines and "_", which the deck can't read."""
     r = argv[argv.index("--resume") + 1] if "--resume" in argv and "--fork-session" not in argv else None  # a fork may copy a running session
     g = "sh -c " + shlex.quote(RGUARD % r) + " && " if r else ""  # r: claude_args or SID_RE has checked it; sh, as the login shell may not be POSIX
     login = RLOGIN + shlex.quote(f"{'' if rt else g}cd -- {rpath(cwd)} && exec " + shlex.join(argv))
     if not rt: return login
-    return (f"tmux has-session -t '={rt}' 2>/dev/null || {g}" if g else "") + f"tmux new-session -A -s {shlex.quote(rt)} -c {rpath(cwd)} {shlex.quote(login)} \\; set-option -t {shlex.quote(rt)} status off"
+    return (f"tmux has-session -t '={rt}' 2>/dev/null || {g}" if g else "") + f"tmux -u new-session -A -s {shlex.quote(rt)} -c {rpath(cwd)} {shlex.quote(login)} \\; set-option -t {shlex.quote(rt)} status off"
 
 def rresume(t):
     """The command that brings back a remote chat (an ssh_terms item): its current session (@deck_claude, which a /clear changes) resumed
