@@ -430,7 +430,7 @@ class Chats(unittest.TestCase):
         sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="plain")
         self.claude(sid)
         st, d = self.get(f"/api/info/{sid}?pane={pane}")  # started, nothing said yet: no transcript, but Chat info (End, Rename) still opens
-        self.assertEqual((st, d["session"], d["file"], d["agents"], d["pane"]), (200, sid, "(created on first message)", [], pane))
+        self.assertEqual((st, d["session"], d["file"], d["agents"], d["pane"]), (200, sid, None, [], pane))  # file None: Chat info leaves out the Transcript row
         self.assertEqual(self.get(f"/api/info/{uuid.uuid4()}?pane={pane}")[0], 404)  # never for a session that isn't this pane's
         server._SYNC.clear()  # those asked the server just now: the next sync mustn't wait out the 1.5 s gap
         sf = self.home / ".claude/projects/-root-x" / f"{sid}.jsonl"; sf.parent.mkdir(parents=True)
