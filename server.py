@@ -2676,6 +2676,8 @@ class H(BaseHTTPRequestHandler):
         if m:
             q = qs.get("pane", [""])[0]
             f = chat_file(m.group(1), hq or next((t["host"] for t in ssh_terms() if t["pane"] == q), None))  # a remote chat's pane names its host
+            if not f and any(t["pane"] == q and t["claude"] == m.group(1) for t in ssh_terms()):  # a remote chat before its first message: no transcript yet, but Chat info (End, Rename) must open
+                return self.send(200, {"session": m.group(1), "file": "(created on first message)", "agents": [], "running": pane_elapsed(q), "pane": q})
             if not f: return self.send(404, {"error": "none"})
             d = cached(f, info)
             d = {**d, "agents": agents(f)}
