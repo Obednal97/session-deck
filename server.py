@@ -1800,7 +1800,7 @@ def ssh_config_names():
     """Host names in ~/.ssh/config (no Include): no wildcards or negations, sorted."""
     try: lines = SSH_CONFIG.read_text().splitlines()
     except Exception: return []
-    names = {n for l in lines if (m := re.match(r"\s*Host(?:\s+|\s*=\s*)(.+)", l, re.I)) for n in m.group(1).split() if not re.search(r"[*?!]", n)}
+    names = {n for l in lines if (m := re.match(r"\s*Host(?:\s+|\s*=\s*)(.+)", l, re.I)) for n in m.group(1).split("#")[0].split() if not re.search(r"[*?!]", n)}
     return sorted(n for n in names if parse_addr(n))
 
 def ssh_hosts():
@@ -1821,7 +1821,7 @@ def ssh_host_save(b):
     if auth not in SSH_AUTH: return None, "Pick how to sign in."
     if perm not in PERMS: return None, "Unknown permission mode."
     if auth == "config" and (a["host"] not in ssh_config_names() or a["user"] or a["port"]): return None, "That name isn't in ~/.ssh/config."
-    if b.get("name") is not None and not short(b["name"], 60): return None, "That name isn't valid."
+    if b.get("name") not in (None, "") and not short(b["name"], 60): return None, "That name isn't valid."
     with _ssh_lock:
         hs, hid = ssh_hosts(), b.get("id")
         if hid is not None and not any(h.get("id") == hid for h in hs): return None, "No such host."

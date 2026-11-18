@@ -23,7 +23,7 @@ class Hosts(unittest.TestCase):
 
     def test_config_names(self):
         c = Path(TMP) / "config"
-        c.write_text("Host media tv\n  HostName 1.2.3.4\nHost *\n  User x\nInclude other\nHost nas-jump\nMatch host y\nHost !neg\n")
+        c.write_text("Host media tv # note\n  HostName 1.2.3.4\nHost *\n  User x\nInclude other\nHost nas-jump\nMatch host y\nHost !neg\n")
         old, server.SSH_CONFIG = server.SSH_CONFIG, c
         try: self.assertEqual(server.ssh_config_names(), ["media", "nas-jump", "tv"])
         finally: server.SSH_CONFIG = old
@@ -35,12 +35,17 @@ class Hosts(unittest.TestCase):
         h2, _ = server.ssh_host_save({"id": h["id"], "addr": "pi@10.0.0.5", "auth": "password", "name": "Home"})
         self.assertEqual((h2["id"], h2["name"]), (h["id"], "Home"))
         self.assertEqual(len(server.ssh_hosts()), 1)
+        self.assertEqual(server.ssh_host_save({"addr": "h2", "auth": "key", "name": ""})[0]["name"], "h2")
+        server.ssh_host_delete(server.ssh_hosts()[-1]["id"])
         self.assertEqual(os.stat(server.SSH_HOSTS).st_mode & 0o777, 0o600)
         server.ssh_host_delete(h["id"])
         self.assertEqual(server.ssh_hosts(), [])
 
     def test_save_rejects(self):
-        for b in ({"addr": "nope", "auth": "config"}, {"addr": "h", "auth": "x"}, {"addr": "h", "auth": "key", "perm": "nope"}, {"addr": "h;x", "auth": "key"},
+        c = Path(TMP) / "config"; c.write_text("Host media\n")
+        old, server.SSH_CONFIG = server.SSH_CONFIG, c
+        self.addCleanup(setattr, server, "SSH_CONFIG", old)
+        for b in ({"addr": "nope", "auth": "config"}, {"addr": "unknown", "auth": "config"}, {"addr": "h", "auth": "x"}, {"addr": "h", "auth": "key", "perm": "nope"}, {"addr": "h;x", "auth": "key"},
                   {"addr": "h", "auth": "key", "id": "missing"}):
             h, err = server.ssh_host_save(b)
             self.assertIsNone(h); self.assertIsInstance(err, str)
