@@ -1734,6 +1734,18 @@ def save():
 def user(login):
     return DB.setdefault(login, {"uid": b64u(secrets.token_bytes(16)), "creds": [], "sessions": {}})
 
+def vault_key(h):
+    """Key the page uses to encrypt saved SSH passwords (AES-GCM). Kept on the passkey the session signed in with, so deleting that passkey
+    removes it; on the local token route, kept in the secrets file."""
+    with LOCK:
+        if h.via_ts():
+            login, sid = h.session(); u = user(login); cid = u["sessions"][sid]["cred"]
+            c = next(c for c in u["creds"] if c["id"] == cid)
+            if "vk" not in c: c["vk"] = b64u(secrets.token_bytes(32)); save()
+            return c["vk"]
+        if "ssh_vk" not in SEC: SEC["ssh_vk"] = b64u(secrets.token_bytes(32)); save_secrets(SEC)
+        return SEC["ssh_vk"]
+
 # Pins and archived chats, kept here so every device sees the same. One deck runs per macOS account, so this file is per person.
 PREFS = Path(os.environ.get("DECK_PREFS") or STORE.parent / "prefs.json")
 PIN_TYPES, PREF_KEYS, _prefs_lock = {"chat", "project", "job", "artifact"}, ("pins", "archived", "archivedProjects"), threading.Lock()
@@ -2032,6 +2044,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {"results": search(q) if len(q) >= 3 else []})
         if path == "/api/folders": return self.send(200, {"folders": folders()})
         if path == "/api/prefs": return self.send(200, prefs())
+        if path == "/api/ssh/vault": return self.send(200, {"key": vault_key(self)})
         if path == "/api/ssh/hosts": return self.send(200, {"hosts": ssh_hosts(), "config": ssh_config_names()})
         if path == "/api/config":
             return self.send(200, {"home": str(HOME), "root": str(FOLDERS), "engines": [{"id": k, "label": v[1], "sub": v[2]} for k, v in ENGINES.items() if engine_exe(k)]})  # only what this user has installed

@@ -51,4 +51,36 @@ class Hosts(unittest.TestCase):
             self.assertIsNone(h); self.assertIsInstance(err, str)
         self.assertEqual(server.ssh_hosts(), [])
 
+class Vault(unittest.TestCase):
+    def setUp(self):
+        self.login = "me@example.com"
+        with server.LOCK: server.DB[self.login] = {"uid": "u", "creds": [], "sessions": {}}
+
+    def stub(self, cid):
+        with server.LOCK:
+            u = server.DB[self.login]
+            if not any(c["id"] == cid for c in u["creds"]): u["creds"].append({"id": cid, "name": cid})
+            u["sessions"]["s" + cid] = {"cred": cid, "exp": 9e12, "seen": 0}
+        class S:
+            via_ts = lambda s: True
+            session = lambda s, l=self.login, i="s" + cid: (l, i)
+        return S()
+
+    def test_same_key_twice(self):
+        h = self.stub("a"); k = server.vault_key(h)
+        self.assertEqual(len(k), 43); self.assertEqual(k, server.vault_key(h))
+
+    def test_key_per_passkey(self):
+        self.assertNotEqual(server.vault_key(self.stub("a")), server.vault_key(self.stub("b")))
+
+    def test_gone_with_passkey(self):
+        k = server.vault_key(self.stub("a"))
+        with server.LOCK: server.DB[self.login]["creds"] = []
+        self.assertNotEqual(k, server.vault_key(self.stub("a")))
+
+    def test_local_token_route(self):
+        class L: via_ts = lambda s: False
+        k = server.vault_key(L()); self.assertEqual(len(k), 43); self.assertEqual(k, server.vault_key(L()))
+        self.assertEqual(server.SEC["ssh_vk"], k)
+
 if __name__ == "__main__": unittest.main()
