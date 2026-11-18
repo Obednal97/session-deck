@@ -1784,6 +1784,55 @@ def prefs_change(b):
         os.replace(t, PREFS)
         return d, None
 
+# SSH hosts: saved in a 0600 file beside prefs.json. Passwords are never stored here.
+SSH_HOSTS, SSH_CONFIG, _ssh_lock = Path(os.environ.get("DECK_SSH_HOSTS") or PREFS.with_name("ssh-hosts.json")), HOME / ".ssh/config", threading.Lock()
+SSH_AUTH = ("password", "key", "config")
+
+def parse_addr(s):
+    """[user@]host[:port] or [user@][v6][:port] as {"user", "host", "port"}, or None: nothing that could reach ssh as an option or shell text."""
+    m = re.fullmatch(r"(?:([a-z_][a-z0-9_.-]{0,31})@)?([A-Za-z0-9][A-Za-z0-9.-]{0,252}|\[[0-9A-Fa-f:.]+\])(?::([0-9]{1,5}))?", s) if isinstance(s, str) else None
+    if not m: return None
+    u, h, p = m.groups()
+    if p is not None and not 1 <= int(p) <= 65535: return None
+    return {"user": u, "host": h[1:-1] if h[0] == "[" else h, "port": int(p) if p else None}
+
+def ssh_config_names():
+    """Host names in ~/.ssh/config (no Include): no wildcards or negations, sorted."""
+    try: lines = SSH_CONFIG.read_text().splitlines()
+    except Exception: return []
+    names = {n for l in lines if (m := re.match(r"\s*Host(?:\s+|\s*=\s*)(.+)", l, re.I)) for n in m.group(1).split() if not re.search(r"[*?!]", n)}
+    return sorted(n for n in names if parse_addr(n))
+
+def ssh_hosts():
+    try: d = json.loads(SSH_HOSTS.read_text())
+    except Exception: d = []
+    return [h for h in d if isinstance(h, dict)] if isinstance(d, list) else []
+
+def ssh_hosts_write(hs):
+    SSH_HOSTS.parent.mkdir(parents=True, exist_ok=True); t = SSH_HOSTS.with_name(SSH_HOSTS.name + ".tmp")
+    fd = os.open(t, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600); os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w") as fh: json.dump(hs, fh)
+    os.replace(t, SSH_HOSTS)
+
+def ssh_host_save(b):
+    """Creates (no id) or updates (id) a host from a page's form: (host, None) or (None, error)."""
+    a, auth, perm = parse_addr(b.get("addr")), b.get("auth"), b.get("perm", "default")
+    if not a: return None, "That address isn't valid. Use host, user@host or user@host:port."
+    if auth not in SSH_AUTH: return None, "Pick how to sign in."
+    if perm not in PERMS: return None, "Unknown permission mode."
+    if auth == "config" and (a["host"] not in ssh_config_names() or a["user"] or a["port"]): return None, "That name isn't in ~/.ssh/config."
+    if b.get("name") is not None and not short(b["name"], 60): return None, "That name isn't valid."
+    with _ssh_lock:
+        hs, hid = ssh_hosts(), b.get("id")
+        if hid is not None and not any(h.get("id") == hid for h in hs): return None, "No such host."
+        if hid is None and len(hs) >= 200: return None, "That's 200 hosts already."
+        h = {"id": hid or secrets.token_hex(6), "name": b.get("name") or a["host"], **a, "auth": auth, "perm": perm}
+        ssh_hosts_write([h if x.get("id") == h["id"] else x for x in hs] if hid else hs + [h])
+        return h, None
+
+def ssh_host_delete(hid):
+    with _ssh_lock: ssh_hosts_write([h for h in ssh_hosts() if h.get("id") != hid])
+
 def cbor(b, i=0):
     """Minimal CBOR decoder (ints, bytes, text, arrays, maps, bools): enough for attestationObject and COSE keys."""
     mt, ai = b[i] >> 5, b[i] & 31; i += 1
@@ -1983,6 +2032,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {"results": search(q) if len(q) >= 3 else []})
         if path == "/api/folders": return self.send(200, {"folders": folders()})
         if path == "/api/prefs": return self.send(200, prefs())
+        if path == "/api/ssh/hosts": return self.send(200, {"hosts": ssh_hosts(), "config": ssh_config_names()})
         if path == "/api/config":
             return self.send(200, {"home": str(HOME), "root": str(FOLDERS), "engines": [{"id": k, "label": v[1], "sub": v[2]} for k, v in ENGINES.items() if engine_exe(k)]})  # only what this user has installed
         if path == "/api/git":
@@ -2194,6 +2244,10 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/api/prefs":
             d, err = prefs_change(body) if isinstance(body, dict) else (None, "bad")
             return self.send(400, {"error": err}) if err else self.send(200, d)
+        if self.path == "/api/ssh/hosts":
+            if isinstance(body, dict) and isinstance(body.get("delete"), str): return ssh_host_delete(body["delete"]) or self.send(200, {"ok": True})
+            h, err = ssh_host_save(body["save"]) if isinstance(body, dict) and isinstance(body.get("save"), dict) else (None, "Nothing to save.")
+            return self.send(400, {"error": err}) if err else self.send(200, {"host": h})
         pane = body.get("pane", "")
         if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(400, {"error": "pane"})
         if self.path == "/api/procs/kill":
