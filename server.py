@@ -2238,7 +2238,7 @@ def chat_file(sid, hid=None):
 # SSH: remote chats. A remote chat is an SSH terminal whose server runs Claude: matched to the server's $C/sessions/<pid>.json, the
 # match kept in the Mac session's tmux options (so a deck restart keeps it). Typing, questions and status read the Mac's pane as for a local chat.
 _RBOX = {}  # pane -> when an unmatched terminal was first seen showing Claude's input box
-_RSCAN, _rscan_lock = {}, threading.Lock()  # host id -> [when the last ask ended (inf while one runs), the last good list, when it was got]
+_RSCAN, _rscan_lock, _rmatch_lock = {}, threading.Lock(), threading.Lock()  # host id -> [when the last ask ended (inf while one runs), the last good list, when it was got]
 RSCAN_SH = r"""C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 for f in "$C"/sessions/*.json; do p=${f##*/}; p=${p%.json}; case $p in ""|*[!0-9]*) continue;; esac
   kill -0 "$p" 2>/dev/null && { cat "$f"; printf '\n\036\n'; }; done; exit 0"""
@@ -2255,9 +2255,12 @@ def rscan(host, wait=True, every=3):
     return c[1] if time.time() - c[2] <= 60 else []
 
 def _rscan(host, c):
+    try: _rscan1(host, c)
+    finally: c[0] = time.time()  # after matching too: a slow match never overlaps the next ask's
+
+def _rscan1(host, c):
     try: r = ssh_run(host, RSCAN_SH, timeout=15)
     except (subprocess.TimeoutExpired, ValueError, OSError): r = None
-    finally: c[0] = time.time()
     if not r or r.returncode: return
     out = []
     for x in re.split(r"(?m)^\x1e$", r.stdout.decode(errors="replace")):
@@ -2268,7 +2271,8 @@ def _rscan(host, c):
             out.append({"pid": d["pid"], "sessionId": sid if isinstance(sid, str) and re.fullmatch(SID_RE, sid) else None, "cwd": str(d.get("cwd") or ""),
                         "startedAt": at if type(at) in (int, float) else 0, "status": d.get("status") if isinstance(d.get("status"), str) else None, "kind": d.get("kind")})
     c[1:] = [out, time.time()]
-    try: rmatch(host["id"], out)
+    try:
+        with _rmatch_lock: rmatch(host["id"], out)  # one host's scan at a time: _RBOX and the tmux options are shared
     except Exception as e: print("rmatch:", e, flush=True)
     _rch[0] = 0
 

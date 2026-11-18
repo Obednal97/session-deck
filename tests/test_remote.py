@@ -810,6 +810,17 @@ class Chats(unittest.TestCase):
         server.rmatch(self.hid, [{"pid": 1, "sessionId": sid, "cwd": "/root/x", "startedAt": 0, "status": "idle", "kind": "sdk"}])
         self.assertEqual(self.opt(d, "rpid"), "")
 
+    def test_rmatch_one_at_a_time(self):  # two hosts' scans never match at once, and a host's next ask waits for its match to finish
+        h2, _ = server.ssh_host_save({"addr": "pi@10.0.0.7", "auth": "key", "name": "Two"}); now, most, seen, real = [0], [0], [], server.rmatch
+        def slow(hid, items):
+            now[0] += 1; most[0] = max(most[0], now[0]); seen.append(server._RSCAN[hid][0])
+            time.sleep(0.4); now[0] -= 1
+        server.rmatch = slow; self.addCleanup(setattr, server, "rmatch", real)
+        ts = [threading.Thread(target=server.rscan, args=(h,)) for h in (self.h, h2)]; [t.start() for t in ts]; [t.join(10) for t in ts]
+        self.assertEqual((most[0], seen), (1, [float("inf")] * 2))  # still "asking" while it matches: no second ask overlaps it
+        self.assertTrue(all(time.time() - server._RSCAN[h][0] < 1 for h in (self.hid, h2["id"])))
+
+
 class StartArgs(unittest.TestCase):
     """claude_args is start()'s own checks and flags, factored out: a local chat's argv is exactly what it was."""
     def test_claude_args_same(self):
