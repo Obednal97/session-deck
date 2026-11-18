@@ -2306,6 +2306,8 @@ def chats():
 # SSH: starting remote chats. Claude runs in a login shell (so ~/.local/bin is on PATH), in the server's tmux when it has one: a dropped
 # link then leaves Claude running, and reconnecting (by hand, or reattach for a host that needs no password) attaches to it again.
 RLOGIN = 'exec "${SHELL:-/bin/sh}" -lc '
+RGUARD = ('C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; for f in "$C"/sessions/*.json; do p=${f##*/}; p=${p%%.json}; case $p in ""|*[!0-9]*) continue;; esac; '
+          'grep -q \'"sessionId": *"%s"\' "$f" 2>/dev/null && kill -0 "$p" 2>/dev/null && { echo "Claude is still running on the server."; exit 1; }; done; exit 0')
 _RINFO, _REATT = {}, {}  # host id -> (when, rinfo's answer); pane -> when reattach last tried it
 
 def rinfo(host):
@@ -2342,23 +2344,45 @@ def rstart(hid, cwd, engine, resume=None, fork=False, perm=None, model=None, eff
     keep = bool(resume) and not fork; a = claude_args(engine, perm or h.get("perm") or "default", model, effort, name, resume, fork, None if keep else str(uuid.uuid4()))
     if a is None: return None, "That chat's settings aren't valid."
     u = resume if keep else a[a.index("--session-id") + 1]; rt, kind = f"deck-{u}", "tmux" if info["tmux"] else "plain"
-    cmd = RLOGIN + shlex.quote(f"cd -- {rpath(cwd)} && exec " + shlex.join([ENGINE_INFO[engine][0], *a]))
-    if kind == "tmux": cmd = f"tmux new-session -A -s {shlex.quote(rt)} -c {rpath(cwd)} {shlex.quote(cmd)} \\; set-option -t {shlex.quote(rt)} status off"
+    cmd = rcmd(cwd, [ENGINE_INFO[engine][0], *a], rt if kind == "tmux" else None)
     try: p = ssh_open(h["id"], rcmd=cmd, opts={"deck_claude": u, "deck_rcwd": cwd, "deck_rkind": kind, "deck_rcmd": cmd, **({"deck_rtmux": rt} if kind == "tmux" else {})})
     except (ValueError, OSError): return None, "That host's address isn't valid."
     return (p, None) if p else (None, "Couldn't start the chat.")
 
+def rcmd(cwd, argv, rt=None):
+    """The server command for a chat: Claude (argv) in a login shell in cwd, in tmux session rt when given (attached when it's still there).
+    A resume first checks on the server, after sign-in, that no live Claude has that session (RGUARD), so a link that broke without the
+    server noticing never gets a second Claude, whatever the deck's scan said; it fails with ssh's exit 1, so the chat shows as dropped."""
+    r = argv[argv.index("--resume") + 1] if "--resume" in argv and "--fork-session" not in argv else None  # a fork may copy a running session
+    g = "sh -c " + shlex.quote(RGUARD % r) + " && " if r else ""  # r: claude_args or SID_RE has checked it; sh, as the login shell may not be POSIX
+    login = RLOGIN + shlex.quote(f"{'' if rt else g}cd -- {rpath(cwd)} && exec " + shlex.join(argv))
+    if not rt: return login
+    return (f"tmux has-session -t '={rt}' 2>/dev/null || {g}" if g else "") + f"tmux new-session -A -s {shlex.quote(rt)} -c {rpath(cwd)} {shlex.quote(login)} \\; set-option -t {shlex.quote(rt)} status off"
+
+def rresume(t):
+    """The command that brings back a remote chat (an ssh_terms item): its current session (@deck_claude, which a /clear changes) resumed
+    with the flags it started with, in the same server tmux session (@deck_rtmux) when it has one. None when its options don't allow one."""
+    try:
+        if not re.fullmatch(SID_RE, t["claude"]) or t["rkind"] == "tmux" and not re.fullmatch(r"deck-[0-9a-f-]{36}", t["rtmux"]): return None
+        w = shlex.split(tm(t["pane"], "display", "-p", "-t", "{P}", "#{@deck_rcmd}").rstrip("\n"))
+        w = shlex.split(w[w.index("new-session") + 6]) if t["rkind"] == "tmux" else w
+        x = shlex.split(w[3]); k = len(x) - 1 - x[::-1].index("&&")
+        if w[:3] != shlex.split(RLOGIN) or x[k + 1] != "exec" or x[k + 2] not in {v[0] for v in ENGINE_INFO.values()}: return None
+        x = x[k + 2:]; x = [v for i, v in enumerate(x) if v != "--fork-session" and v not in ("--session-id", "--resume") and x[i - 1] not in ("--session-id", "--resume")]
+        return rcmd(t["rcwd"], x + ["--resume", t["claude"]], t["rtmux"] if t["rkind"] == "tmux" else None)
+    except (ValueError, IndexError): return None
+
 def reattach():
     """Reconnects each dropped tmux-kind chat on a host that signs in with no password (key, config): Claude kept running in the server's
-    tmux. At most once per 30 s per chat; never a plain-kind chat (its Claude ended with the link) or one whose ssh ended with 0."""
+    tmux (or, if that has gone, its session is resumed). At most once per 30 s per chat; never a plain-kind chat (its Claude ended with the link) or one whose ssh ended with 0."""
     terms, now = ssh_terms(), time.time()
     for p in [p for p in _REATT if p not in {t["pane"] for t in terms}]: _REATT.pop(p, None)
     for t in terms:
         if not t["dead"] or t["rkind"] != "tmux" or t["exit"] == "0" or now - _REATT.get(t["pane"], 0) < 30: continue
-        h = ssh_host(t["host"]); cmd = h and h.get("auth") in ("key", "config") and tm(t["pane"], "display", "-p", "-t", "{P}", "#{@deck_rcmd}").rstrip("\n")
+        h = ssh_host(t["host"]); cmd = h and h.get("auth") in ("key", "config") and rresume(t)
         if not cmd: continue
         _REATT[t["pane"]] = now
-        try: tm(t["pane"], "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h, [cmd], tty=True))
+        try: tm(t["pane"], "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h, [cmd], batch=True, tty=True))  # batch: a host that would ask for a password fails at once and stays dropped
         except (ValueError, OSError, subprocess.TimeoutExpired): pass
 
 def cbor(b, i=0):
@@ -2829,18 +2853,13 @@ class H(BaseHTTPRequestHandler):
                 if self.path == "/api/ssh/close": tm(pane, "kill-session", "-t", "{P}"); return self.send(200, {"ok": True})
                 h = ssh_host(term["host"])
                 if not h: return self.send(400, {"error": "That host isn't saved any more."})
-                cmd = term["rkind"] in ("tmux", "plain") and tm(pane, "display", "-p", "-t", "{P}", "#{@deck_rcmd}").rstrip("\n")  # a remote chat: never a plain shell
+                cmd = term["rkind"] in ("tmux", "plain") and rresume(term)  # a remote chat: its session again, never a plain shell
                 if term["rkind"] in ("tmux", "plain") and not cmd: return self.send(400, {"error": "Couldn't reconnect."})
-                if term["rkind"] == "plain":  # Claude ended with the link: resume its current session (a /clear changes it), unless it's still running there
-                    try: w = shlex.split(cmd); a = shlex.split(w[3]); ok = w[:3] == shlex.split(RLOGIN) and a[3:5] == ["&&", "exec"] and w[3].endswith(shlex.join(a[5:]))
-                    except (ValueError, IndexError): ok = False
-                    if not ok or not re.fullmatch(SID_RE, term["claude"]): return self.send(400, {"error": "Couldn't reconnect."})
+                if term["rkind"] == "plain":  # a quick answer when the deck's scan already shows it; the command's own check (RGUARD) is what decides
                     with _rscan_lock:
                         c = _RSCAN.get(h["id"])
                         if c and c[0] != float("inf"): c[0] = 0  # ask the server now
                     if any(x["sessionId"] == term["claude"] for x in rscan(h)): return self.send(400, {"error": "Claude is still running on the server."})
-                    x = a[5:]; x = [v for i, v in enumerate(x) if v != "--fork-session" and v not in ("--session-id", "--resume") and not (i and x[i - 1] in ("--session-id", "--resume"))]
-                    cmd = RLOGIN + shlex.quote(w[3][:len(w[3]) - len(shlex.join(a[5:]))] + shlex.join(x + ["--resume", term["claude"]]))
                 feed = pw and not ssh_master(h)
                 if not tm(pane, "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h, [cmd] if cmd else (), tty=bool(cmd)), ok=True): return self.send(400, {"error": "Couldn't reconnect."})
                 if feed: threading.Thread(target=pw_feed, args=(pane, pw, h), daemon=True).start()

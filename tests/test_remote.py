@@ -199,8 +199,9 @@ def until(fn, secs=5):
 TMUX_SHIM = """#!/bin/sh
 for a in "$@"; do printf '%s\\n' "$a"; done >> "$HOME/tmux.log"; echo >> "$HOME/tmux.log"
 [ "$1" = new-session ] && exec cat
+[ "$1" = has-session ] && { [ -e "$HOME/tmux.has" ]; exit; }
 exit 0
-"""  # records each call's arguments (one per line, a blank line after), then stands in for an attached client
+"""  # records each call's arguments (one per line, a blank line after), then stands in for an attached client; a session "is there" while ~/tmux.has exists
 
 def T(*a): return subprocess.run(["tmux", "-L", "decktest", *a], capture_output=True, text=True).stdout.strip()
 
@@ -460,7 +461,7 @@ class Chats(unittest.TestCase):
         for kw, want in (({"resume": u}, f"--resume {u}"), ({"resume": u, "fork": True, "perm": "plan", "model": "opus", "name": "A b;c"}, f"--permission-mode plan --resume {u} --fork-session --session-id ")):
             pane, err = server.rstart(self.hid, "~/a b", "claude", **kw); s, o = self.made(pane)
             inner = shlex.split(o["rcmd"])[3]
-            self.assertTrue(inner.startswith("cd -- \"$HOME\"/'a b' && exec claude "), inner); self.assertIn(want, inner)
+            self.assertTrue(inner.startswith("" if kw.get("fork") else self.rg(u)), inner); self.assertIn("cd -- \"$HOME\"/'a b' && exec claude ", inner); self.assertIn(want, inner)
             self.assertEqual(inner.count("--session-id"), int(bool(kw.get("fork"))))
             self.assertEqual(o["claude"] == u, not kw.get("fork"))  # a plain resume keeps its id; a fork's new one is known from the start
             if kw.get("fork"): self.assertTrue(inner.endswith(f"--session-id {o['claude']} --model=opus '--name=A bc'"), inner)
@@ -509,25 +510,82 @@ class Chats(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad): server.rfolders(self.h, bad)
         self.assertEqual(self.get(f"/api/ssh/rfolders?host={self.hid}&path=~/nope")[0], 400)
 
+    def kill(self, s):  # the link drops: ssh is killed (unless it has ended already)
+        if T("display", "-p", "-t", f"={s}:", "#{pane_dead}") == "0": os.kill(int(T("display", "-p", "-t", f"={s}:", "#{pane_pid}")), 9)
+        until(lambda: T("display", "-p", "-t", f"={s}:", "#{pane_dead}") == "1")
+
+    def rg(self, sid): return "sh -c " + shlex.quote(server.RGUARD % sid) + " && "
+
     def test_reconnect_reuses_session(self):
         got = self.spawns()
-        self.info(True); pane, _ = server.rstart(self.hid, "/root/x", "claude"); s, o = self.made(pane); self.assertTrue(until(self.tmux_calls))
-        os.kill(int(T("display", "-p", "-t", f"={s}:", "#{pane_pid}")), 9); until(lambda: T("display", "-p", "-t", f"={s}:", "#{pane_dead}") == "1")
-        self.assertEqual(self.post("/api/ssh/reconnect", {"pane": pane}), (200, {"ok": True}))
-        self.assertEqual(got, [server.ssh_argv(self.h, [o["rcmd"]], tty=True)])  # the same -A command: attaches to the Claude still running there
-        self.assertTrue(until(lambda: len(self.tmux_calls()) == 2)); self.assertEqual(self.tmux_calls()[0], self.tmux_calls()[1])
+        self.info(True); pane, _ = server.rstart(self.hid, "/root/x", "claude"); s, o = self.made(pane); u, rt = o["claude"], o["rtmux"]; self.assertTrue(until(self.tmux_calls))
+        self.kill(s)
+        for sid in (u, str(uuid.uuid4())):  # then after a /clear: the chat's current session, in the same server tmux session
+            T("set-option", "-t", f"={s}:", "@deck_claude", sid); got.clear(); n = len(self.tmux_calls())
+            self.assertEqual(self.post("/api/ssh/reconnect", {"pane": pane}), (200, {"ok": True}))
+            login = 'exec "${SHELL:-/bin/sh}" -lc ' + shlex.quote(f"cd -- /root/x && exec claude --permission-mode default --resume {sid}")
+            want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(sid)}tmux new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off"
+            self.assertEqual(got, [server.ssh_argv(self.h, [want], tty=True)])  # attached if it's there, else resumed: never --session-id again
+            self.assertNotIn("--session-id", want)
+            self.assertTrue(until(lambda: len(self.tmux_calls()) == n + 2)); self.assertEqual(self.tmux_calls()[-2][0], "has-session")
+            self.assertEqual(self.tmux_calls()[-1][:5], ["new-session", "-A", "-s", rt, "-c"]); self.assertEqual(self.tmux_calls()[-1][6], login)
+            self.kill(s)
         self.info(False); pane, _ = server.rstart(self.hid, "/root/x", "claude", perm="acceptEdits", effort="high"); s, o = self.made(pane)
         cur = str(uuid.uuid4()); T("set-option", "-t", f"={s}:", "@deck_claude", cur)  # a /clear since: the chat is now cur
         p = self.claude(cur); got.clear()
-        self.assertEqual(self.post("/api/ssh/reconnect", {"pane": pane}), (400, {"error": "Claude is still running on the server."}))
+        self.assertEqual(self.post("/api/ssh/reconnect", {"pane": pane}), (400, {"error": "Claude is still running on the server."}))  # the quick answer from the scan
         self.assertEqual(got, [])
         p.kill(); p.wait()
         self.assertEqual(self.post("/api/ssh/reconnect", {"pane": pane}), (200, {"ok": True}))
         cmd = got[0][-1]; self.assertEqual(got[0], server.ssh_argv(self.h, [cmd], tty=True))
         self.assertEqual(shlex.split(cmd)[:3], ["exec", "${SHELL:-/bin/sh}", "-lc"])
-        self.assertEqual(shlex.split(cmd)[3], f"cd -- /root/x && exec claude --permission-mode acceptEdits --effort=high --resume {cur}")
+        self.assertEqual(shlex.split(cmd)[3], f"{self.rg(cur)}cd -- /root/x && exec claude --permission-mode acceptEdits --effort=high --resume {cur}")
         s, pane = self.term(); got.clear()  # an ordinary terminal: a plain shell, as before
         self.assertEqual(self.post("/api/ssh/reconnect", {"pane": pane}), (200, {"ok": True})); self.assertEqual(got, [server.ssh_argv(self.h)])
+
+    def test_resume_guard(self):  # every resume checks on the server, after sign-in, that no live Claude has the session: a stale scan can't start a second one
+        b = self.home / "bin"; (b / "claude").write_text('#!/bin/sh\necho "CLAUDE RAN $*" | tee -a "$HOME/claude.ran"\n'); (b / "claude").chmod(0o755)
+        (self.home / ".profile").write_text('PATH="$HOME/bin:/usr/bin:/bin"\n')
+        old = os.environ.get("SHELL"); os.environ["SHELL"] = "/bin/sh"; self.addCleanup(os.environ.__setitem__, "SHELL", old or "/bin/zsh")
+        R = str(uuid.uuid4()); live = self.home / f".claude/sessions/{os.getpid()}.json"  # this test's own pid answers kill -0
+        def run(cmd): r = subprocess.run(server.ssh_argv(self.h, [cmd]), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30); return r.returncode, r.stdout
+        for tmux in (False, True):
+            self.info(tmux); pane, err = server.rstart(self.hid, "~", "claude", resume=R); s, o = self.made(pane)
+            self.assertTrue(until(lambda: any(c[0] == "new-session" for c in self.tmux_calls()) if tmux else T("display", "-p", "-t", f"={s}:", "#{pane_dead}") == "1"))  # the chat's own start has run
+            if not tmux: self.assertIn("CLAUDE RAN", (self.home / "claude.ran").read_text())  # the server's stand-in claude, never the Mac's own
+            self.assertIn(self.rg(R), o["rcmd"] if tmux else shlex.split(o["rcmd"])[3])
+            for f in (self.home / "tmux.log", self.home / "tmux.has"): f.unlink(missing_ok=True)
+            self.write(os.getpid(), R, str(self.home), time.time(), "idle")
+            self.assertEqual(run(o["rcmd"]), (1, "Claude is still running on the server.\n"), tmux)  # no exec, no tmux session made: ssh ends with 1, so the chat shows as dropped
+            self.assertEqual([c[0] for c in self.tmux_calls()], ["has-session"] if tmux else [])
+            if tmux:  # the server's tmux session is there: attached, whatever runs in it
+                (self.home / "tmux.has").touch(); self.assertEqual(run(o["rcmd"])[0], 0); self.assertEqual(self.tmux_calls()[-1][:2], ["new-session", "-A"])
+                (self.home / "tmux.has").unlink()
+            live.unlink()
+            if not tmux: self.assertEqual(run(o["rcmd"]), (0, f"CLAUDE RAN --permission-mode default --resume {R}\n"))
+            else: self.assertEqual(run(o["rcmd"])[0], 0); self.assertEqual(self.tmux_calls()[-1][:4], ["new-session", "-A", "-s", f"deck-{R}"])
+        self.info(False); pane, _ = server.rstart(self.hid, "~", "claude", resume=R, fork=True); s, o = self.made(pane)
+        self.assertNotIn("sessionId", o["rcmd"])  # a fork may copy a running session
+        self.assertNotIn("sessionId", self.made(server.rstart(self.hid, "~", "claude")[0])[1]["rcmd"])  # nor does a fresh chat need it
+
+    def test_reattach_key_host(self):
+        got = self.spawns(); pw, _ = server.ssh_host_save({"addr": "pi@10.0.0.6", "auth": "password", "name": "Pw"})
+        self.info(True); self.info(True, pw["id"]); self.info(False, "x")
+        (a, oa), (c, oc) = (self.made(server.rstart(h, "/root/x", "claude")[0]) for h in (self.hid, pw["id"]))
+        self.info(False); b, ob = self.made(server.rstart(self.hid, "/root/x", "claude")[0])
+        pa = "decktest." + T("display", "-p", "-t", f"={a}:", "#{pane_id}")[1:]
+        self.assertTrue(until(lambda: len(self.tmux_calls()) == 2))
+        for x in (a, b, c): self.kill(x)
+        new = str(uuid.uuid4()); T("set-option", "-t", f"={a}:", "@deck_claude", new)  # a /clear before the drop
+        server.reattach()
+        login = 'exec "${SHELL:-/bin/sh}" -lc ' + shlex.quote(f"cd -- /root/x && exec claude --permission-mode default --resume {new}")
+        rt = oa["rtmux"]; want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(new)}tmux new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off"
+        self.assertEqual(got, [server.ssh_argv(self.h, [want], batch=True, tty=True)])  # only the key host's tmux chat; never one that could ask for a password
+        self.assertIn("BatchMode=yes", got[0]); self.assertEqual(got[0][got[0].index("--") - 1], "-t")
+        self.assertTrue(until(lambda: T("display", "-p", "-t", f"={a}:", "#{pane_dead}") == "0"))
+        self.kill(a)
+        server.reattach(); self.assertEqual(len(got), 1)  # at most once per 30 s
+        server._REATT[pa] -= 31; server.reattach(); self.assertEqual(len(got), 2)
 
     def test_normal_exit_closes(self):
         (a, pa), (b, pb), (c, pc) = (self.term(cmd=f"exit {n}", claude=str(uuid.uuid4()), rcwd="/root/x", rkind=k) for n, k in ((0, "plain"), (255, "tmux"), (0, "tmux")))
@@ -536,20 +594,6 @@ class Chats(unittest.TestCase):
         ch = {x["pane"]: x for x in server.remote_chats()}
         self.assertEqual(list(ch), [pb]); self.assertTrue(ch[pb]["dropped"])
         self.assertEqual(set(T("list-sessions", "-F", "#{session_name}").split()), {b, t})
-
-    def test_reattach_key_host(self):
-        got = self.spawns(); pw, _ = server.ssh_host_save({"addr": "pi@10.0.0.6", "auth": "password", "name": "Pw"})
-        cmd = "tmux new-session -A -s deck-x -c /root/x 'exec claude' \\; set-option -t deck-x status off"
-        (a, pa), (b, pb), (c, pc) = self.term(cmd="exit 255", claude=str(uuid.uuid4()), rcwd="/root/x", rkind="tmux", rcmd=cmd), \
-            self.term(cmd="exit 255", claude=str(uuid.uuid4()), rcwd="/root/x", rkind="plain", rcmd="exec claude"), \
-            self.term(cmd="exit 255", hid=pw["id"], claude=str(uuid.uuid4()), rcwd="/root/x", rkind="tmux", rcmd=cmd)
-        until(lambda: all(T("display", "-p", "-t", f"={x}:", "#{pane_dead}") == "1" for x in (a, b, c)))
-        server.reattach()
-        self.assertEqual(got, [server.ssh_argv(self.h, [cmd], tty=True)])
-        self.assertTrue(until(lambda: T("display", "-p", "-t", f"={a}:", "#{pane_dead}") == "0"))
-        os.kill(int(T("display", "-p", "-t", f"={a}:", "#{pane_pid}")), 9); until(lambda: T("display", "-p", "-t", f"={a}:", "#{pane_dead}") == "1")
-        server.reattach(); self.assertEqual(len(got), 1)  # at most once per 30 s
-        server._REATT[pa] -= 31; server.reattach(); self.assertEqual(len(got), 2)
 
     def test_dropped_host_scanned_slowly(self):  # a host whose chats have all dropped is asked at most every 30 s, not every 3 s
         s, pane = self.term(cmd="exit 255", claude=str(uuid.uuid4()), rcwd="/root/x", rkind="plain")
