@@ -1616,7 +1616,7 @@ def pages_api(h, path, body=None):
         return h.send(409 if "error" in r else 200, r) or True
     return False
 
-# Aiva (~/projects/aiva), a local assistant on a Unix socket. Reads pass straight through. Writes are signed with the deck's key, and
+# Aiva, a local assistant on a Unix socket. Reads pass straight through. Writes are signed with the deck's key, and
 # "strong" (a passkey session on the Tailscale route, never the local token) is signed too, so Aiva can hold tier 3 approvals for Face ID.
 AIVA_SOCK = os.environ.get("DECK_AIVA_SOCKET") or str(HOME / "Library/Application Support/aiva/aiva.sock")
 AIVA_KEY = Path(os.environ.get("DECK_AIVA_KEY") or HOME / ".secrets/aiva/deck.key")
@@ -1659,7 +1659,7 @@ def aiva_forward(h, ap, data, strong="0"):
     if code == 401: code, out = 502, {"error": "Aiva didn't accept the deck's signature."}  # the page reads a 401 as its own sign-in failing
     return h.send(code, out) or True
 
-# Location from Ollie's phone (OwnTracks, HTTP mode, Basic auth with the location secret) or from the deck page itself (the usual token or session).
+# Location from the owner's phone (OwnTracks, HTTP mode, Basic auth with the location secret) or from the deck page itself (the usual token or session).
 # The body goes to Aiva unchanged. Nothing here logs the header, the secret or the body.
 AIVA_LOC_SECRET = Path(os.environ.get("DECK_AIVA_LOCATION_SECRET_FILE") or HOME / ".secrets/aiva/location.secret")
 LOC_MAX = 64 * 1024

@@ -1198,7 +1198,7 @@ async function navDots(){if(COL||!window.navDot||!started||!$('lock').hidden||do
  try{const d=await api('/api/scheduled'),t=ls('schSeen');navDot('scheduled',d.jobs.some(j=>!j.system&&j.last>t&&!j.running&&(j.cal||j.exit)))}catch(e){}
  try{const d=await api('/api/artifacts'),t=ls('artSeen');navDot('artifacts',d.artifacts.some(a=>a.t>t))}catch(e){}}
 setTimeout(navDots,4e3);setInterval(navDots,6e4);
-/* Aiva (~/projects/aiva) through /api/aiva/*: a section at the top of the chat list (its latest message, approvals waiting) opens one long-lived chat,
+/* Aiva, a local assistant, through /api/aiva/*: a section at the top of the chat list (its latest message, approvals waiting) opens one long-lived chat,
    shown like a session chat with the same box. Polls every 3 s while that's open, else every 30 s. #aiva in the address opens it (a push's link).
    A tier 3 approval needs a passkey sign-in, so a local token sees a note instead */
 let AV={m:[],ap:[],of:{},cf:null,on:null,at:0,ot:0,mc:{},pend:'',end:0,down:0};// on: null until Aiva first answers (a Mac without it shows no section), then whether it's running
