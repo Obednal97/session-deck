@@ -481,6 +481,7 @@ class Chats(unittest.TestCase):
         self.assertEqual(list(new[new.index("-n") + 2:new.index(";")]), argv)
         self.assertEqual(argv[argv.index("--") - 1:], ["-t", "--", "10.0.0.5", o["rcmd"]])
         self.assertNotIn("-t", server.ssh_argv(self.h))
+        T("kill-session", "-t", f"={s}")  # its terminal holds u: a resume of u is refused while it's there
         for kw, want in (({"resume": u}, f"--resume {u}"), ({"resume": u, "fork": True, "perm": "plan", "model": "opus", "name": "A b;c"}, f"--permission-mode plan --resume {u} --fork-session --session-id ")):
             pane, err = server.rstart(self.hid, "~/a b", "claude", **kw); s, o = self.made(pane)
             inner = shlex.split(o["rcmd"])[3]
@@ -591,6 +592,7 @@ class Chats(unittest.TestCase):
             live.unlink()
             if not tmux: self.assertEqual(run(o["rcmd"]), (0, f"CLAUDE RAN --permission-mode default --resume {R}\n"))
             else: self.assertEqual(run(o["rcmd"])[0], 0); self.assertEqual(self.tmux_calls()[-1][:5], ["-u", "new-session", "-A", "-s", f"deck-{R}"])
+            T("kill-session", "-t", f"={s}")  # the next start resumes R too
         self.info(False); pane, _ = server.rstart(self.hid, "~", "claude", resume=R, fork=True); s, o = self.made(pane)
         self.assertNotIn("sessionId", o["rcmd"])  # a fork may copy a running session
         self.assertNotIn("sessionId", self.made(server.rstart(self.hid, "~", "claude")[0])[1]["rcmd"])  # nor does a fresh chat need it
@@ -738,6 +740,27 @@ class Chats(unittest.TestCase):
         self.assertTrue(w[0] == "tmux" and "has-session" in w)  # attached (-A) or new, the options follow either way
         real = server.tm; server.tm = lambda key, *a, **k: cmd + "\n" if "#{@deck_rcmd}" in a else real(key, *a, **k); self.addCleanup(setattr, server, "tm", real)
         self.assertEqual(server.rresume({"pane": "decktest.1", "claude": u, "rkind": "tmux", "rtmux": rt, "rcwd": "/root/x"}), cmd)  # read back for a reconnect
+
+    def test_resume_open_refused(self):  # a session already in a deck terminal (live or dropped) never gets a second Claude from New chat
+        self.info(False); R = str(uuid.uuid4())
+        pane, err = server.rstart(self.hid, "/root/x", "claude", resume=R); self.assertIsNone(err)
+        n = len(T("list-sessions", "-F", "#{session_name}").split())
+        self.assertEqual(server.rstart(self.hid, "/root/x", "claude", resume=R), (None, "That chat is open in the deck: use Resume on it."))
+        self.assertEqual(self.post("/api/ssh/rnew", {"host": self.hid, "cwd": "/root/x", "engine": "claude", "resume": R}), (400, {"error": "That chat is open in the deck: use Resume on it."}))
+        self.assertEqual(len(T("list-sessions", "-F", "#{session_name}").split()), n)
+        s, _ = self.made(pane); self.kill(s)
+        self.assertEqual(server.rstart(self.hid, "/root/x", "claude", resume=R)[1], "That chat is open in the deck: use Resume on it.")  # dropped: Resume (Reconnect) is its way back
+        self.assertIsNone(server.rstart(self.hid, "/root/x", "claude", resume=R, fork=True)[1])  # a fork gets its own id
+        T("kill-session", "-t", f"={s}"); self.assertIsNone(server.rstart(self.hid, "/root/x", "claude", resume=R)[1])
+
+    def test_dead_pane_no_steal(self):  # a dropped terminal and a live one with the same session: the live one is matched
+        sid = str(uuid.uuid4()); d, pd = self.term(cmd="exit 255", claude=sid, rcwd="/root/x", rkind="tmux"); l, pl = self.term(claude=sid, rcwd="/root/x", rkind="tmux")
+        until(lambda: T("display", "-p", "-t", f"={d}:", "#{pane_dead}") == "1")
+        real = server.ssh_terms  # the dead one is older, so it comes first
+        server.ssh_terms = lambda: [{**t, "created": t["created"] - 5 * (t["session"] == d)} for t in real()]; self.addCleanup(setattr, server, "ssh_terms", real)
+        p = self.claude(sid, status="busy"); ch = {x["pane"]: x for x in self.scan()}
+        self.assertEqual((self.opt(l, "rpid"), self.opt(d, "rpid")), (str(p.pid), ""))
+        self.assertEqual((ch[pl]["state"], ch[pl]["dropped"], ch[pd]["dropped"]), ("busy", False, True))
 
 class StartArgs(unittest.TestCase):
     """claude_args is start()'s own checks and flags, factored out: a local chat's argv is exactly what it was."""

@@ -2291,6 +2291,7 @@ def rmatch(hid, items):
         if x["sessionId"] and x["sessionId"] != t["claude"]: put(t, claude=x["sessionId"])
     free = lambda: [x for x in items if x["pid"] not in mine and x["sessionId"] and x["sessionId"] not in {t["claude"] for t in ts}]
     for t in ts:
+        if t["dead"] and any(not u["dead"] and u["claude"] == t["claude"] for u in ts): continue  # a dropped chat never takes its session from a live one
         x = not t["rpid"] and t["claude"] and next((x for x in items if x["sessionId"] == t["claude"] and x["pid"] not in mine), None)
         if x: mine.add(x["pid"]); put(t, rpid=x["pid"])
     for t in ts:  # every folder match before any hand match
@@ -2393,8 +2394,10 @@ def rstart(hid, cwd, engine, resume=None, fork=False, perm=None, model=None, eff
     if a is None: return None, "That chat's settings aren't valid."
     u = resume if keep else a[a.index("--session-id") + 1]; rt, kind = f"deck-{u}", "tmux" if info["tmux"] else "plain"
     cmd = rcmd(cwd, [ENGINE_INFO[engine][0], *a], rt if kind == "tmux" else None)
-    try: p = ssh_open(h["id"], rcmd=cmd, opts={"deck_claude": u, "deck_rcwd": cwd, "deck_rkind": kind, "deck_rcmd": cmd, **({"deck_rtmux": rt} if kind == "tmux" else {})})
-    except (ValueError, OSError): return None, "That host's address isn't valid."
+    with _term_lock:  # two taps on Resume, or a past chat that's open: never a second Claude on one session
+        if keep and any(t["claude"] == resume for t in ssh_terms()): return None, "That chat is open in the deck: use Resume on it."
+        try: p = ssh_open(h["id"], rcmd=cmd, opts={"deck_claude": u, "deck_rcwd": cwd, "deck_rkind": kind, "deck_rcmd": cmd, **({"deck_rtmux": rt} if kind == "tmux" else {})})
+        except (ValueError, OSError): return None, "That host's address isn't valid."
     return (p, None) if p else (None, "Couldn't start the chat.")
 
 def rcmd(cwd, argv, rt=None):
