@@ -319,9 +319,16 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 @media(min-width:700px){.pg .sec{top:-20px}}
 .a>.who{display:block;font-size:12px;font-weight:600;color:var(--m);margin-bottom:2px}.chat>.pga{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.chat>.avn{align-self:flex-start;margin-top:-4px}.chat>.pgo{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.pgo{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pgo>small{grid-column:1/-1;color:var(--m);font-size:12.5px}.pgo .pick{text-align:center}
 .aiva :is(#kbt,#clip,#kbar,#slash,#at,#bang,#att,#sug,#tv,#status,#stats,#menu,#sab){display:none!important}/* Aiva's chat: the session chat's box without the terminal, files and status */
+/* SSH: the section in the chat list (fold, +), terminal rows under their host, and the terminal view (no chat box, status or Terminal button) */
+.sshv :is(#foot,#tv,#status,#stats,#menu,#sab,#jump){display:none!important}
+.sst{border:0;background:none;padding:0;font:inherit;color:inherit;letter-spacing:inherit}.sst::after{content:"  \25BE"}.sst[aria-expanded=false]::after{content:"  \25B8"}
+.sadd{border:0;background:none;color:var(--c);font:500 20px/1 system-ui,sans-serif;padding:0 4px;margin:-6px -4px -6px 8px;vertical-align:-1px}
+.tmi{flex:none;width:34px;text-align:center;font:600 12px ui-monospace,monospace;font-style:normal;color:var(--m)}.crow.sht{padding-left:22px}.card>.sht+.sht::before{left:66px}
+.sshb{display:flex;align-items:center;gap:10px;padding:6px 16px;background:var(--r);border-bottom:1px solid var(--l);font-size:13.5px}.sshb span{flex:1;min-width:0;color:var(--o);font-weight:600}
+.kill.op{color:var(--c)}.sshb button{flex:none;border:1px solid var(--l);background:var(--s);border-radius:99px;padding:3px 12px;color:var(--c);font-size:13px}
 </style>
 <header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class=chip id=tv hidden>Terminal</button></header>
-<div class=off id=off hidden>Reconnecting…</div>
+<div class=off id=off hidden>Reconnecting…</div><div class=sshb id=sshb hidden></div>
 <main id=main></main><div id=cols></div>
 <div class="kbar tkeys" id=tkeys hidden><button>Esc</button><button>Tab</button><button data-m=c aria-pressed=false>Ctrl</button><button data-m=a aria-pressed=false>Alt</button><button aria-label=Left>&#8592;</button><button aria-label=Up>&#8593;</button><button aria-label=Down>&#8595;</button><button aria-label=Right>&#8594;</button><button>|</button><button>~</button><button>/</button><button>-</button><button data-p>Paste</button></div>
 <div class=jw><button class=jump id=jump hidden></button></div>
@@ -359,8 +366,8 @@ const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,
 // connection state: 2+ failed rounds show the banner; timers wait out a growing backoff (see tick)
 let fails=0,retryAt=0;const net=ok=>{if(ok){fails=0;retryAt=0}else if(Date.now()>=retryAt){fails++;retryAt=Date.now()+[1,2,5,10,15][Math.min(fails,5)-1]*1e3}$('off').hidden=fails<2};
 async function api(p,b){let r;const av=p.startsWith('/api/aiva/');try{r=await fetch(p.replace(/^\//,''),{method:b?'POST':'GET',headers:{'X-Deck-Token':TOK,'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout?AbortSignal.timeout(2e4):undefined})}catch(e){net(0);throw Object.assign(e,{st:0})}
- if(r.status>=502&&r.status<=504&&!av){net(0);throw Object.assign(new Error(r.status),{st:r.status})}net(1);if(r.status==401){if(TS!==false){if(TS)lock();throw new Error('401')}localStorage.removeItem('deck');alert('Token not accepted. Paste it again.');location.reload()}if(r.status==409){const e=new Error('409');e.reason=(await r.json().catch(()=>({}))).error||'The screen changed.';throw e}if(!r.ok)throw Object.assign(new Error(r.status),{st:r.status},av&&{reason:(await r.json().catch(()=>({}))).error});return r.json()}
-let cur=null,term=false,live=[],timer;
+ if(r.status>=502&&r.status<=504&&!av){net(0);throw Object.assign(new Error(r.status),{st:r.status})}net(1);if(r.status==401){if(TS!==false){if(TS)lock();throw new Error('401')}localStorage.removeItem('deck');alert('Token not accepted. Paste it again.');location.reload()}if(r.status==409){const e=new Error('409');e.reason=(await r.json().catch(()=>({}))).error||'The screen changed.';throw e}if(!r.ok)throw Object.assign(new Error(r.status),{st:r.status},(av||p.startsWith('/api/ssh/'))&&{reason:(await r.json().catch(()=>({}))).error});return r.json()}
+let cur=null,term=false,live=[],timer,SSH={hosts:[],terms:[]};// SSH: saved and throwaway hosts and open SSH terminals, from /api/sessions
 let inSplit=false,OPEN=new Set();// the outer page: split view on, and the panes and sessions open in its columns
 // a column always takes the computer layout (floating composer, dialogs), however narrow it is
 if(COL)for(const r of document.styleSheets[0].cssRules)if(r.media&&/^\(min-width: ?700px\)$/.test(r.conditionText))r.media.appendMedium('all');
@@ -389,7 +396,7 @@ const crowL=(s,r)=>{const k=rank(s);return`<button class="crow lv${cur&&cur.pane
 const crowH=(h,r,snip)=>`<button class="crow${cur&&cur.session==h.session||OPEN.has(h.session)?' cur':''}" data-h="${esc(h.session)}" data-c="${esc(h.cwd)}"><span><b>${esc(h.title||h.session.slice(0,8))}</b><small>${snip?esc(snip)+' · ':''}${r?(sub(h.cwd,r)?esc(sub(h.cwd,r))+' · ':''):esc(proj(h.cwd))+' · '}${ago(h.mtime)}</small></span>${MORE}</button>`;
 function drawMenu(force){const q=$('q').value.trim();if(nav.v=='root'&&q.length>=3)return;let h;
  if(nav.v=='root'){const A=[...live].sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),H=groups(hist.filter(x=>!isArc(x.session)&&!arcP(proj(x.cwd))));
-  h=navHTML()+avSec()+(PREFS.pins.length?`<section><div class=sec>Pinned<span>${PREFS.pins.length}</span></div><div class="card pins">${PREFS.pins.map(pinRow).join('')}</div></section>`:'')+`<section><div class=sec>Active<span>${A.length||''}</span></div><div class=card>`+(A.map(s=>crowL(s,null)).join('')||'<div class=none>Nothing running. Start a chat with the pencil above.</div>')+`</div></section><section><div class=sec>History<span>${H.length} projects</span></div><div class=card>`+H.map(prow).join('')+'</div></section>'}
+  h=navHTML()+avSec()+sshSec()+(PREFS.pins.length?`<section><div class=sec>Pinned<span>${PREFS.pins.length}</span></div><div class="card pins">${PREFS.pins.map(pinRow).join('')}</div></section>`:'')+`<section><div class=sec>Active<span>${A.length||''}</span></div><div class=card>`+(A.map(s=>crowL(s,null)).join('')||'<div class=none>Nothing running. Start a chat with the pencil above.</div>')+`</div></section><section><div class=sec>History<span>${H.length} projects</span></div><div class=card>`+H.map(prow).join('')+'</div></section>'}
  else{const r=root(nav.p),f=x=>proj(x.cwd)==nav.p&&(!q||(x.title||'').toLowerCase().includes(q.toLowerCase())),A=live.filter(f),P=hist.filter(x=>f(x)&&!isArc(x.session)),n=nav.n||40,X=hist.filter(x=>proj(x.cwd)==nav.p&&isArc(x.session)).length;
   h=`<button class=dback>‹ Chats</button><div class=ph>${tile(nav.p,1)}<span><h3>${esc(nav.p)}</h3><small>${esc(rel(r))}</small></span></div>`+
    (A.length?`<section><div class=sec>Running<span>${A.length}</span></div><div class=card>${A.map(s=>crowL(s,r)).join('')}</div></section>`:'')+
@@ -397,11 +404,11 @@ function drawMenu(force){const q=$('q').value.trim();if(nav.v=='root'&&q.length>
    (P.length>n?'<button class=more id=dmore>Show more</button>':'')+(X?`<button class=more data-arc=1>${X} archived chat${X>1?'s':''}</button>`:'')+`<button class=pnew data-c="${esc(r)}">+ New chat in ${esc(nav.p)}</button>`}
  if(h===dKey&&!force)return;dKey=h;const was=rowsAt();$('dl').innerHTML=h;reflow(was)}
 // rows that change place (a chat had activity) slide to it rather than jump: note where each was, then animate from there
-const rowsAt=()=>new Map([...$('dl').querySelectorAll('.card>.crow')].map(r=>[r.closest('section')?.querySelector('.sec')?.firstChild?.textContent+'|'+(r.dataset.pane||r.dataset.h),r]).map(([k,r])=>[k,{r,y:r.getBoundingClientRect().top}]));
+const rowsAt=()=>new Map([...$('dl').querySelectorAll('.card>.crow')].map(r=>[r.closest('section')?.querySelector('.sec')?.firstChild?.textContent+'|'+(r.dataset.pane||r.dataset.h||r.dataset.st||r.dataset.sh),r]).map(([k,r])=>[k,{r,y:r.getBoundingClientRect().top}]));
 function reflow(was){if(!was.size||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
  rowsAt().forEach(({r,y},k)=>{const o=was.get(k)?.y;if(o==null||Math.abs(o-y)<1)return;
   r.style.zIndex=1;r.animate([{transform:`translateY(${o-y}px)`},{transform:'none'}],{duration:380,easing:'cubic-bezier(.32,.72,0,1)'}).onfinish=()=>r.style.zIndex=''})}
-async function list(){if(Date.now()-pfAt>3e4)prefs();const d=await api('/api/sessions');live=d.live;hist=d.history;PN={};[...hist,...live].sort((a,b)=>a.mtime-b.mtime).forEach(x=>{const p=proj0(x.cwd);PN[pnk(p)]=p});attnUI();if(dOpen)drawMenu()}
+async function list(){if(Date.now()-pfAt>3e4)prefs();const d=await api('/api/sessions');live=d.live;hist=d.history;SSH=d.ssh||SSH;PN={};[...hist,...live].sort((a,b)=>a.mtime-b.mtime).forEach(x=>{const p=proj0(x.cwd);PN[pnk(p)]=p});attnUI();if(dOpen)drawMenu();sshUI()}
 const setQ=()=>{$('q').value='';$('q').placeholder=nav.v=='root'?'Search all chats':'Filter '+nav.p+' chats';$('dl').scrollTop=0};
 function openMenu(){dOpen=true;$('drawer').classList.add('on');$('scrim').classList.add('on');drawMenu(1);list()}
 function closeMenu(){dOpen=false;$('drawer').classList.remove('on');$('scrim').classList.remove('on');$('q').blur()}
@@ -422,6 +429,7 @@ setInterval(()=>{if(!cur||!cur.session){$('sab').hidden=true;return}if(cur.sessi
 $('dl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
  if(e.target.closest('.rmn'))return rowMenu(b);
  if(b.dataset.aiva)return openAiva();
+ if(b.dataset.sshc)return sshc(!sshc()),drawMenu(1);if(b.dataset.ssha)return sshAdd();if(b.dataset.sh)return sshHost(b.dataset.sh);if(b.dataset.st){closeMenu();stack=[];return sshOpen(b.dataset.st)}
  if(b.dataset.nav)return NAV.find(x=>x.id==b.dataset.nav).open();
  if(b.dataset.pin){closeMenu();return openPin(PREFS.pins[+b.dataset.pin])}
  if(b.dataset.arc)return openProjects('arc',nav.p);
@@ -517,7 +525,7 @@ function pjDraw(){if(!$('pjl'))return;const q=pj.q.toLowerCase(),m=s=>s.toLowerC
 $('sbody').addEventListener('click',e=>{const b=e.target.closest('#pjl button,#pjs button,#pjt button');if(!b)return;const D=b.dataset,P=t=>({type:'project',id:t,title:t});
  if(D.s||D.t){D.s?pj.s=D.s:pj.t=D.t;return pjDraw()}if(D.pj)return openProj(D.pj);if(D.h)return pickup(D.h,D.c,b.querySelector('b').textContent);
  (D.pp?pinToggle(P(D.pp)):D.ap?arcSet(P(D.ap),1):D.uap?arcSet(P(D.uap),0):D.ua?arcSet({type:'chat',id:D.ua},0):Promise.resolve()).then(pjDraw)});
-function home(){termSet(false);cur=null;AV.cf=null;document.body.classList.remove('aiva');$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
+function home(){termSet(false);cur=null;AV.cf=null;document.body.classList.remove('aiva','sshv');$('sshb').hidden=true;$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
  $('main').innerHTML='<div class=empty><p>Pick a chat from the menu, or start a new one.</p><button class=go id=eo>Open menu</button><button class=pick id=en style="text-align:center">New chat</button></div>'}
 /* sheets */
 const sh=$('sheet'),sp=$('spanel'),sd=$('shd'),sb=$('sbody');sh.onclick=e=>{if(e.target===sh&&getSelection().isCollapsed)hideSheet()};// not when a text selection drag ends on the backdrop
@@ -545,14 +553,15 @@ async function newChat(cwd){const f=(await api('/api/folders')).folders;cwd=cwd|
  const draw=()=>{const c=$('nf').value,t=$('rf').value.toLowerCase();$('rl').innerHTML=hist.filter(h=>h.cwd==c&&(h.title||'').toLowerCase().includes(t)).slice(0,25).map(h=>`<button class=pick data-r="${esc(h.session)}">${esc(h.title||h.session.slice(0,8))}<small>${ago(h.mtime)}</small></button>`).join('')||'<small>No past chats here.</small>'};
  const git=()=>api('/api/git?cwd='+encodeURIComponent($('nf').value)).then(r=>{$('ow').disabled=!r.git;if(!r.git)$('ow').checked=false});
  draw();git();$('nf').onchange=()=>{draw();git()};$('rf').oninput=draw;$('rl').onclick=e=>{const b=e.target.closest('[data-r]');if(b)launch($('nf').value,b.dataset.r,optVals())};$('gof').onclick=()=>launch($('nf').value,null,optVals())}
+const PERMO=[['bypass','Bypass'],['default','Asks before acting'],['acceptEdits','Accept edits'],['plan','Plan'],['auto','Auto']];// Claude's permission modes (the server's PERMS)
 const sel=(id,l,o)=>`<div><div class=lbl>${l}</div><select id=${id}>${o.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></div>`;
 function chatOpts(){return`<details class=more2><summary>Options</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">`+
- sel('op','Permissions',[['bypass','Bypass (current)'],['default','Ask first'],['acceptEdits','Accept edits'],['plan','Plan'],['auto','Auto']])+
+ sel('op','Permissions',PERMO.map(([v,t])=>[v,v=='bypass'?t+' (current)':t]))+
  sel('om','Model (cloud)',[['','Default'],['opus','Opus'],['sonnet','Sonnet'],['haiku','Haiku']])+
  sel('oe','Effort',[['','Default'],['low','Low'],['medium','Medium'],['high','High'],['xhigh','Extra high'],['max','Max']])+
  `<div><div class=lbl>Name</div><input id=on type=text maxlength=60 autocomplete=off placeholder="Optional"></div></div><label class=ck style="margin-top:8px"><input type=checkbox id=ow disabled> New git worktree (fresh chats only)</label></details>`}
 const optVals=()=>({perm:$('op').value,model:$('om').value,effort:$('oe').value,name:$('on').value.trim(),worktree:$('ow').checked});
-function open_(s){termSet(false);if(!s.aiva)AV.cf=null;cur=s;$('back').hidden=!stack.length&&!s.aiva;$('mb').hidden=!!stack.length||!!s.aiva;document.body.classList.toggle('aiva',!!s.aiva);agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro||!!s.agent;if(s.agent||s.aiva)busy=false;if(s.aiva)$('ta').placeholder='Message Aiva';$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';if(!s.aiva)return draw();requestAnimationFrame(()=>requestAnimationFrame(()=>cur===s&&draw()));tick(avLoad)}// Aiva's is painted after the layout settles, or the resize keeping the bottom line in place scrolls it back up
+function open_(s){termSet(false);if(!s.aiva)AV.cf=null;cur=s;$('back').hidden=!stack.length&&!s.aiva;$('mb').hidden=!!stack.length||!!s.aiva;document.body.classList.toggle('aiva',!!s.aiva);document.body.classList.toggle('sshv',!!s.ssh);sshUI();agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro||!!s.agent;if(s.agent||s.aiva)busy=false;if(s.aiva)$('ta').placeholder='Message Aiva';$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';if(s.ssh)return termSet(true);if(!s.aiva)return draw();requestAnimationFrame(()=>requestAnimationFrame(()=>cur===s&&draw()));tick(avLoad)}// Aiva's is painted after the layout settles, or the resize keeping the bottom line in place scrolls it back up
 let stack=[];$('back').onclick=()=>{if(cur&&cur.aiva&&!stack.length){home();return COL||openMenu()}$('menu').hidden=true;menuKey='';const p=stack.pop();if(p)open_(p)};
 const tok=n=>(n=n||0)>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
 const dur=(a,b)=>{const s=Math.max(0,Math.round(((b?new Date(b):Date.now())-new Date(a))/1000));return s<60?s+'s':s<3600?Math.floor(s/60)+'m '+s%60+'s':s<172800?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':Math.round(s/86400)+' days'};
@@ -572,7 +581,7 @@ sb.addEventListener('click',e=>agTap(e,()=>{if(info&&$('agl'))$('agl').innerHTML
 function agentsBlock(all,full){const t=kidsOf(all,null),n=all.filter(a=>a.running).length,show=full?t:t.slice(0,6);
  return all.length?`<button class=srow id=agopen><span>Subagents</span><small>${n?n+' running of ':''}${all.length} ›</small></button>`:''}
 let info=null,agFull=false;
-async function showInfo(){if(!cur||(!cur.session&&!cur.pane))return;if(cur.agent){statsOpen=!statsOpen;$('stats').hidden=!statsOpen;$('status').classList.toggle('open',statsOpen);return}const me=cur;
+async function showInfo(){if(cur&&cur.ssh)return sshMenu();if(!cur||(!cur.session&&!cur.pane))return;if(cur.agent){statsOpen=!statsOpen;$('stats').hidden=!statsOpen;$('status').classList.toggle('open',statsOpen);return}const me=cur;
  const d=cur.session?await api('/api/info/'+cur.session+(cur.pane?'?pane='+cur.pane:'')):{session:'(not saved yet)',file:'(created on first message)',agents:[]};if(cur!==me)return;info=d;agFull=false;
  sb.innerHTML=`<h2>${esc(cur.title||'Chat')}</h2><small class=sub2>${esc(rel(d.cwd||cur.cwd||''))}${d.branch?' · '+esc(d.branch):''}</small><dl class=info>`+
   drow('Model',esc(cur.model||d.model||''))+drow('Plan',esc(cur.plan||'')+(cur.plan&&cur.pinned?' (pinned)':''))+drow('Context',esc(cur.ctx||''))+drow(d.running?'Running for':'Age',esc(d.running||(d.first&&d.last?dur(d.first,d.last):'')))+
@@ -613,11 +622,14 @@ let agT=0;async function agentPoll(){if(Date.now()-agT<2500)return;agT=Date.now(
 let xtP;const xtLoad=()=>xtP=xtP||Promise.all(['xterm.css','xterm.js','addon-fit.js'].map(f=>new Promise((ok,no)=>{const c=f.endsWith('css'),e=document.createElement(c?'link':'script');if(c){e.rel='stylesheet';e.href='vendor/'+f}else e.src='vendor/'+f;e.onload=ok;e.onerror=()=>{xtP=null;e.remove();no()};document.head.append(e)})));
 const MOD={c:0,a:0},tkUI=()=>$('tkeys').querySelectorAll('[data-m]').forEach(b=>b.setAttribute('aria-pressed',!!MOD[b.dataset.m]));// sticky Ctrl and Alt for the next key
 const modk=s=>{if(!MOD.c&&!MOD.a)return s;if(MOD.c&&s.length==1){const k=s.toUpperCase().charCodeAt(0);s=k>63&&k<96?String.fromCharCode(k-64):s==' '?'\0':s}if(MOD.a)s='\x1b'+s;MOD.c=MOD.a=0;tkUI();return s};
-function liveTerm(el,pane){let t,fit,ws,ro,tm,n=0,off=0,fo=0,fs=0,p0;try{fs=+localStorage.getItem('termfs')}catch(e){}fs=fs||(innerWidth<700?13:14);
+// gone(): called once the pane has closed (the deck answers 404 for it), after which it stops reconnecting
+function liveTerm(el,pane,gone){let t,fit,ws,ro,tm,n=0,off=0,fo=0,fs=0,p0;try{fs=+localStorage.getItem('termfs')}catch(e){}fs=fs||(innerWidth<700?13:14);
  const send=s=>{if(ws&&ws.readyState==1)ws.send(typeof s=='string'?new TextEncoder().encode(s):s)};
  const go=()=>{if(off)return;const u=new URL(`api/term/${pane}?cols=${t.cols}&rows=${t.rows}`+(TS?'':'&tok='+TOK),location.href);u.protocol=u.protocol=='https:'?'wss:':'ws:';
-  ws=new WebSocket(u);ws.binaryType='arraybuffer';ws.onopen=()=>{n=0};ws.onmessage=e=>{if(typeof e.data!='string')t.write(new Uint8Array(e.data))};
-  ws.onclose=()=>{if(off)return;t.write('\r\n\x1b[2mReconnecting…\x1b[0m\r\n');tm=setTimeout(go,[1,2,5][Math.min(n++,2)]*1e3)}};
+  const w=ws=new WebSocket(u);w.binaryType='arraybuffer';w.onopen=()=>{n=0;w.ok=1};w.onmessage=e=>{if(typeof e.data!='string')t.write(new Uint8Array(e.data))};
+  w.onclose=async()=>{if(off)return;if(w.ok)t.write('\r\n\x1b[2mReconnecting…\x1b[0m\r\n');// a socket that never opened: ask the deck whether the pane is still there
+   else{const r=await fetch(`api/term/${pane}`,{headers:{'X-Deck-Token':TOK}}).catch(()=>null);if(off)return;if(r&&r.status==404){off=1;t.write('\r\n\x1b[2mThis terminal has closed.\x1b[0m\r\n');return gone&&gone()}}
+   tm=setTimeout(go,[1,2,5][Math.min(n++,2)]*1e3)}};
  const dist=e=>Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);// pinch: font size 10..22, kept per device
  el.addEventListener('touchstart',e=>{if(e.touches.length==2)p0=[dist(e),fs]},{capture:true,passive:true});el.addEventListener('touchend',e=>{if(e.touches.length<2)p0=null},{capture:true,passive:true});
  el.addEventListener('touchmove',e=>{if(e.touches.length!=2||!p0||!t)return;e.preventDefault();e.stopPropagation();const f=Math.max(10,Math.min(22,Math.round(p0[1]*dist(e)/p0[0])));if(f!=fs){fs=t.options.fontSize=f;fit.fit();try{localStorage.setItem('termfs',f)}catch(x){}}},{capture:true,passive:false});
@@ -629,7 +641,7 @@ function liveTerm(el,pane){let t,fit,ws,ro,tm,n=0,off=0,fo=0,fs=0,p0;try{fs=+loc
  return{close(){off=1;clearTimeout(tm);if(ws)ws.close();if(ro)ro.disconnect();if(t)t.dispose()},send,focus(){t?t.focus():fo=1}}}
 let LT=null;// the live terminal while the Terminal view is open; leaving the chat or going back to Chat closes it
 function termSet(on){term=on;$('tv').textContent=on?'Chat':'Terminal';if(LT){LT.close();LT=null}MOD.c=MOD.a=0;tkUI();const m=$('main');m.classList.toggle('lt',on);$('tkeys').hidden=!on;if(!on)return;
- ['foot','status','stats','menu','jump'].forEach(i=>$(i).hidden=true);m.innerHTML='<div class=xt></div>';LT=liveTerm(m.firstChild,cur.pane);if(matchMedia('(pointer:fine)').matches)LT.focus()}
+ ['foot','status','stats','menu','jump'].forEach(i=>$(i).hidden=true);m.innerHTML='<div class=xt></div>';LT=liveTerm(m.firstChild,cur.pane,()=>list().catch(()=>{}));if(matchMedia('(pointer:fine)').matches)LT.focus()}
 $('tv').onclick=()=>{termSet(!term);if(term)return;const ro=!!cur.ro;$('foot').hidden=ro;$('status').hidden=ro;$('stats').hidden=ro||!statsOpen;menuKey='';cur.key='';draw();poll()};
 const TK={Esc:'\x1b',Tab:'\t','←':'\x1b[D','↑':'\x1b[A','↓':'\x1b[B','→':'\x1b[C'};$('tkeys').addEventListener('mousedown',e=>e.preventDefault());// keep the phone keyboard up
 $('tkeys').onclick=async e=>{const b=e.target.closest('button');if(!b||!LT)return;if(b.dataset.m){MOD[b.dataset.m]^=1;return tkUI()}
@@ -748,7 +760,7 @@ sb.addEventListener('click',e=>{const b=e.target.closest('.chf');if(b)changeFile
 const bar=p=>{const v=parseFloat(p)||0;return`<span class=bar><i class="${v>=85?'c':v>=60?'w':''}" style="width:${Math.min(v,100)}%"></i></span>${esc(p)}`};
 let statsOpen=false;$('stats').addEventListener('click',async e=>{if(agTap(e,()=>{agT=0;agentPoll()}))return;if(e.target.id=='cyc'){await api('/api/key',{pane:cur.pane,key:'BTab'});setTimeout(poll,400)}});
 $('status').onclick=()=>{statsOpen=!statsOpen;$('stats').hidden=!statsOpen;$('status').classList.toggle('open',statsOpen)};
-async function poll(){if(!cur||document.hidden)return;if(cur.agent)return agentPoll();if(cur.ro||cur.aiva)return;const me=cur;let s;try{s=await api('/api/status/'+cur.pane+'?d='+DEV+'&f='+(!document.hidden&&(window.top||window).document.hasFocus()?1:0))}catch(e){return}if(cur!==me||term)return;
+async function poll(){if(!cur||document.hidden)return;if(cur.agent)return agentPoll();if(cur.ro||cur.aiva||cur.ssh)return;const me=cur;let s;try{s=await api('/api/status/'+cur.pane+'?d='+DEV+'&f='+(!document.hidden&&(window.top||window).document.hasFocus()?1:0))}catch(e){return}if(cur!==me||term)return;
  busy=s.working;cur.ctx=s.ctx;cur.model=s.model;cur.plan=s.plan;cur.pinned=s.pinned;sendBtn();const st=$('status');st.hidden=!!s.menu;st.classList.toggle('on',s.working);st.innerHTML='<span class=stx>'+esc(s.working?(s.status||'Working…'):'Idle'+(s.ctx?' · context '+s.ctx:''))+'</span>';
  renderMenu(s.menu);const b=$('sug');b.hidden=!s.suggestion||!!$('ta').value||s.working;if(s.suggestion)b.innerHTML='<i>suggested</i>'+esc(s.suggestion);b.dataset.t=s.suggestion||'';
  const d=s.device||{};$('stats').innerHTML=`<h4>This chat</h4><dt>Model</dt><dd>${esc(s.model||'unknown')}</dd>${s.plan?`<dt>Plan</dt><dd>${esc(s.plan)}${s.pinned?'<span class=ttag>pinned</span>':''}</dd>`:''}<dt>Context</dt><dd>${s.ctx?bar(s.ctx.split(' ')[0])+' '+esc(s.ctx.split(' ').slice(1).join(' ')):'unknown'}</dd><dt>Permissions</dt><dd>${esc(s.perm||'unknown')} <button class=cyc id=cyc>Change</button></dd>`+
@@ -893,7 +905,7 @@ const pfClick=async e=>{const b=e.target.closest('[data-n]');if(!b)return;
 if(!COL)pushUI();
 if(navigator.serviceWorker&&!COL)navigator.serviceWorker.addEventListener('message',e=>{const p=e.data&&e.data.pane;if(p)list().then(()=>{const s=live.find(x=>x.pane==p);if(s){closeMenu();hideSheet();stack=[];open_(s)}})});
 const qp=new URLSearchParams(location.search).get('pane');if(qp){try{localStorage.setItem('last',qp)}catch(e){}history.replaceState(null,'',location.pathname)}
-setInterval(()=>{if(cur)tick(draw);if(!cur||cur.ro)tick(list)},2500);
+setInterval(()=>{if(cur)tick(draw);if(!cur||cur.ro||cur.ssh)tick(list)},2500);
 /* passkeys: Face ID sign-in on the Tailscale route; direct local use keeps the token */
 const b64u=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''),ub64=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
 async function au(p,b){const r=await fetch('api/auth/'+p,{method:b?'POST':'GET',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Error '+r.status);return d}
@@ -935,7 +947,7 @@ const siriPrompt=()=>`Create a shortcut named exactly "${SIRI.name}" (not "Ask $
 sb.addEventListener('click',async e=>{const c=e.target.closest('[data-cp]');if(c&&SIRI)return copyText(c.dataset.cp=='prompt'?siriPrompt():SIRI[c.dataset.cp]);
  if(e.target.id=='sirinew'&&confirm('Make a new key? The shortcut stops working until you paste the new address into it.')){const d=await tell('/api/siri/key',{});if(d&&d.url){SIRI.url=d.url;copyText(d.url)}}});
 sb.addEventListener('change',async e=>{if(e.target.id!='sirn')return;const d=await tell('/api/siri/name',{name:e.target.value});if(d&&d.name){SIRI.name=d.name;siri(0)}});
-async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{if(avHash())return;const s=live.find(x=>x.pane==localStorage.getItem('last'));if(s)open_(s);else openMenu()})}
+async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{if(avHash())return;const l=localStorage.getItem('last'),s=live.find(x=>x.pane==l);if(s)open_(s);else if(SSH.terms.some(t=>t.pane==l))sshOpen(l);else openMenu()})}
 async function boot(){const r=await fetch('api/auth/state'),s=await r.json().catch(()=>({}));TS=!!s.ts||r.status==403;
  if(!TS){if(!TOK){TOK=clean(prompt('Token'));localStorage.setItem('deck',TOK)}started=true;return start()}
  try{localStorage.removeItem('deck')}catch(e){}TOK='';
@@ -1033,7 +1045,7 @@ const tcol=()=>{const c=getComputedStyle(document.documentElement).getPropertyVa
 new MutationObserver(tcol).observe(document.documentElement,{attributeFilter:['data-theme']});matchMedia('(prefers-color-scheme: dark)').addEventListener('change',tcol);tcol();
 function step(d){const p=inSplit?(COLS[FOC].x||{}).pane:cur&&cur.pane,A=[...live].sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),i=A.findIndex(s=>s.pane==p);if(!A.length)return;hideSheet();closeMenu();stack=[];open_(A[i<0?(d>0?0:A.length-1):(i+d+A.length)%A.length])}
 // shortcuts for the whole window; the columns pass these up to the outer page (see deck.key)
-function gkey(e){const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.code,a=e.target;if(!started||!$('lock').hidden)return null;
+function gkey(e){const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.code,a=e.target;if(!started||!$('lock').hidden||a&&a.closest&&a.closest('.xt'))return null;// keys typed in a live terminal are the terminal's
  if(m&&!e.shiftKey&&!e.altKey&&c=='KeyK')return()=>{if(s0)side();if(!dOpen)openMenu();$('q').focus();$('q').select()};
  if(m&&e.shiftKey&&c=='KeyO')return()=>$('nc').click();
  if(m&&!e.shiftKey&&c=='Comma')return()=>$('set').click();
@@ -1053,7 +1065,7 @@ document.addEventListener('keydown',e=>{const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrl
  else if(e.key=='Tab'&&sh.classList.contains('on')){const F=[...sh.querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(x=>!x.disabled&&x.offsetParent),i=F.indexOf(a);// keep Tab inside the dialog
   if(F.length&&(e.shiftKey?i<=0:i==F.length-1||i<0))f=()=>F[e.shiftKey?F.length-1:0].focus();else return}
  else if(e.key=='Escape'&&a==$('ta')&&!($('slash').hidden&&$('at').hidden))f=()=>$('slash').hidden=$('at').hidden=true;
- else if(!started||!$('lock').hidden)return;
+ else if(!started||!$('lock').hidden||a&&a.closest&&a.closest('.xt'))return;
  else if(m&&!e.shiftKey&&c=='Period'&&cur&&cur.session&&!cur.agent)f=()=>rOpen?closeRP():(hideSheet(),openRP());
  else f=gkey(e);
  if(f){e.preventDefault();e.stopImmediatePropagation();f()}},true);
@@ -1080,11 +1092,11 @@ const SPLIT=matchMedia(COL?'not all':'(min-width:1000px) and (hover:hover) and (
 const room=()=>Math.max(1,Math.min(4,Math.floor((innerWidth-(s0?0:320))/530))),nvis=()=>Math.min(COLS.length,room()),cwin=c=>c&&c.ready&&c.f.contentWindow,cix=id=>COLS.findIndex(c=>c.id==id);
 const here=()=>{const x=inSplit&&COLS[FOC]&&COLS[FOC].x,s=x&&x.pane&&live.find(l=>l.pane==x.pane);return s?s.cwd:x&&x.cwd};
 // the chat list for every column: one /api/sessions call serves them all for 2.4 s (f: fresh, after starting a chat)
-function shared(f){return(!f&&lsP&&Date.now()-lsAt<2400?lsP:list()).then(()=>({live,hist,PN}))}
+function shared(f){return(!f&&lsP&&Date.now()-lsAt<2400?lsP:list()).then(()=>({live,hist,PN,SSH}))}
 function colSave(){if(inSplit)try{localStorage.setItem('cols',JSON.stringify({c:COLS.map(c=>c.x),f:FOC,s:s0}))}catch(e){}}
 function colLoad(){let d={},l=null;try{d=JSON.parse(localStorage.getItem('cols'))||{};l=localStorage.getItem('last')}catch(e){}s0=!!d.s;document.body.classList.toggle('s0',s0);
  const L=new Set(live.map(s=>s.pane)),c=d.c||[],f=c[d.f];// chats that have ended since are dropped
- COLS=c.filter(x=>x&&(!x.pane||L.has(x.pane))).map(x=>({id:++cid,x}));FOC=Math.max(0,COLS.findIndex(k=>k.x===f));
+ COLS=c.filter(x=>x&&(!x.pane||L.has(x.pane)||x.ssh&&SSH.terms.some(t=>t.pane==x.pane))).map(x=>({id:++cid,x}));FOC=Math.max(0,COLS.findIndex(k=>k.x===f));
  if(!COLS.length)COLS=[{id:++cid,x:L.has(l)?{pane:l}:null}]}
 // iframes are only ever added or removed, never moved: moving one reloads it
 function layout(){const n=nvis(),box=$('cols');if(FOC>=n){COLS.splice(n-1,0,...COLS.splice(FOC,1));FOC=n-1}// the focused column stays in view
@@ -1096,7 +1108,7 @@ function colUI(){const n=nvis(),sp=COLS.length<room();OPEN=new Set(COLS.slice(0,
  const c=COLS[FOC],t=c&&c.x&&c.t;document.title=t?t+' · Session Deck':'Session Deck';if(dOpen)drawMenu()}
 const colShow=c=>{const w=cwin(c);if(w)w.colGo(c.x)};
 // a chat picked in the list goes to the focused column, or to the column that already has it
-function colOpen(s){const x=s.aiva?{aiva:1,title:'Aiva'}:s.pane?{pane:s.pane}:{session:s.session,title:s.title,ro:1,cwd:s.cwd},k=x.pane||x.session||'aiva',i=COLS.findIndex(c=>c.x&&(c.x.pane||c.x.session||'aiva')==k);
+function colOpen(s){const x=s.aiva?{aiva:1,title:'Aiva'}:s.ssh?{ssh:1,pane:s.pane}:s.pane?{pane:s.pane}:{session:s.session,title:s.title,ro:1,cwd:s.cwd},k=x.pane||x.session||'aiva',i=COLS.findIndex(c=>c.x&&(c.x.pane||c.x.session||'aiva')==k);
  if(i>=0&&i<nvis())return colFocus(i,1);if(i>=0)COLS.splice(i,1);
  const c=COLS[FOC];c.x=x;c.t=s.title||s.name||'';colShow(c);colSave();colUI()}
 function colFocus(i,ta){const c=COLS[i];if(!c||i>=nvis())return;if(i!=FOC){FOC=i;colSave();colUI()}
@@ -1120,7 +1132,7 @@ $('drawer').addEventListener('click',e=>{if(document.body.classList.contains('pe
 function colWake(){COLS.forEach(c=>{const w=c.f&&c.f.contentWindow;if(w&&w.colWait)w.location.reload()})}// columns that found the deck locked
 function mode(){if(COL||!started)return;const on=SPLIT.matches;if(on==inSplit)return on&&layout();inSplit=on;document.body.classList.toggle('split',on);
  if(on){const b=stack[0]||cur;termSet(false);if(rOpen)closeRP();stack=[];home();colLoad();layout();if(b)colOpen(b);return}
- const x=(COLS[FOC]||{}).x,s=x&&(x.pane?live.find(l=>l.pane==x.pane):{...x});COLS.forEach(c=>c.el&&c.el.remove());COLS=[];OPEN=new Set();document.title='Session Deck';s?open_(s):home();drawMenu(1)}
+ const x=(COLS[FOC]||{}).x,s=x&&!x.ssh&&(x.pane?live.find(l=>l.pane==x.pane):{...x});COLS.forEach(c=>c.el&&c.el.remove());COLS=[];OPEN=new Set();document.title='Session Deck';x&&x.ssh&&SSH.terms.some(t=>t.pane==x.pane)?sshOpen(x.pane):s?open_(s):home();drawMenu(1)}
 if(!COL){
  window.deck={shared,ready:id=>{const c=COLS[cix(id)];if(c){c.ready=1;colUI();colShow(c)}},foc:id=>id!='agp'&&colFocus(cix(id)),isFoc:id=>id=='agp'||COLS[FOC]&&COLS[FOC].id==id,key:e=>e.key=='Escape'&&agpOn()?agpClose:gkey(e),agent:agpOpen,
   saw:(id,st)=>{const c=COLS[cix(id)];if(!c||!c.ready)return;const x=st.x&&JSON.parse(JSON.stringify(st.x)),ch=JSON.stringify(x)!=JSON.stringify(c.x);if(!ch&&c.t==st.t)return;c.x=x;c.t=st.t;if(ch)colSave();colUI()},
@@ -1137,15 +1149,15 @@ function agpClose(){if(!agpOn())return;AGP.classList.remove('on');setTimeout(()=
 addEventListener('keydown',e=>{if(e.key=='Escape'&&agpOn()&&!sh.classList.contains('on')){e.preventDefault();agpClose()}});
 /* column mode: this page as one column of the split view. The outer page (deck) owns the chat list, settings, sign-in and the window's shortcuts */
 if(COL){const P=parent.deck,me=COL,o=open_,h=home,l2=list2,p1=poll;let pAt=0;
- list=async f=>{const d=await P.shared(f);live=d.live.map(x=>({...x}));hist=d.hist;PN=d.PN;attnUI()};
+ list=async f=>{const d=await P.shared(f);live=d.live.map(x=>({...x}));hist=d.hist;PN=d.PN;SSH=d.SSH||SSH;attnUI();sshUI()};
  lock=s=>{if(!started)window.colWait=1;P.lock(s)};openMenu=()=>P.openMenu();newChat=c=>P.newChat(c);$('mb').onclick=openMenu;
  start=async()=>{try{CFG=await api('/api/config')}catch(e){}P.ready(me);if(me=='agp'){const q=new URLSearchParams(location.search),[ss,a]=(q.get('ag')||'').split('/');await list();const v=q.get('agv')||undefined;open_({session:ss,agent:a,title:'Subagent: '+(q.get('agd')||''),ro:v?0:1,via:v})}};
- const st=()=>{const b=stack[0]||cur;return{x:b&&(b.aiva?{aiva:1,title:'Aiva'}:b.pane?{pane:b.pane}:b.session?{session:b.session,title:b.title,ro:1,cwd:b.cwd}:null),t:$('title').textContent.replace(/●/g,'').trim()}};
+ const st=()=>{const b=stack[0]||cur;return{x:b&&(b.aiva?{aiva:1,title:'Aiva'}:b.ssh?{ssh:1,pane:b.pane}:b.pane?{pane:b.pane}:b.session?{session:b.session,title:b.title,ro:1,cwd:b.cwd}:null),t:$('title').textContent.replace(/●/g,'').trim()}};
  const head=()=>{const b=stack[0]||cur,s=b&&b.pane&&live.find(x=>x.pane==b.pane),c=b&&(b.cwd||s&&s.cwd);$('cdot').hidden=!s;if(s)$('cdot').className='sc '+stc(s);
   $('ptag').innerHTML=c?tile(proj(c))+`<span>${esc(proj(c))}</span>`:'';P.saw(me,st())};
  open_=s=>{o(s);head()};home=()=>{h();$('title').textContent='New column';$('main').querySelector('.empty p').textContent='Pick a chat from the list, or start a new one.';head()};list2=async()=>{await l2();head()};
  poll=async()=>{if(!P.isFoc(me)&&Date.now()-pAt<2900)return;pAt=Date.now();return p1()};// a column without focus checks its status every 3 s
- window.colGo=async x=>{x=x&&{...x};hideSheet();if(rOpen)closeRP();stack=[];if(x&&x.pane){await list();const s=live.find(l=>l.pane==x.pane);return s?open_(s):home()}x?open_(x):home()};
+ window.colGo=async x=>{x=x&&{...x};hideSheet();if(rOpen)closeRP();stack=[];if(x&&x.ssh){await list();return SSH.terms.some(t=>t.pane==x.pane)?sshOpen(x.pane):home()}if(x&&x.pane){await list();const s=live.find(l=>l.pane==x.pane);return s?open_(s):home()}x?open_(x):home()};
  $('title').insertAdjacentHTML('beforebegin','<i class="sc idle" id=cdot hidden></i>');$('title').insertAdjacentHTML('afterend','<small class=ptag id=ptag></small>');
  $('tv').insertAdjacentHTML('afterend',`<button class="ic csp" id=csp title="Open a new column" aria-label="Open a new column">${SPL}</button><button class="ic cx" id=cx title="Close column" aria-label="Close column">✕</button>`);
  $('csp').onclick=()=>P.split(me);$('cx').onclick=()=>P.close(me);
@@ -1275,4 +1287,65 @@ $('main').addEventListener('click',e=>{const f=e.target.closest('.pgo[data-of] b
  if(f.dataset.y||f.dataset.a=='yes'||f.dataset.a=='no')return avAnswer(p,f.dataset.a);AV.cf={id:p.dataset.of,a:f.dataset.a};return avPaint()}
  const b=e.target.closest('.pga[data-ap] [data-d]');if(b&&cur&&cur.aiva)avDecide(b.parentNode,b.dataset.d)});
 setInterval(()=>{const o=cur&&cur.aiva;if(started&&$('lock').hidden&&(!COL||o)&&Date.now()-AV.at>=(o?3e3:3e4)-500)tick(avLoad)},1e3);
+/* SSH: a section in the chat list, a host sheet and page, and terminals in the live terminal. Hosts live on the Mac (/api/ssh/hosts) and SSH
+   terminals in /api/sessions' ssh, never in Active or History. A saved password stays on this device (localStorage sshpw:<host id>), AES-GCM
+   encrypted with a key the Mac gives only to a signed-in session (/api/ssh/vault); it goes to the Mac only inside a connect, and only for a password host */
+let VK=null;const vault=()=>VK=VK||api('/api/ssh/vault').then(d=>crypto.subtle.importKey('raw',ub64(d.key),'AES-GCM',false,['encrypt','decrypt'])).catch(e=>{VK=null;throw e});
+const pwHas=h=>{try{return!!localStorage.getItem('sshpw:'+h)}catch(e){return false}},pwForget=h=>{try{localStorage.removeItem('sshpw:'+h)}catch(e){}};
+async function pwGet(h){try{const s=localStorage.getItem('sshpw:'+h);if(!s)return null;const b=ub64(s);return new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.slice(0,12)},await vault(),b.slice(12)))}catch(e){return null}}// can't decrypt: not saved
+async function pwSet(h,pw){try{const iv=crypto.getRandomValues(new Uint8Array(12)),c=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},await vault(),new TextEncoder().encode(pw))),b=new Uint8Array(12+c.length);b.set(iv);b.set(c,12);localStorage.setItem('sshpw:'+h,b64u(b))}catch(e){toast('Couldn\'t save the password on this device.')}}
+const sshc=v=>{try{if(v===undefined)return localStorage.getItem('sshc')=='1';v?localStorage.setItem('sshc','1'):localStorage.removeItem('sshc')}catch(e){}return false};// the section folded, per device
+const sshH=id=>SSH.hosts.find(h=>h.id==id),sshN=t=>+t.session.split('-').pop()||1,sshT=h=>SSH.terms.filter(t=>t.host==h).sort((a,b)=>sshN(a)-sshN(b));
+const sshA=h=>(h.user?h.user+'@':'')+(h.host.includes(':')?'['+h.host+']':h.host)+(h.port?':'+h.port:''),sshAddr=h=>sshA(h)+(h.auth=='config'?' (~/.ssh/config)':'');
+const tRow=(t,x)=>`<button class="crow${x?'':' lv sht'}${cur&&cur.pane==t.pane||OPEN.has(t.pane)?' cur':''}" data-st="${esc(t.pane)}"><i class=tmi>&gt;_</i><span><b>Terminal ${sshN(t)}</b><small>${t.dead?'<span class=nd>Disconnected</span>':'Open'} · ${ago(t.created)}</small></span></button>`;
+// hosts with open terminals first, each with its terminals under it, then the rest by name; a throwaway host shows only while it has a terminal
+function sshSec(){const T=SSH.terms,f=sshc(),n=h=>T.filter(t=>t.host==h.id).length,H=SSH.hosts.filter(h=>!h.temp||n(h)).sort((a,b)=>!n(a)-!n(b)||a.name.localeCompare(b.name));
+ return`<section><div class=sec><button class=sst data-sshc=1 aria-expanded=${!f}>SSH</button><span>${T.length||''}<button class=sadd data-ssha=1 aria-label="Add an SSH host" title="Add an SSH host">+</button></span></div>`+(f?'':`<div class=card>${H.map(h=>{const ts=sshT(h.id);
+  return`<button class=crow data-sh="${esc(h.id)}"><i class="sc ${ts.length?'done':'idle'}"></i><span><b>${esc(h.name)}</b><small>${ts.length?ts.length+' open'+(h.temp?' · not saved':''):esc(sshAddr(h))}</small></span></button>`+ts.map(t=>tRow(t)).join('')}).join('')||'<div class=none>No hosts yet. Add one with +.</div>'}</div>`)+'</section>'}
+function sshOpen(p){const t=SSH.terms.find(x=>x.pane==p);if(!t)return toast('That terminal has closed.');const h=sshH(t.host);open_({ssh:1,pane:p,host:t.host,title:(h?h.name:t.title)+(sshN(t)>1?' · '+sshN(t):'')})}
+// the terminal view: Disconnected (the connection dropped, the pane stays) with Reconnect, or closed
+function sshUI(){const b=$('sshb');if(!cur||!cur.ssh){b.hidden=true;b.dataset.k='';return}const t=SSH.terms.find(x=>x.pane==cur.pane),h=sshH(cur.host),k=!t?'gone':t.dead?'dead':'';b.hidden=!k;
+ if(k&&b.dataset.k!=k+cur.pane)b.innerHTML=k=='dead'?'<span>Disconnected</span><button id=sshre>Reconnect</button>':`<span>This terminal has closed.</span>${h?'<button id=sshnt>New terminal</button>':''}`;b.dataset.k=k&&k+cur.pane;
+ const x=$('xhp');if(x&&sh.classList.contains('on')&&x.dataset.k!=sshK(x.dataset.h))sshHost(x.dataset.h,1)}
+$('sshb').onclick=e=>{if(e.target.id=='sshre')sshRe(cur.pane);if(e.target.id=='sshnt')sshConnect(cur.host)};
+// a password for a password host: the saved one, else nothing when another terminal there is up (its shared connection needs none), else asked for
+function pwAsk(h){return new Promise(ok=>{sb.innerHTML=`<h2>Password</h2><small class=sub2>${esc(h.name)} · ${esc(sshAddr(h))}</small><input id=pwi type=password autocomplete=off placeholder="Password${h.user?' for '+esc(h.user):''}">`+
+  (h.temp?'':'<label class=ck><input type=checkbox id=pwk checked> Remember on this device</label>')+'<button class=go id=pwgo>Connect</button>';showSheet(1);
+ const go=()=>{const v=$('pwi').value;if(!v)return $('pwi').focus();ok({pw:v,keep:!!($('pwk')&&$('pwk').checked)})};$('pwgo').onclick=go;$('pwi').onkeydown=e=>{if(e.key=='Enter')go()};setTimeout(()=>$('pwi')&&$('pwi').focus(),60)})}
+async function pwFor(h,skip){if(h.auth!='password')return'';const p=!h.temp&&await pwGet(h.id);if(p)return p;if(SSH.terms.some(t=>t.host==h.id&&!t.dead&&t.pane!=skip))return'';
+ const r=await pwAsk(h);if(r.keep&&!h.temp)await pwSet(h.id,r.pw);return r.pw}
+async function sshGo(b,h,pw){if(pw&&h.auth=='password')b.password=pw;let d;try{d=await api('/api/ssh/connect',b)}catch(e){return toast(e.reason||'Couldn\'t connect.')}
+ hideSheet();closeMenu();stack=[];await list().catch(()=>{});sshOpen(d.pane)}
+async function sshConnect(hid,pw){const h=sshH(hid);if(!h)return toast('That host has gone.');sshGo({host:hid},h,pw||await pwFor(h))}
+async function sshRe(p){const t=SSH.terms.find(x=>x.pane==p),h=t&&sshH(t.host);if(!h)return toast('That host isn\'t saved any more.');const pw=await pwFor(h,p);
+ try{await api('/api/ssh/reconnect',{pane:p,...pw?{password:pw}:{}})}catch(e){return toast(e.reason||'Couldn\'t reconnect.')}hideSheet();await list().catch(()=>{});if(LT&&cur&&cur.pane==p)LT.focus()}
+async function sshClose(p){try{await api('/api/ssh/close',{pane:p})}catch(e){return toast(e.reason||'Couldn\'t close it.')}if(cur&&cur.pane==p){hideSheet();home();if(!COL)openMenu()}toast('Connection closed');list().catch(()=>{})}
+// + and Edit: a save replaces every field, so the whole form goes. Connect once makes a throwaway host: never saved, its password never kept
+async function sshAdd(h){closeMenu();let cfg=[],au=h?h.auth:'password';try{cfg=(await api('/api/ssh/hosts')).config||[]}catch(e){}const B=(id,t)=>`<button class=pick id=${id} style="text-align:center">${t}</button>`;
+ sb.innerHTML=`<h2>${h?'Edit host':'New SSH host'}</h2><div><div class=lbl>Name</div><input id=xnm type=text maxlength=60 autocomplete=off placeholder="Optional" value="${esc(h?h.name:'')}"></div>
+ <div><div class=lbl>Address</div><input id=xad type=text list=xcf autocomplete=off autocapitalize=off autocorrect=off spellcheck=false placeholder="user@host:port or a ~/.ssh/config name" value="${esc(h?sshA(h):'')}"><datalist id=xcf>${cfg.map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
+ <div><div class=lbl>Sign in</div><div class=seg id=xau>${[['password','Password'],['key','Key'],['config','From ~/.ssh/config']].map(([v,t])=>`<button data-au=${v}>${t}</button>`).join('')}</div></div>
+ <div id=xpb><div class=lbl>Password</div><input id=xpw type=password autocomplete=off placeholder="${h&&pwHas(h.id)?'Saved on this device. Type to change it':''}"><label class=ck style="margin-top:8px"><input type=checkbox id=xrm checked> Remember on this device</label></div>
+ ${sel('xpm','Claude chats here',PERMO)}<button class=go id=xsc>Save and connect</button><div class=two>${B('xsv','Save')}${h?B('xcn','Cancel'):B('xso','Connect once')}</div>`;showSheet(h?1:-1);
+ const A=v=>{au=v;$('xau').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.au==v));$('xpb').hidden=v!='password'};A(au);$('xpm').value=h?h.perm:'default';
+ $('xau').onclick=e=>{const b=e.target.closest('[data-au]');if(b)A(b.dataset.au)};$('xad').oninput=()=>{if(cfg.includes($('xad').value.trim()))A('config')};
+ const V=()=>({name:$('xnm').value.trim(),addr:$('xad').value.trim(),auth:au,perm:$('xpm').value}),pw=()=>au=='password'?$('xpw').value:'',bs=[...sb.querySelectorAll('.go,.pick')];
+ const save=async()=>{bs.forEach(b=>b.disabled=true);try{const x=(await api('/api/ssh/hosts',{save:{...h&&{id:h.id},...V()}})).host,p=pw(),k=$('xrm').checked;
+   if(x.auth!='password'||p&&!k)pwForget(x.id);if(p&&k)await pwSet(x.id,p);await list().catch(()=>{});return x}catch(e){toast(e.reason||'Couldn\'t save that.')}finally{bs.forEach(b=>b.disabled=false)}};
+ $('xsv').onclick=async()=>{const x=await save();if(x)sshHost(x.id)};$('xsc').onclick=async()=>{const x=await save();if(x)sshConnect(x.id,pw())};
+ if(h)$('xcn').onclick=()=>sshHost(h.id);else $('xso').onclick=()=>{const v=V();sshGo({temp:{addr:v.addr,auth:au}},{auth:au},pw())}}
+// a host's page: its terminals (Open, Close), New terminal, Edit, Forget saved password, Delete. Redrawn when its terminals change (sshUI)
+const sshK=hid=>JSON.stringify([sshH(hid),sshT(hid),pwHas(hid)]);
+function sshHost(hid,re){const h=sshH(hid);if(!h){if(re)hideSheet();return toast('That host has gone.')}closeMenu();const T=sshT(hid),B=(id,t,c)=>`<button class=pick id=${id} style="text-align:center${c?';color:#e5484d':''}">${t}</button>`;
+ sb.innerHTML=`<div class=pg id=xhp data-h="${esc(hid)}" data-k="${esc(sshK(hid))}"><div class=ph>${tile(h.name,1)}<span><h3>${esc(h.name)}</h3><small>${esc(sshAddr(h))}${h.temp?' · not saved':''}</small></span></div>
+ <section><div class=sec>Terminals<span>${T.length||''}</span></div><div class=card>${T.map(t=>`<div class=arow>${tRow(t,1)}<button class="kill op" data-st="${esc(t.pane)}">Open</button><button class=kill data-sx="${esc(t.pane)}">Close</button></div>`).join('')||'<div class=none>No open terminals.</div>'}</div></section>
+ <button class=go id=xnt>New terminal</button>`+(h.temp?'':(pwHas(hid)?`<div class=two>${B('xed','Edit')}${B('xfg','Forget saved password')}</div>`:B('xed','Edit'))+B('xdl','Delete host',1))+'</div>';if(!re)showSheet(-1);
+ $('xhp').querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{hideSheet();stack=[];sshOpen(b.dataset.st)});$('xhp').querySelectorAll('[data-sx]').forEach(b=>twice(b,'Tap to close',()=>sshClose(b.dataset.sx)));
+ $('xnt').onclick=()=>sshConnect(hid);if(h.temp)return;$('xed').onclick=()=>sshAdd(h);if($('xfg'))$('xfg').onclick=()=>{pwForget(hid);toast('Password forgotten on this device');sshHost(hid,1)};
+ twice($('xdl'),T.length?`Tap again to delete it and close ${T.length} terminal${T.length>1?'s':''}`:'Tap again to delete it',async()=>{for(const t of T)await api('/api/ssh/close',{pane:t.pane}).catch(()=>{});
+  try{await api('/api/ssh/hosts',{delete:hid})}catch(e){return toast(e.reason||'Couldn\'t delete it.')}pwForget(hid);hideSheet();toast('Host deleted');if(cur&&cur.ssh&&cur.host==hid)home();list().catch(()=>{})})}
+// the terminal view's title opens this: Reconnect, Host page, Close connection
+function sshMenu(){const p=cur.pane,t=SSH.terms.find(x=>x.pane==p),h=sshH(cur.host),B=(id,t,c)=>`<button class=${c=='go'?'go':'pick'} id=${id} style="text-align:center${c=='red'?';color:#e5484d':''}">${t}</button>`;
+ sb.innerHTML=`<h2>${esc(cur.title)}</h2><small class=sub2>${h?esc(sshAddr(h)):''}${t&&t.dead?' · disconnected':!t?' · closed':''}</small>`+(t?B('xre','Reconnect',t.dead?'go':''):'')+(h?B('xhg','Host page'):'')+(t?B('xcl','Close connection','red'):'');showSheet(-1);
+ if(t){$('xre').onclick=()=>sshRe(p);twice($('xcl'),'Tap again to close it',()=>sshClose(p))}if(h)$('xhg').onclick=()=>sshHost(h.id)}
 </script>
