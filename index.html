@@ -320,14 +320,14 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .a>.who{display:block;font-size:12px;font-weight:600;color:var(--m);margin-bottom:2px}.chat>.pga{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.chat>.avn{align-self:flex-start;margin-top:-4px}.chat>.pgo{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.pgo{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pgo>small{grid-column:1/-1;color:var(--m);font-size:12.5px}.pgo .pick{text-align:center}
 .aiva :is(#kbt,#clip,#kbar,#slash,#at,#bang,#att,#sug,#tv,#status,#stats,#menu,#sab){display:none!important}/* Aiva's chat: the session chat's box without the terminal, files and status */
 /* SSH: the section in the chat list (fold, +), terminal rows under their host, and the terminal view (no chat box, status or Terminal button) */
-.sshv :is(#foot,#tv,#status,#stats,#menu,#sab,#jump){display:none!important}
+.sshv :is(#foot,#tv,#status,#stats,#menu,#sab,#jump){display:none!important}header .sshx{display:none}.sshv header .sshx{display:grid}
 .sst{border:0;background:none;padding:0;font:inherit;color:inherit;letter-spacing:inherit}.sst::after{content:"  \25BE"}.sst[aria-expanded=false]::after{content:"  \25B8"}
 .sadd{border:0;background:none;color:var(--c);font:500 20px/1 system-ui,sans-serif;padding:0 4px;margin:-6px -4px -6px 8px;vertical-align:-1px}
 .tmi{flex:none;width:34px;text-align:center;font:600 12px ui-monospace,monospace;font-style:normal;color:var(--m)}.crow.sht{padding-left:22px}.card>.sht+.sht::before{left:66px}
 .sshb{display:flex;align-items:center;gap:10px;padding:6px 16px;background:var(--r);border-bottom:1px solid var(--l);font-size:13.5px}.sshb span{flex:1;min-width:0;color:var(--o);font-weight:600}
 .kill.op{color:var(--c)}.sshb button{flex:none;border:1px solid var(--l);background:var(--s);border-radius:99px;padding:3px 12px;color:var(--c);font-size:13px}
 </style>
-<header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class=chip id=tv hidden>Terminal</button></header>
+<header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class="ic sshx" id=sclip aria-label="Attach a file" title="Attach a file"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg></button><button class="ic sshx" id=sget aria-label="Get a file from the server" title="Get a file from the server"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg></button><button class=chip id=tv hidden>Terminal</button></header>
 <div class=off id=off hidden>Reconnecting…</div><div class=sshb id=sshb hidden></div>
 <main id=main></main><div id=cols></div>
 <div class="kbar tkeys" id=tkeys hidden><button>Esc</button><button>Tab</button><button data-m=c aria-pressed=false>Ctrl</button><button data-m=a aria-pressed=false>Alt</button><button aria-label=Left>&#8592;</button><button aria-label=Up>&#8593;</button><button aria-label=Down>&#8595;</button><button aria-label=Right>&#8594;</button><button>|</button><button>~</button><button>/</button><button>-</button><button data-p>Paste</button></div>
@@ -365,7 +365,7 @@ let TOK=clean(localStorage.getItem('deck')),TS=null;// TS: on the Tailscale rout
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // connection state: 2+ failed rounds show the banner; timers wait out a growing backoff (see tick)
 let fails=0,retryAt=0;const net=ok=>{if(ok){fails=0;retryAt=0}else if(Date.now()>=retryAt){fails++;retryAt=Date.now()+[1,2,5,10,15][Math.min(fails,5)-1]*1e3}$('off').hidden=fails<2};
-async function api(p,b){let r;const av=p.startsWith('/api/aiva/');try{r=await fetch(p.replace(/^\//,''),{method:b?'POST':'GET',headers:{'X-Deck-Token':TOK,'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout?AbortSignal.timeout(2e4):undefined})}catch(e){net(0);throw Object.assign(e,{st:0})}
+async function api(p,b,ms=2e4){let r;const av=p.startsWith('/api/aiva/');try{r=await fetch(p.replace(/^\//,''),{method:b?'POST':'GET',headers:{'X-Deck-Token':TOK,'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout?AbortSignal.timeout(ms):undefined})}catch(e){net(0);throw Object.assign(e,{st:0})}
  if(r.status>=502&&r.status<=504&&!av){net(0);throw Object.assign(new Error(r.status),{st:r.status})}net(1);if(r.status==401){if(TS!==false){if(TS)lock();throw new Error('401')}localStorage.removeItem('deck');alert('Token not accepted. Paste it again.');location.reload()}if(r.status==409){const e=new Error('409');e.reason=(await r.json().catch(()=>({}))).error||'The screen changed.';throw e}if(!r.ok)throw Object.assign(new Error(r.status),{st:r.status},(av||p.startsWith('/api/ssh/'))&&{reason:(await r.json().catch(()=>({}))).error});return r.json()}
 let cur=null,term=false,live=[],timer,SSH={hosts:[],terms:[]};// SSH: saved and throwaway hosts and open SSH terminals, from /api/sessions
 let inSplit=false,OPEN=new Set();// the outer page: split view on, and the panes and sessions open in its columns
@@ -726,9 +726,10 @@ window.lbOpen=(list,i)=>COL&&parent.lbOpen?parent.lbOpen(list,i):lbShow(list,i);
 const lbFrom=im=>{const all=[...$('main').querySelectorAll('img')].filter(x=>x.src);window.lbOpen(all.map(x=>x.src),Math.max(0,all.indexOf(im)))};
 $('main').addEventListener('click',e=>{const im=e.target.closest('img');if(im&&im.src){e.stopPropagation();lbFrom(im)}},true);
 // the iPhone home-screen app shows a download as a full-screen preview with no way back, so there Save hands the file to the share sheet (Save to Files, AirDrop…)
-const saveF={};$('main').addEventListener('click',async e=>{const a=e.target.closest('.fch.out a[download]');if(!a||!navigator.standalone||!navigator.share)return;e.preventDefault();const u=a.getAttribute('href').replace('&dl=1','');
+const saveF={},saveH=async e=>{const a=e.target.closest('.fch.out a[download]');if(!a||!navigator.standalone||!navigator.share)return;e.preventDefault();const u=a.getAttribute('href').replace('&dl=1','');
  try{if(!saveF[u]){a.textContent='…';const r=await fetch(u);if(!r.ok)throw new Error('gone');const b=await r.blob();saveF[u]=new File([b],a.download,{type:b.type})}a.textContent='Save';await navigator.share({files:[saveF[u]]})}
- catch(x){a.textContent='Save';if(x.name=='NotAllowedError')toast('Ready: tap Save again');else if(x.name!='AbortError')toast("Couldn't save that file")}});
+ catch(x){a.textContent='Save';if(x.name=='NotAllowedError')toast('Ready: tap Save again');else if(x.name!='AbortError')toast("Couldn't save that file")}};
+$('main').addEventListener('click',saveH);$('sbody').addEventListener('click',saveH);// sbody: Get file's sheet
 $('main').addEventListener('mouseover',e=>{hovImg=e.target.closest('img')});$('main').addEventListener('mouseout',e=>{if(e.target===hovImg)hovImg=null});
 $('lbx').onclick=lbHide;
 window.lbKey=e=>{if($('lbx').hidden)return false;if(e.key=='Escape'||e.key==' '){e.preventDefault();e.stopPropagation();lbHide()}else if(e.key=='ArrowRight'||e.key=='ArrowLeft'){e.preventDefault();lbShow(lbL,lbI+(e.key=='ArrowRight'?1:-1))}return true};
@@ -858,7 +859,7 @@ function attach(files){if(!cur||!(cur.pane||cur.via))return;for(const f of files
  x.upload.onprogress=e=>{const c=$('att').querySelector(`[data-id="${a.id}"]`);if(!e.lengthComputable||!c||!c.querySelector('b'))return;a.pct=Math.round(e.loaded*100/e.total);c.querySelector('b').textContent=a.pct+'%';c.querySelector('i').style.width=a.pct+'%'};
  x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status==200&&r.path){a.path=r.path;attUI()}else unattach(a,r.error||name+': upload failed ('+x.status+').')};
  x.onerror=()=>unattach(a,name+': upload failed. Check the connection.');x.send(f)}attUI()}
-$('clip').onclick=()=>$('fi').click();$('fi').onchange=()=>{attach([...$('fi').files]);$('fi').value=''};
+$('clip').onclick=()=>$('fi').click();$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
 $('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
 $('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
 const vv=window.visualViewport;
@@ -1339,11 +1340,29 @@ const sshK=hid=>JSON.stringify([sshH(hid),sshT(hid),pwHas(hid)]);
 function sshHost(hid,re){const h=sshH(hid);if(!h){if(re)hideSheet();return toast('That host has gone.')}closeMenu();const T=sshT(hid),B=(id,t,c)=>`<button class=pick id=${id} style="text-align:center${c?';color:#e5484d':''}">${t}</button>`;
  sb.innerHTML=`<div class=pg id=xhp data-h="${esc(hid)}" data-k="${esc(sshK(hid))}"><div class=ph>${tile(h.name,1)}<span><h3>${esc(h.name)}</h3><small>${esc(sshAddr(h))}${h.temp?' · not saved':''}</small></span></div>
  <section><div class=sec>Terminals<span>${T.length||''}</span></div><div class=card>${T.map(t=>`<div class=arow>${tRow(t,1)}<button class="kill op" data-st="${esc(t.pane)}">Open</button><button class=kill data-sx="${esc(t.pane)}">Close</button></div>`).join('')||'<div class=none>No open terminals.</div>'}</div></section>
- <button class=go id=xnt>New terminal</button>`+(h.temp?'':(pwHas(hid)?`<div class=two>${B('xed','Edit')}${B('xfg','Forget saved password')}</div>`:B('xed','Edit'))+B('xdl','Delete host',1))+'</div>';if(!re)showSheet(-1);
+ <button class=go id=xnt>New terminal</button>`+(h.temp?'':(pwHas(hid)?`<div class=two>${B('xed','Edit')}${B('xfg','Forget saved password')}</div>`:B('xed','Edit')))+
+ (h.auth=='password'&&T.some(t=>!t.dead)?B('xik','Install key (sign in without a password)'):'')+B('xrk','Remove old host key')+(h.temp?'':B('xdl','Delete host',1))+'</div>';if(!re)showSheet(-1);
  $('xhp').querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{hideSheet();stack=[];sshOpen(b.dataset.st)});$('xhp').querySelectorAll('[data-sx]').forEach(b=>twice(b,'Tap to close',()=>sshClose(b.dataset.sx)));
- $('xnt').onclick=()=>sshConnect(hid);if(h.temp)return;$('xed').onclick=()=>sshAdd(h);if($('xfg'))$('xfg').onclick=()=>{pwForget(hid);toast('Password forgotten on this device');sshHost(hid,1)};
+ $('xnt').onclick=()=>sshConnect(hid);twice($('xrk'),'Tap again to remove it',async()=>{let r;try{r=await api('/api/ssh/forgetkey',{host:hid})}catch(e){r={}}sshHost(hid,1);
+  toast(r.removed?'Old host key removed. The next connect shows the fingerprint to check.':r.removed===0?'This Mac had no key saved for this host.':'Couldn\'t remove it.')});
+ if($('xik'))$('xik').onclick=async()=>{const b=$('xik');b.disabled=true;b.textContent='Installing…';try{await api('/api/ssh/installkey',{host:hid},6e4)}catch(e){b.disabled=false;b.textContent='Install key (sign in without a password)';return toast(e.reason||'Couldn\'t install the key.')}
+  pwForget(hid);toast('Key installed. This host now signs in with the Mac\'s key.');await list().catch(()=>{});sshHost(hid,1)};// the saved password is no longer needed
+ if(h.temp)return;$('xed').onclick=()=>sshAdd(h);if($('xfg'))$('xfg').onclick=()=>{pwForget(hid);toast('Password forgotten on this device');sshHost(hid,1)};
  twice($('xdl'),T.length?`Tap again to delete it and close ${T.length} terminal${T.length>1?'s':''}`:'Tap again to delete it',async()=>{for(const t of T)await api('/api/ssh/close',{pane:t.pane}).catch(()=>{});
   try{await api('/api/ssh/hosts',{delete:hid})}catch(e){return toast(e.reason||'Couldn\'t delete it.')}pwForget(hid);hideSheet();toast('Host deleted');if(cur&&cur.ssh&&cur.host==hid)home();list().catch(()=>{})})}
+// the terminal view's paperclip: each file goes through the Mac to the server's ~/.cache/session-deck/uploads and its path is typed at the prompt, not run
+function sshAttach(files){const p=cur.pane;for(const f of files){const name=f.name||'pasted image';if(f.size>1<<30){toast(name+' is over 1 GB. Move very large files with Syncthing instead.');continue}
+ const x=new XMLHttpRequest();x.open('POST','api/upload?pane='+encodeURIComponent(p)+'&name='+encodeURIComponent(name));x.setRequestHeader('X-Deck-Token',TOK);
+ x.upload.onprogress=e=>{if(e.lengthComputable)toast(name+': '+Math.round(e.loaded*100/e.total)+'%')};x.onerror=()=>toast(name+': upload failed. Check the connection.');
+ x.onload=async()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status!=200||!r.path)return toast(r.error||name+': upload failed ('+x.status+').');
+  try{await api('/api/ssh/type',{pane:p,text:r.path+' '});toast(name+' is on the server');if(LT&&cur&&cur.pane==p)LT.focus()}catch(e){toast(e.reason||'Couldn\'t type its path.')}};x.send(f)}}
+$('sclip').onclick=()=>$('fi').click();$('sget').onclick=()=>cur&&cur.ssh&&sshGet();
+// Get file: a path on the server comes back as a file to open or save on this device (the deck's 1 GB limit)
+function sshGet(){const p=cur.pane,h=sshH(cur.host);sb.innerHTML=`<h2>Get a file</h2><small class=sub2>From ${esc(h?h.name:'the server')}, up to 1 GB, to open or save here.</small>
+ <input id=gfp type=text autocomplete=off autocapitalize=off autocorrect=off spellcheck=false placeholder="~/notes.txt or /etc/hostname"><div id=gfr></div><button class=go id=gfg>Get file</button>`;showSheet(-1);
+ const go=async()=>{const v=$('gfp').value.trim(),b=$('gfg');if(!v)return $('gfp').focus();b.disabled=true;b.textContent='Getting…';$('gfr').innerHTML='';
+  try{$('gfr').innerHTML=outF([await api('/api/ssh/get',{pane:p,path:v},36e5)])}catch(e){toast(e.reason||'Couldn\'t get that file.')}b.disabled=false;b.textContent='Get file'};
+ $('gfg').onclick=go;$('gfp').onkeydown=e=>{if(e.key=='Enter')go()};setTimeout(()=>$('gfp')&&$('gfp').focus(),60)}
 // the terminal view's title opens this: Reconnect, Host page, Close connection
 function sshMenu(){const p=cur.pane,t=SSH.terms.find(x=>x.pane==p),h=sshH(cur.host),B=(id,t,c)=>`<button class=${c=='go'?'go':'pick'} id=${id} style="text-align:center${c=='red'?';color:#e5484d':''}">${t}</button>`;
  sb.innerHTML=`<h2>${esc(cur.title)}</h2><small class=sub2>${h?esc(sshAddr(h)):''}${t&&t.dead?' · disconnected':!t?' · closed':''}</small>`+(t?B('xre','Reconnect',t.dead?'go':''):'')+(h?B('xhg','Host page'):'')+(t?B('xcl','Close connection','red'):'');showSheet(-1);

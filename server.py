@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Session Deck: shows live tmux Claude Code sessions as chats and types into them.
 Binds 127.0.0.1 (and DECK_SOCKET) only. Needs the token from <DECK_SECRETS>/session-deck.json for every local /api call."""
-import html, http.client, json, os, re, secrets, shutil, socket, stat, subprocess, sys, threading, time, urllib.parse
+import html, http.client, json, os, re, secrets, shlex, shutil, socket, stat, subprocess, sys, threading, time, urllib.parse
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -1414,7 +1414,7 @@ def tidy_uploads():
     for f in fs:
         if time.time() - f.stat().st_mtime > 14 * 86400 or total > 10 << 30:
             total -= f.stat().st_size; f.unlink(missing_ok=True); NAMES.pop(str(f), None)
-    for d in UPL.glob("*"):
+    for d in [*UPL.glob("from-ssh/*"), *UPL.glob("*")]:  # Get file's folders first, so from-ssh can go too
         if d.is_dir() and d.name != time.strftime("%Y-%m-%d") and not any(d.iterdir()): d.rmdir()
 
 def tidy_loop():
@@ -2016,6 +2016,77 @@ def ssh_state():
         for k in [k for k in SSH_TEMP if k not in used]: del SSH_TEMP[k]
         return {"hosts": ssh_hosts() + list(SSH_TEMP.values()), "terms": terms}
 
+# SSH: remote commands, over the host's shared connection in batch mode, so a password host with no live master fails at once (exit 255)
+# instead of asking. Only POSIX sh, mkdir, cat, find and wc run on the server (and grep for Install key); nothing is installed there.
+REMOTE_UP = ".cache/session-deck/uploads"  # under the server's $HOME
+SSH_KEY = HOME / ".ssh/id_ed25519"  # the Mac's key, which Install key adds on a server
+KNOWN_HOSTS = HOME / ".ssh/known_hosts"
+
+def rpath(p):
+    """A server path as shell text: ~/x becomes "$HOME"/'x' (quoting stops the server's ~ expanding), anything else is quoted whole."""
+    if not isinstance(p, str) or not p or "\0" in p or "\n" in p: raise ValueError("not a valid path")
+    return '"$HOME"/' + shlex.quote(p[2:]) if p.startswith("~/") else shlex.quote(p)
+
+def ssh_run(host, script, inp=None, timeout=120, out=None):
+    """sh -c script on the host. inp: bytes or an open file for stdin; out: an open file for stdout, else it's captured."""
+    f = inp is not None and not isinstance(inp, bytes)
+    return subprocess.run(ssh_argv(host, ["sh", "-c", shlex.quote(script)], batch=True), input=None if f else inp, stdin=inp if f else None if inp is not None else subprocess.DEVNULL,
+                          stdout=out or subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+
+def ssh_err(r):
+    """What a failed ssh_run says to the page: the server's first line of stderr, or for ssh's own failure (no live connection) what to do."""
+    if r.returncode == 255: return "Open a terminal to this host first: the deck needs its connection."
+    l = r.stderr.decode(errors="replace").strip().splitlines()
+    return l[0][:200] if l else f"The server said no (exit {r.returncode})."
+
+def ssh_put(host, local, name):
+    """Copies an upload to the server's uploads folder (where files over 14 days old go first) and deletes the Mac's copy: its server path, as ~/...
+    Raises RuntimeError with the reason."""
+    f = f"{time.strftime('%Y-%m-%d')}-{secrets.token_hex(3)}{local.suffix}"
+    try:
+        with open(local, "rb") as fh: r = ssh_run(host, f'umask 077; d="$HOME"/{REMOTE_UP}; mkdir -p "$d" && find "$d" -type f -mtime +14 -delete; cat > "$d"/{f}', fh, 3600)
+    finally: local.unlink(missing_ok=True); NAMES.pop(str(local), None)
+    if r.returncode: raise RuntimeError(f"{name} didn't reach the server. {ssh_err(r)}")
+    return f"~/{REMOTE_UP}/{f}"
+
+def ssh_get(host, path):
+    """A server file no bigger than UP_MAX, copied to UPL/from-ssh/<hex8>/<its name>: that Path. Raises RuntimeError with the reason."""
+    rp, base = rpath(path), re.sub(r"[\x00-\x1f\\]", "", os.path.basename(path.rstrip("/")))[:120]
+    r = ssh_run(host, f"wc -c < {rp}", timeout=30)
+    if r.returncode: raise RuntimeError(ssh_err(r))
+    try: n = int(r.stdout)
+    except ValueError: raise RuntimeError("That isn't a file.")
+    if n > UP_MAX: raise RuntimeError("That file is over 1 GB, too big to fetch.")
+    d = UPL / "from-ssh" / secrets.token_hex(4); d.mkdir(parents=True); p = d / (base if base not in ("", ".", "..") else "file")
+    try:
+        sv = os.statvfs(d)
+        if sv.f_bavail * sv.f_frsize < n + (2 << 30): raise RuntimeError("The Mac is low on disk space.")
+        with open(p, "wb") as fh: r = ssh_run(host, f"cat -- {rp}", timeout=3600, out=fh)
+        if r.returncode: raise RuntimeError(ssh_err(r))
+        return p
+    except BaseException: shutil.rmtree(d, ignore_errors=True); raise
+
+def ssh_install_key(host):
+    """Adds the Mac's public key to the server's authorized_keys (once) over the live connection, then the host signs in with the key. An error, or None."""
+    if host.get("auth") != "password": return "Only a host that signs in with a password needs this."
+    if not SSH_KEY.exists():
+        SSH_KEY.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-q", "-f", str(SSH_KEY)], capture_output=True, timeout=30)
+    try: pub = SSH_KEY.with_name(SSH_KEY.name + ".pub").read_bytes().strip()
+    except OSError: return "The Mac's key couldn't be made."
+    r = ssh_run(host, """umask 077; mkdir -p ~/.ssh; k=$(cat); grep -qxF "$k" ~/.ssh/authorized_keys 2>/dev/null || printf '%s\\n' "$k" >> ~/.ssh/authorized_keys""", pub, 30)
+    if r.returncode: return ssh_err(r)
+    with _ssh_lock: ssh_hosts_write([{**x, "auth": "key"} if x.get("id") == host["id"] else x for x in ssh_hosts()])
+
+def ssh_forget_key(host):
+    """Removes the host's keys from known_hosts, so the next connect asks about its fingerprint again: how many lines went."""
+    ssh_argv(host)  # refuses a tampered address
+    h, p = host["host"], host.get("port")
+    if host.get("auth") == "config":  # the alias's real name and port, as ssh works them out
+        g = dict(l.split(" ", 1) for l in run(SSH_BIN, "-G", "--", h).splitlines() if " " in l); h, p = g.get("hostname", h), g.get("port")
+    if not KNOWN_HOSTS.exists(): return 0
+    return "".join(run("ssh-keygen", "-R", n, "-f", str(KNOWN_HOSTS)) for n in [h] + ([f"[{h}]:{p}"] if p and str(p) != "22" else [])).count(" found: ")
+
 def cbor(b, i=0):
     """Minimal CBOR decoder (ints, bytes, text, arrays, maps, bools): enough for attestationObject and COSE keys."""
     mt, ai = b[i] >> 5, b[i] & 31; i += 1
@@ -2285,8 +2356,8 @@ class H(BaseHTTPRequestHandler):
         ok = self.login() if self.via_ts() else (self.headers.get("Host") or "").split(":")[0] in HOSTS
         try: p = ub64(pb).decode()
         except Exception: p = ""
-        ext = p.rsplit(".", 1)[-1].lower()
-        if not ok or not hmac.compare_digest(mac.encode(), sign(exp + "." + pb).encode()) or int(exp) < time.time() or ext not in OUT_EXT or not os.path.isfile(p):
+        ext, fs = os.path.splitext(p)[1][1:].lower(), bool(p) and Path(p).resolve().is_relative_to((UPL / "from-ssh").resolve())  # Get file's: any type, but only shown if in OUT_SHOW
+        if not ok or not hmac.compare_digest(mac.encode(), sign(exp + "." + pb).encode()) or int(exp) < time.time() or ext not in OUT_EXT and not fs or not os.path.isfile(p):
             return self.send(404, b"This link has expired or the file has gone. Open the chat again for a new one.", "text/plain; charset=utf-8")
         size = os.path.getsize(p); a, b = 0, size - 1
         r = re.fullmatch(r"bytes=(\d*)-(\d*)", self.headers.get("Range", ""))  # iPhones only play video served in ranges
@@ -2306,8 +2377,8 @@ class H(BaseHTTPRequestHandler):
     def upload(self):
         """Raw file body, streamed to the uploads folder under a name the server picks."""
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        pane = q.get("pane", [""])[0]
-        if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(400, {"error": "This chat isn't running any more."})
+        pane = q.get("pane", [""])[0]; term = re.fullmatch(PANE_RE, pane) and next((t for t in ssh_terms() if t["pane"] == pane), None)  # an SSH terminal's uploads go on to its server
+        if not re.fullmatch(PANE_RE, pane) or not term and not valid_pane(pane): return self.send(400, {"error": "This chat isn't running any more."})
         try: n = int(self.headers["Content-Length"])
         except Exception: return self.send(411, {"error": "The upload had no size."})
         if n > UP_MAX: return self.send(413, {"error": "Files over 1 GB can't be attached. Move them with Syncthing instead."})
@@ -2335,8 +2406,10 @@ class H(BaseHTTPRequestHandler):
             else: tmp.rename(p)
         except Exception:
             tmp.unlink(missing_ok=True); return self.send(400, {"error": f"{name}: the upload failed."})
-        NAMES[str(p)] = name
-        return self.send(200, {"path": str(p), "kind": "image" if ext in IMG else "file", "name": name, "size": p.stat().st_size})
+        out = {"path": str(p), "kind": "image" if ext in IMG else "file", "name": name, "size": p.stat().st_size}
+        if not term: NAMES[str(p)] = name; return self.send(200, out)
+        try: return self.send(200, {**out, "path": ssh_put(ssh_host(term["host"]) or {}, p, name), "remote": True})
+        except (RuntimeError, ValueError, subprocess.TimeoutExpired) as e: p.unlink(missing_ok=True); return self.send(400, {"error": str(e) if isinstance(e, RuntimeError) else f"{name} didn't reach the server."})
     def siri(self):
         """POST /api/siri/<key> from the iPhone Shortcut, the text as the body (Request Body: File) or as {"text"}: the Tailscale login plus the Siri key (in the path, so the shortcut
         needs just one address; or X-Siri-Key), as a Shortcut can't use a passkey. Or the usual sign-in. Answers in plain text, so
@@ -2461,6 +2534,23 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, {"ok": True})
             except ValueError: return self.send(400, {"error": "That host's address isn't valid."})
             except OSError as e: return self.send(500, {"error": f"Couldn't start ssh: {e}"})
+        if self.path in ("/api/ssh/type", "/api/ssh/get", "/api/ssh/installkey", "/api/ssh/forgetkey"):  # SSH remote commands: a terminal (valid_term) or a host
+            term = next((x for x in ssh_terms() if x["pane"] == body.get("pane")), None)
+            h = ssh_host(term["host"] if term else None) if self.path in ("/api/ssh/type", "/api/ssh/get") else ssh_host(body.get("host"))
+            if not h: return self.send(400, {"error": "That terminal or host has gone."})
+            try:
+                if self.path == "/api/ssh/type":
+                    t = body.get("text")
+                    if not (isinstance(t, str) and 0 < len(t) <= 4096): return self.send(400, {"error": "Nothing to type."})
+                    ok = tm(term["pane"], "set-buffer", "-b", "deck", "--", t, ok=True) and tm(term["pane"], "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}", ok=True)
+                    return self.send(200, {"ok": True}) if ok else self.send(400, {"error": "Couldn't type into that terminal."})
+                if self.path == "/api/ssh/get": return self.send(200, out_files([str(ssh_get(h, body.get("path")))])[0])
+                if self.path == "/api/ssh/installkey":
+                    err = ssh_install_key(h); return self.send(400, {"error": err}) if err else self.send(200, {"ok": True})
+                return self.send(200, {"removed": ssh_forget_key(h)})
+            except RuntimeError as e: return self.send(400, {"error": str(e)})
+            except ValueError: return self.send(400, {"error": "That path or address isn't valid."})
+            except subprocess.TimeoutExpired: return self.send(400, {"error": "The server took too long to answer."})
         pane = body.get("pane", "")
         if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(400, {"error": "pane"})
         if self.path == "/api/procs/kill":

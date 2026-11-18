@@ -230,4 +230,89 @@ class Conns(unittest.TestCase):
         c.request("GET", "/api/sessions", headers={"X-Deck-Token": server.TOK}); d = json.loads(c.getresponse().read())
         self.assertEqual(set(d["ssh"]), {"hosts", "terms"}); self.assertIn(self.h["id"], [h["id"] for h in d["ssh"]["hosts"]])
 
+class Remote(unittest.TestCase):
+    """Attach, Get file, Install key and forget a host key, with fake_ssh_run.sh as ssh: the "server" is this Mac with HOME at a temp folder."""
+    @classmethod
+    def setUpClass(cls):
+        cls.old = server.SSH_BIN, server.SSH_KEY, server.KNOWN_HOSTS, server.UPL
+        server.UPL = Path(TMP) / "uploads"
+        cls.home = Path(tempfile.mkdtemp()); os.environ.update(FAKE_SSH_HOME=str(cls.home), FAKE_SSH_DOWN=f"{TMP}/down")
+        server.SSH_BIN, server.SSH_KEY, server.KNOWN_HOSTS = str(Path(__file__).resolve().parent / "fake_ssh_run.sh"), Path(TMP) / "mackey" / "id_ed25519", Path(TMP) / "known_hosts"
+        subprocess.run(["tmux", "-L", "decktest", "kill-server"], capture_output=True); server._socks.pop("decktest", None)
+        cls.srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.H); cls.srv.daemon_threads = True
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown(); cls.srv.server_close()
+        server.SSH_BIN, server.SSH_KEY, server.KNOWN_HOSTS, server.UPL = cls.old
+        subprocess.run(["tmux", "-L", "decktest", "kill-server"], capture_output=True)
+
+    def setUp(self):
+        server.ssh_hosts_write([])
+        self.h, _ = server.ssh_host_save({"addr": "pi@10.0.0.5:2222", "auth": "password", "name": "Pi"})
+        self.pane = server.ssh_open(self.h["id"])
+        until(lambda: server.valid_term(self.pane))
+
+    def req(self, method, path, body=None, ctype="application/json"):
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=30)
+        c.request(method, path, body if isinstance(body, (bytes, type(None))) else json.dumps(body), {"X-Deck-Token": server.TOK, "Content-Type": ctype})
+        return c.getresponse()
+    def post(self, path, body):
+        r = self.req("POST", path, body); return r.status, json.loads(r.read())
+
+    def test_rpath(self):
+        self.assertEqual(server.rpath("~/a b"), "\"$HOME\"/'a b'")
+        self.assertEqual(server.rpath("/etc/x"), "/etc/x")
+        self.assertEqual(server.rpath("x;$(id)"), "'x;$(id)'")
+        for bad in ("a\nb", "", "a\0b", None):
+            with self.assertRaises(ValueError, msg=repr(bad)): server.rpath(bad)
+
+    def test_put_and_type(self):
+        r = self.req("POST", f"/api/upload?pane={self.pane}&name=notes.txt", b"hello there\n", "application/octet-stream")
+        d = json.loads(r.read())
+        self.assertEqual(r.status, 200, d)
+        self.assertTrue(d["remote"]); self.assertTrue(d["path"].startswith("~/.cache/session-deck/uploads/"), d)
+        f = self.home / d["path"][2:]
+        self.assertEqual(f.read_bytes(), b"hello there\n")
+        self.assertEqual(list(server.UPL.glob("*-*-*/*")), [])  # the Mac's copy is gone
+        self.assertEqual(self.post("/api/ssh/type", {"pane": self.pane, "text": d["path"] + " "}), (200, {"ok": True}))
+        self.assertTrue(until(lambda: d["path"] in server.tm(self.pane, "capture-pane", "-p", "-t", "{P}")))
+        for b in ({"pane": self.pane, "text": "x" * 4097}, {"pane": self.pane, "text": 5}, {"pane": "decktest.99999", "text": "x"}):
+            self.assertEqual(self.post("/api/ssh/type", b)[0], 400, b)
+
+    def test_get(self):
+        (self.home / "three").write_bytes(b"abc")
+        code, d = self.post("/api/ssh/get", {"pane": self.pane, "path": "~/three"})
+        self.assertEqual(code, 200, d); self.assertEqual(d["name"], "three")
+        r = self.req("GET", "/" + d["url"])
+        self.assertEqual((r.status, r.read()), (200, b"abc"))
+        self.assertTrue(r.getheader("Content-Disposition").startswith("attachment"))
+        code, d = self.post("/api/ssh/get", {"pane": self.pane, "path": "~/missing file"})
+        self.assertEqual(code, 400); self.assertIn("missing file", d["error"]); self.assertLessEqual(len(d["error"]), 200)
+        Path(os.environ["FAKE_SSH_DOWN"]).touch(); self.addCleanup(Path(os.environ["FAKE_SSH_DOWN"]).unlink, missing_ok=True)
+        self.assertEqual(self.post("/api/ssh/get", {"pane": self.pane, "path": "~/three"}), (400, {"error": "Open a terminal to this host first: the deck needs its connection."}))
+
+    def test_get_too_big(self):
+        (self.home / "three").write_bytes(b"abc")
+        old, server.UP_MAX = server.UP_MAX, 2; self.addCleanup(setattr, server, "UP_MAX", old)
+        code, d = self.post("/api/ssh/get", {"pane": self.pane, "path": "~/three"})
+        self.assertEqual(code, 400); self.assertIn("over", d["error"])
+
+    def test_installkey_idempotent(self):
+        for _ in range(2):
+            server.ssh_hosts_write([{**h, "auth": "password"} for h in server.ssh_hosts()])
+            self.assertEqual(self.post("/api/ssh/installkey", {"host": self.h["id"]}), (200, {"ok": True}))
+        pub = Path(str(server.SSH_KEY) + ".pub").read_text().strip()
+        ak = self.home / ".ssh/authorized_keys"
+        self.assertEqual(ak.read_text().splitlines().count(pub), 1)
+        self.assertEqual(ak.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(server.ssh_hosts()[0]["auth"], "key")
+        self.assertEqual(self.post("/api/ssh/installkey", {"host": self.h["id"]})[0], 400)  # a key host needs no install
+
+    def test_forgetkey(self):
+        server.KNOWN_HOSTS.write_text("[10.0.0.5]:2222 ssh-ed25519 AAAA1\n10.0.0.5 ssh-ed25519 AAAA2\nother ssh-ed25519 AAAA3\n")
+        self.assertEqual(self.post("/api/ssh/forgetkey", {"host": self.h["id"]}), (200, {"removed": 2}))
+        self.assertEqual(server.KNOWN_HOSTS.read_text(), "other ssh-ed25519 AAAA3\n")
+        self.assertEqual(self.post("/api/ssh/forgetkey", {"host": "nope"})[0], 400)
+
 if __name__ == "__main__": unittest.main()
