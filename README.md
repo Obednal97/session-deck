@@ -26,7 +26,8 @@ It's one Python file and one HTML file, with no build step and no framework.
 - **Reply and approve.** Type into a session, answer its questions (full text, several at once, multi-select) and permission prompts, or use the key bar (Esc, arrows, Tab, Ctrl-C) for anything else.
 - **Start and end chats.** Pick a folder, a permission mode, model and effort, a git worktree, and which Claude to run (see [Engines](#engines)), or with `rclaude`, which account. End a chat from its menu; chats idle for 3 days end themselves.
 - **See the work.** Tool calls, edit diffs with real line numbers, the session's git changes, subagents (with tokens, time and nested subagents), and background shell processes, which you can stop.
-- **Terminal view.** A live terminal on the chat's tmux pane: type, scroll back, run `vi`, with an Esc, Tab, Ctrl and arrow key row on phones.
+- **Terminal view.** A live terminal (xterm.js) on the chat's tmux pane: type, scroll back, run `vi`, with an Esc, Tab, Ctrl and arrow key row on phones.
+- **SSH.** Connect to other machines from the deck, with saved hosts (or one-off connections, or names from your `~/.ssh/config`), signing in with a password or the Mac's key. Each terminal is a real terminal that stays open on the Mac, so you can lock your phone and come back to it. Attach a file from your phone (its path lands at the prompt) and get a file back from the server.
 - **Uploads.** Paste or attach screenshots and files (up to 1 GB each); the session gets a path it can read.
 - **Files back.** When Claude makes a PDF, spreadsheet, image or similar and names it in a reply, it shows under the reply to open or save on the device you are using.
 - **Notifications.** Web Push when a session finishes or needs you, on every device you switch them on for, except the one you're looking at the chat on. App badge included.
@@ -99,6 +100,9 @@ All optional, as environment variables:
 | `DECK_PREFS` | `~/Library/Application Support/session-deck/prefs.json` | where pins and archived chats are kept |
 | `DECK_SECRETS` | `~/.secrets`, else `~/.config/session-deck` | where `session-deck.json` (token, cookie key, push key) is kept, created on first run |
 | `DECK_AIVA_SOCKET` / `DECK_AIVA_KEY` | `~/Library/Application Support/aiva/aiva.sock` / `~/.secrets/aiva/deck.key` | Aiva's API socket and the key the deck signs its messages and approvals with; the Aiva section shows once Aiva answers, and the deck's address with `#aiva` on the end (`/deck/#aiva`) opens its chat |
+| `DECK_SSH_HOSTS` | `ssh-hosts.json` next to `DECK_PREFS` | where saved SSH hosts are kept |
+| `DECK_SSH_CM` | `/private/tmp/deck-ssh-<uid>` | the folder for SSH's shared connections (kept short: Unix socket paths stop at 104 bytes) |
+| `DECK_SSH_BIN` | `ssh` | the `ssh` program to run |
 
 ## Security
 
@@ -109,6 +113,11 @@ Session Deck can type into your terminals, so anyone who gets into it can run an
 - The one exception is `/api/siri/<key>`, for the iPhone Shortcut (which can't use a passkey): it takes your Tailscale login plus a separate Siri key, and only sends to the Siri chat. Make a new key in Settings if a phone is lost; ten wrong keys lock it for ten minutes.
 - On the Mac itself, the API takes the token from `session-deck.json` instead. Keep that file private.
 - Setup codes work once and expire: after 10 minutes from `server.py --setup-code`, 24 hours from the installer's `--code`.
+- SSH hosts are kept on the Mac in `ssh-hosts.json` next to the prefs, readable only by you. A saved password is never kept on the Mac: it stays on the device, encrypted with a key the Mac gives a signed-in device, and goes when that device's passkey does.
+- The deck types a saved password only into OpenSSH's own password prompt, once per connection, and never when a shared connection is already up. A wrong password isn't retried, and the password never goes on a command line or into a log.
+- Host keys are never accepted for you. OpenSSH asks its own fingerprint question in the terminal, and a changed key is refused. "Remove old host key" on the host page clears the Mac's record so you can check the new one.
+- The terminal's WebSocket checks the same sign-in as the rest of the deck, and the page's origin.
+- Install key adds the Mac's `~/.ssh/id_ed25519.pub` to the server's `authorized_keys`. It switches the host to key sign-in only after a test sign-in with the key alone works.
 
 ## Licence
 
