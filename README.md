@@ -26,7 +26,7 @@ It's one Python file and one HTML file, with no build step and no framework.
 - **Reply and approve.** Type into a session, answer its questions (full text, several at once, multi-select) and permission prompts, or use the key bar (Esc, arrows, Tab, Ctrl-C) for anything else.
 - **Start and end chats.** Pick a folder, a permission mode, model and effort, a git worktree, and which Claude to run (see [Engines](#engines)), or with `rclaude`, which account. End a chat from its menu; chats idle for 3 days end themselves.
 - **See the work.** Tool calls, edit diffs with real line numbers, the session's git changes, subagents (with tokens, time and nested subagents), and background shell processes, which you can stop.
-- **Terminal view.** The raw tmux pane, resized to fit your screen while it's open.
+- **Terminal view.** A live terminal on the chat's tmux pane: type, scroll back, run `vi`, with an Esc, Tab, Ctrl and arrow key row on phones.
 - **Uploads.** Paste or attach screenshots and files (up to 1 GB each); the session gets a path it can read.
 - **Files back.** When Claude makes a PDF, spreadsheet, image or similar and names it in a reply, it shows under the reply to open or save on the device you are using.
 - **Notifications.** Web Push when a session finishes or needs you, on every device you switch them on for, except the one you're looking at the chat on. App badge included.
@@ -112,4 +112,4 @@ Session Deck can type into your terminals, so anyone who gets into it can run an
 
 ## Licence
 
-MIT. Includes [marked](https://github.com/markedjs/marked) (MIT) and [DOMPurify](https://github.com/cure53/DOMPurify) (Apache 2.0 or MPL 2.0) in `vendor/`.
+MIT. Includes [marked](https://github.com/markedjs/marked) (MIT), [DOMPurify](https://github.com/cure53/DOMPurify) (Apache 2.0 or MPL 2.0) and [xterm.js](https://github.com/xtermjs/xterm.js) 5.5.0 with its fit addon 0.10.0 (MIT) in `vendor/`.

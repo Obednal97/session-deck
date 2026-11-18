@@ -2194,8 +2194,8 @@ class H(BaseHTTPRequestHandler):
             self.send_response(301); self.send_header("Location", ORIGIN + "/deck" + self.path); self.send_header("Content-Length", "0"); self.end_headers(); return
         if path == "/":
             return self.send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8", CSP)
-        if path in ("/vendor/marked.min.js", "/vendor/purify.min.js"):
-            return self.send(200, (HERE / path[1:]).read_bytes(), "text/javascript; charset=utf-8")
+        if path in ("/vendor/marked.min.js", "/vendor/purify.min.js", "/vendor/xterm.js", "/vendor/addon-fit.js", "/vendor/xterm.css"):
+            return self.send(200, (HERE / path[1:]).read_bytes(), "text/css; charset=utf-8" if path.endswith(".css") else "text/javascript; charset=utf-8")
         if path in PWA:
             return self.send(200, (HERE / path[1:]).read_bytes(), PWA[path])
         if path.startswith("/api/auth/"): return self.auth(path)

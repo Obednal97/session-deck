@@ -40,7 +40,6 @@ body.kb footer{padding-bottom:10px}
 .in{display:flex;gap:8px;align-items:flex-end}
 textarea{flex:1;min-width:0;resize:none;background:var(--r);border:0;color:var(--fg);border-radius:18px;padding:9px 14px;font:inherit;max-height:140px}
 .send{border:0;background:var(--c);color:var(--on);border-radius:99px;padding:9px 16px;font-weight:600}
-pre.scr{margin:0;padding:12px 16px;font:11px/1.35 ui-monospace,monospace;overflow-x:auto;white-space:pre}
 .grp{padding:10px 16px 6px;display:flex;align-items:center;gap:8px;color:var(--m);font:600 11px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em;background:var(--bg);position:sticky;top:0;border:0;width:100%;text-align:left}
 .grp span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sheet input,.sheet select{width:100%;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px;font:inherit}
@@ -151,6 +150,9 @@ small .tl{display:inline-grid;vertical-align:-3px;width:16px;height:16px;border-
 .dl .more{display:block;margin:10px auto 0}
 .df{border-top:1px solid var(--l);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;align-items:center;gap:10px;font-size:13px;color:var(--m)}
 .noterm #tv{display:none!important}
+main.lt{-webkit-mask-image:none;mask-image:none;overflow:hidden;display:flex;flex-direction:column}.xt{flex:1;min-height:0;padding:6px 4px 4px 8px;background:var(--bg)}
+.tkeys{margin:0;padding:6px 10px calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--l);background:var(--s)}body.kb .tkeys{padding-bottom:6px}.tkeys button[aria-pressed=true]{background:var(--c);border-color:var(--c);color:var(--on)}
+@media(pointer:fine){#tkeys{display:none!important}}/* the live terminal's key row is for touch screens */
 .seg{display:flex;flex:1;background:var(--r);border-radius:9px;padding:2px}.seg button{flex:1;border:0;background:none;border-radius:7px;padding:5px 0;font-size:13px;color:var(--m)}
 .seg button[aria-pressed=true]{background:var(--s);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .note{align-self:center;max-width:min(92%,640px);font-size:12.5px;color:var(--m);background:var(--r);border-radius:14px;padding:5px 12px;text-align:center;overflow-wrap:anywhere}
@@ -321,6 +323,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 <header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class=chip id=tv hidden>Terminal</button></header>
 <div class=off id=off hidden>Reconnecting…</div>
 <main id=main></main><div id=cols></div>
+<div class="kbar tkeys" id=tkeys hidden><button>Esc</button><button>Tab</button><button data-m=c aria-pressed=false>Ctrl</button><button data-m=a aria-pressed=false>Alt</button><button aria-label=Left>&#8592;</button><button aria-label=Up>&#8593;</button><button aria-label=Down>&#8595;</button><button aria-label=Right>&#8594;</button><button>|</button><button>~</button><button>/</button><button>-</button><button data-p>Paste</button></div>
 <div class=jw><button class=jump id=jump hidden></button></div>
 <div class=scrim id=scrim></div>
 <div class=lbx id=lbx hidden><img id=lbi alt=""><small id=lbn></small></div>
@@ -514,7 +517,7 @@ function pjDraw(){if(!$('pjl'))return;const q=pj.q.toLowerCase(),m=s=>s.toLowerC
 $('sbody').addEventListener('click',e=>{const b=e.target.closest('#pjl button,#pjs button,#pjt button');if(!b)return;const D=b.dataset,P=t=>({type:'project',id:t,title:t});
  if(D.s||D.t){D.s?pj.s=D.s:pj.t=D.t;return pjDraw()}if(D.pj)return openProj(D.pj);if(D.h)return pickup(D.h,D.c,b.querySelector('b').textContent);
  (D.pp?pinToggle(P(D.pp)):D.ap?arcSet(P(D.ap),1):D.uap?arcSet(P(D.uap),0):D.ua?arcSet({type:'chat',id:D.ua},0):Promise.resolve()).then(pjDraw)});
-function home(){cur=null;AV.cf=null;document.body.classList.remove('aiva');$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
+function home(){termSet(false);cur=null;AV.cf=null;document.body.classList.remove('aiva');$('back').hidden=true;$('mb').hidden=false;['foot','tv','status','stats','menu'].forEach(i=>$(i).hidden=true);$('title').textContent='Session Deck';
  $('main').innerHTML='<div class=empty><p>Pick a chat from the menu, or start a new one.</p><button class=go id=eo>Open menu</button><button class=pick id=en style="text-align:center">New chat</button></div>'}
 /* sheets */
 const sh=$('sheet'),sp=$('spanel'),sd=$('shd'),sb=$('sbody');sh.onclick=e=>{if(e.target===sh&&getSelection().isCollapsed)hideSheet()};// not when a text selection drag ends on the backdrop
@@ -549,7 +552,7 @@ function chatOpts(){return`<details class=more2><summary>Options</summary><div s
  sel('oe','Effort',[['','Default'],['low','Low'],['medium','Medium'],['high','High'],['xhigh','Extra high'],['max','Max']])+
  `<div><div class=lbl>Name</div><input id=on type=text maxlength=60 autocomplete=off placeholder="Optional"></div></div><label class=ck style="margin-top:8px"><input type=checkbox id=ow disabled> New git worktree (fresh chats only)</label></details>`}
 const optVals=()=>({perm:$('op').value,model:$('om').value,effort:$('oe').value,name:$('on').value.trim(),worktree:$('ow').checked});
-function open_(s){if(term&&cur)termOff(cur.pane);if(!s.aiva)AV.cf=null;cur=s;term=false;$('back').hidden=!stack.length&&!s.aiva;$('mb').hidden=!!stack.length||!!s.aiva;document.body.classList.toggle('aiva',!!s.aiva);agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro||!!s.agent;if(s.agent||s.aiva)busy=false;if(s.aiva)$('ta').placeholder='Message Aiva';$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';if(!s.aiva)return draw();requestAnimationFrame(()=>requestAnimationFrame(()=>cur===s&&draw()));tick(avLoad)}// Aiva's is painted after the layout settles, or the resize keeping the bottom line in place scrolls it back up
+function open_(s){termSet(false);if(!s.aiva)AV.cf=null;cur=s;$('back').hidden=!stack.length&&!s.aiva;$('mb').hidden=!!stack.length||!!s.aiva;document.body.classList.toggle('aiva',!!s.aiva);agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro||!!s.agent;if(s.agent||s.aiva)busy=false;if(s.aiva)$('ta').placeholder='Message Aiva';$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';if(!s.aiva)return draw();requestAnimationFrame(()=>requestAnimationFrame(()=>cur===s&&draw()));tick(avLoad)}// Aiva's is painted after the layout settles, or the resize keeping the bottom line in place scrolls it back up
 let stack=[];$('back').onclick=()=>{if(cur&&cur.aiva&&!stack.length){home();return COL||openMenu()}$('menu').hidden=true;menuKey='';const p=stack.pop();if(p)open_(p)};
 const tok=n=>(n=n||0)>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
 const dur=(a,b)=>{const s=Math.max(0,Math.round(((b?new Date(b):Date.now())-new Date(a))/1000));return s<60?s+'s':s<3600?Math.floor(s/60)+'m '+s%60+'s':s<172800?Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m':Math.round(s/86400)+' days'};
@@ -606,11 +609,31 @@ let agT=0;async function agentPoll(){if(Date.now()-agT<2500)return;agT=Date.now(
  st.innerHTML='<span class=stx>'+(a.running?'Running':'Finished')+' · '+esc(dur(a.first,a.running?null:a.last))+' · '+tok(a.total)+' tokens</span>';
  $('stats').innerHTML='<h4>This subagent</h4>'+drow('Task',esc(a.desc||''))+drow('Type',esc(a.type||''))+drow('Model',esc(a.model||''))+drow('Started',when(a.first))+drow(a.running?'Running for':'Took',dur(a.first,a.running?null:a.last))+
   drow('Tokens',`${tok(a.ctx)} context · ${tok(a.out)} output`)+drow('Tool calls',a.tools)+(kids.length?`<h4>Subagents it started · ${kids.filter(k=>k.running).length} running</h4><div class=agw>${agentRows(kids,all)}</div>`:'')}
-/* terminal view: size the tmux window to this screen so Claude Code redraws to fit (as Termius does); released on leaving */
-const termDims=()=>{const m=$('main'),p=document.createElement('pre');p.className='scr';p.style.cssText='position:absolute;visibility:hidden;padding:0';p.textContent='M'.repeat(50);m.append(p);
- const w=p.getBoundingClientRect().width/50,h=parseFloat(getComputedStyle(p).lineHeight)||14;p.remove();return`?cols=${Math.max(20,Math.floor((m.clientWidth-28)/w))}&rows=${Math.max(5,Math.floor((m.clientHeight-24)/h))}`};
-const termOff=p=>{if(p)api('/api/screen/'+p+'?release=1').catch(()=>{})};
-$('tv').onclick=()=>{term=!term;$('tv').textContent=term?'Chat':'Terminal';if(!term)termOff(cur.pane);draw()};
+/* live terminal: xterm.js on /api/term/<pane>, a WebSocket to a real tmux client; the vendor files load on first use */
+let xtP;const xtLoad=()=>xtP=xtP||Promise.all(['xterm.css','xterm.js','addon-fit.js'].map(f=>new Promise((ok,no)=>{const c=f.endsWith('css'),e=document.createElement(c?'link':'script');if(c){e.rel='stylesheet';e.href='vendor/'+f}else e.src='vendor/'+f;e.onload=ok;e.onerror=()=>{xtP=null;e.remove();no()};document.head.append(e)})));
+const MOD={c:0,a:0},tkUI=()=>$('tkeys').querySelectorAll('[data-m]').forEach(b=>b.setAttribute('aria-pressed',!!MOD[b.dataset.m]));// sticky Ctrl and Alt for the next key
+const modk=s=>{if(!MOD.c&&!MOD.a)return s;if(MOD.c&&s.length==1){const k=s.toUpperCase().charCodeAt(0);s=k>63&&k<96?String.fromCharCode(k-64):s==' '?'\0':s}if(MOD.a)s='\x1b'+s;MOD.c=MOD.a=0;tkUI();return s};
+function liveTerm(el,pane){let t,fit,ws,ro,tm,n=0,off=0,fo=0,fs=0,p0;try{fs=+localStorage.getItem('termfs')}catch(e){}fs=fs||(innerWidth<700?13:14);
+ const send=s=>{if(ws&&ws.readyState==1)ws.send(typeof s=='string'?new TextEncoder().encode(s):s)};
+ const go=()=>{if(off)return;const u=new URL(`api/term/${pane}?cols=${t.cols}&rows=${t.rows}`+(TS?'':'&tok='+TOK),location.href);u.protocol=u.protocol=='https:'?'wss:':'ws:';
+  ws=new WebSocket(u);ws.binaryType='arraybuffer';ws.onopen=()=>{n=0};ws.onmessage=e=>{if(typeof e.data!='string')t.write(new Uint8Array(e.data))};
+  ws.onclose=()=>{if(off)return;t.write('\r\n\x1b[2mReconnecting…\x1b[0m\r\n');tm=setTimeout(go,[1,2,5][Math.min(n++,2)]*1e3)}};
+ const dist=e=>Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);// pinch: font size 10..22, kept per device
+ el.addEventListener('touchstart',e=>{if(e.touches.length==2)p0=[dist(e),fs]},{capture:true,passive:true});el.addEventListener('touchend',e=>{if(e.touches.length<2)p0=null},{capture:true,passive:true});
+ el.addEventListener('touchmove',e=>{if(e.touches.length!=2||!p0||!t)return;e.preventDefault();e.stopPropagation();const f=Math.max(10,Math.min(22,Math.round(p0[1]*dist(e)/p0[0])));if(f!=fs){fs=t.options.fontSize=f;fit.fit();try{localStorage.setItem('termfs',f)}catch(x){}}},{capture:true,passive:false});
+ xtLoad().then(()=>{if(off)return;const v=getComputedStyle(document.documentElement),c=k=>v.getPropertyValue(k).trim();
+  t=new Terminal({scrollback:5000,fontSize:fs,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace',theme:{background:c('--bg'),foreground:c('--fg'),cursor:c('--c'),cursorAccent:c('--bg'),selectionBackground:c('--l')}});
+  fit=new FitAddon.FitAddon();t.loadAddon(fit);t.open(el);fit.fit();if(fo)t.focus();
+  t.onData(s=>send(modk(s)));t.onBinary(s=>send(Uint8Array.from(s,x=>x.charCodeAt(0))));t.onResize(d=>ws&&ws.readyState==1&&ws.send(JSON.stringify({cols:d.cols,rows:d.rows})));
+  ro=new ResizeObserver(()=>fit.fit());ro.observe(el);go()},()=>{if(!off)toast('The terminal could not load.')});
+ return{close(){off=1;clearTimeout(tm);if(ws)ws.close();if(ro)ro.disconnect();if(t)t.dispose()},send,focus(){t?t.focus():fo=1}}}
+let LT=null;// the live terminal while the Terminal view is open; leaving the chat or going back to Chat closes it
+function termSet(on){term=on;$('tv').textContent=on?'Chat':'Terminal';if(LT){LT.close();LT=null}MOD.c=MOD.a=0;tkUI();const m=$('main');m.classList.toggle('lt',on);$('tkeys').hidden=!on;if(!on)return;
+ ['foot','status','stats','menu','jump'].forEach(i=>$(i).hidden=true);m.innerHTML='<div class=xt></div>';LT=liveTerm(m.firstChild,cur.pane);if(matchMedia('(pointer:fine)').matches)LT.focus()}
+$('tv').onclick=()=>{termSet(!term);if(term)return;const ro=!!cur.ro;$('foot').hidden=ro;$('status').hidden=ro;$('stats').hidden=ro||!statsOpen;menuKey='';cur.key='';draw();poll()};
+const TK={Esc:'\x1b',Tab:'\t','←':'\x1b[D','↑':'\x1b[A','↓':'\x1b[B','→':'\x1b[C'};$('tkeys').addEventListener('mousedown',e=>e.preventDefault());// keep the phone keyboard up
+$('tkeys').onclick=async e=>{const b=e.target.closest('button');if(!b||!LT)return;if(b.dataset.m){MOD[b.dataset.m]^=1;return tkUI()}
+ if(b.dataset.p==null)return LT.send(modk(TK[b.textContent]||b.textContent));let s;try{s=await navigator.clipboard.readText()}catch(x){return toast('Paste needs clipboard access.')}if(s&&LT)LT.send('\x1b[200~'+s.replace(/\r?\n/g,'\r')+'\x1b[201~')};
 const imgSrc=x=>cur.session+(cur.agent?'/'+cur.agent:'');
 const md=t=>window.marked?DOMPurify.sanitize(marked.parse(t,{breaks:true})):lk(t);
 const ART=/https:\/\/claude\.ai\/(?:code\/)?artifact\/[A-Za-z0-9_-]+/;
@@ -635,8 +658,7 @@ function render(items,raw){let out=[],run=[];const flush=()=>{if(run.length&&doc
   else if(run.length)out.push({h:item(run[0]),x:run[0]});run=[]};
  for(const x of items){if(x.kind=='tool'&&!artItem(x))run.push(x);else{flush();out.push({h:item(x),x})}}flush();return raw?out:out.map(o=>o.h).join('')}
 async function draw(){if(!cur)return;if(cur.aiva)return avPaint();const me=cur;
- if(term){const d=await api('/api/screen/'+cur.pane+termDims());$('main').innerHTML='<pre class=scr>'+esc(d.screen)+'</pre>'}
- else if(!cur.session&&!cur.pend){$('main').innerHTML='<div class=h>No messages yet</div>';if(!cur.ro)await list2()}
+ if(term)return;if(!cur.session&&!cur.pend){$('main').innerHTML='<div class=h>No messages yet</div>';if(!cur.ro)await list2()}
  else{const d=cur.session?await api(cur.agent?'/api/agent/'+cur.session+'/'+cur.agent:'/api/session/'+cur.session+'?n='+(cur.n||60)):{items:[]},m=$('main'),atEnd=m.scrollHeight-m.scrollTop-m.clientHeight<80;// a new chat has no transcript until Claude saves the first message; show it meanwhile
   if(cur!==me)return;if(cur.pend&&!cur.pend.s){const p=cur.pend.t.trim();if(Date.now()-cur.pend.at>6e5||(d.items||[]).slice(-15).some(x=>x.role=='user'&&(x.text||'').trim()==p))cur.pend=null}const key=JSON.stringify(d.items)+(cur.pend?cur.pend.t+cur.pend.s:'');if(key===cur.key&&cur.box&&m.contains(cur.box)){if(!cur.ro)await list2();return}
   if(paint(m,render((d.items||[]).concat(cur.pend?[{kind:'pend',role:'user',text:cur.pend.t,s:cur.pend.s}]:[]),1),(d.items||[]).length>=(cur.n||60)&&!cur.agent,atEnd))cur.key=key;jumpUI()}
@@ -726,7 +748,7 @@ sb.addEventListener('click',e=>{const b=e.target.closest('.chf');if(b)changeFile
 const bar=p=>{const v=parseFloat(p)||0;return`<span class=bar><i class="${v>=85?'c':v>=60?'w':''}" style="width:${Math.min(v,100)}%"></i></span>${esc(p)}`};
 let statsOpen=false;$('stats').addEventListener('click',async e=>{if(agTap(e,()=>{agT=0;agentPoll()}))return;if(e.target.id=='cyc'){await api('/api/key',{pane:cur.pane,key:'BTab'});setTimeout(poll,400)}});
 $('status').onclick=()=>{statsOpen=!statsOpen;$('stats').hidden=!statsOpen;$('status').classList.toggle('open',statsOpen)};
-async function poll(){if(!cur||term||document.hidden)return;if(cur.agent)return agentPoll();if(cur.ro||cur.aiva)return;const me=cur;let s;try{s=await api('/api/status/'+cur.pane+'?d='+DEV+'&f='+(!document.hidden&&(window.top||window).document.hasFocus()?1:0))}catch(e){return}if(cur!==me)return;
+async function poll(){if(!cur||document.hidden)return;if(cur.agent)return agentPoll();if(cur.ro||cur.aiva)return;const me=cur;let s;try{s=await api('/api/status/'+cur.pane+'?d='+DEV+'&f='+(!document.hidden&&(window.top||window).document.hasFocus()?1:0))}catch(e){return}if(cur!==me||term)return;
  busy=s.working;cur.ctx=s.ctx;cur.model=s.model;cur.plan=s.plan;cur.pinned=s.pinned;sendBtn();const st=$('status');st.hidden=!!s.menu;st.classList.toggle('on',s.working);st.innerHTML='<span class=stx>'+esc(s.working?(s.status||'Working…'):'Idle'+(s.ctx?' · context '+s.ctx:''))+'</span>';
  renderMenu(s.menu);const b=$('sug');b.hidden=!s.suggestion||!!$('ta').value||s.working;if(s.suggestion)b.innerHTML='<i>suggested</i>'+esc(s.suggestion);b.dataset.t=s.suggestion||'';
  const d=s.device||{};$('stats').innerHTML=`<h4>This chat</h4><dt>Model</dt><dd>${esc(s.model||'unknown')}</dd>${s.plan?`<dt>Plan</dt><dd>${esc(s.plan)}${s.pinned?'<span class=ttag>pinned</span>':''}</dd>`:''}<dt>Context</dt><dd>${s.ctx?bar(s.ctx.split(' ')[0])+' '+esc(s.ctx.split(' ').slice(1).join(' ')):'unknown'}</dd><dt>Permissions</dt><dd>${esc(s.perm||'unknown')} <button class=cyc id=cyc>Change</button></dd>`+
@@ -803,7 +825,7 @@ try{kbShow(localStorage.getItem('kbar')=='1')}catch(e){kbShow(false)}$('kbt').on
 ['kbar','slash','at','send','kbt'].forEach(i=>$(i).addEventListener('mousedown',e=>e.preventDefault()));// keep the phone keyboard up
 let ccT;$('kbar').onclick=async e=>{const b=e.target.closest('[data-k]');if(!b||!cur||!cur.pane)return;const k=b.dataset.k;
  if(k=='C-c'){const arm=!b.classList.contains('arm');clearTimeout(ccT);b.classList.toggle('arm',arm);b.textContent=arm?'Tap again':'Ctrl-C';if(arm)return ccT=setTimeout(()=>{b.classList.remove('arm');b.textContent='Ctrl-C'},2500)}// it can interrupt, clear or exit
- await tell('/api/key',{pane:cur.pane,key:k});setTimeout(()=>{poll();if(term)draw()},300)};
+ await tell('/api/key',{pane:cur.pane,key:k});setTimeout(poll,300)};
 let atT,atQ=null;function atUI(){const ta=$('ta'),el=$('at'),m=ta.value.slice(0,ta.selectionStart).match(/(?:^|\s)@([^\s@]+)$/);clearTimeout(atT);
  if(!m||!cur||!(cur.pane||cur.via)){el.hidden=true;atQ=null;return}const q=atQ=m[1];
  atT=setTimeout(async()=>{let d;try{d=await api('/api/files?pane='+encodeURIComponent(cur.pane||cur.via)+'&q='+encodeURIComponent(q))}catch(e){return}if(atQ!==q)return;
@@ -1097,7 +1119,7 @@ $('drawer').addEventListener('mouseenter',()=>clearTimeout(pkT));$('drawer').add
 $('drawer').addEventListener('click',e=>{if(document.body.classList.contains('peek')&&e.target.closest('[data-pane],[data-h]'))setTimeout(()=>document.body.classList.remove('peek'),120)});
 function colWake(){COLS.forEach(c=>{const w=c.f&&c.f.contentWindow;if(w&&w.colWait)w.location.reload()})}// columns that found the deck locked
 function mode(){if(COL||!started)return;const on=SPLIT.matches;if(on==inSplit)return on&&layout();inSplit=on;document.body.classList.toggle('split',on);
- if(on){const b=stack[0]||cur;if(term&&cur)termOff(cur.pane);term=false;$('tv').textContent='Terminal';if(rOpen)closeRP();stack=[];home();colLoad();layout();if(b)colOpen(b);return}
+ if(on){const b=stack[0]||cur;termSet(false);if(rOpen)closeRP();stack=[];home();colLoad();layout();if(b)colOpen(b);return}
  const x=(COLS[FOC]||{}).x,s=x&&(x.pane?live.find(l=>l.pane==x.pane):{...x});COLS.forEach(c=>c.el&&c.el.remove());COLS=[];OPEN=new Set();document.title='Session Deck';s?open_(s):home();drawMenu(1)}
 if(!COL){
  window.deck={shared,ready:id=>{const c=COLS[cix(id)];if(c){c.ready=1;colUI();colShow(c)}},foc:id=>id!='agp'&&colFocus(cix(id)),isFoc:id=>id=='agp'||COLS[FOC]&&COLS[FOC].id==id,key:e=>e.key=='Escape'&&agpOn()?agpClose:gkey(e),agent:agpOpen,
