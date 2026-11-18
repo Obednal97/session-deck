@@ -75,6 +75,10 @@ class RichHelpersInNode(unittest.TestCase):
         self.assertEqual(got[1], [["A", "https://w.example/A_(b)", "wiki w.example"]])
         self.assertEqual(got[2], ["see ", ["A", "https://example.com/", "https://example.com"], "."])  # its host isn't shown twice
         self.assertEqual(got[3], [["A", "https://evil.example/", "evil.example"]])  # a label naming another site shows the real host
+        got = self.run_js(r"""const h='https://'+'\u0440\u0430ypal.com/',a=alink(aurl(h),h);return [a.href,a.textContent,a.text]""")
+        self.assertTrue(got[0].startswith("https://xn--"))  # a look-alike host: never shown as a plausible address alone
+        self.assertEqual(got[1], got[0][8:-1])
+        self.assertEqual(got[2], got[1])
 
     def test_trimming_never_splits_a_character(self):
         got = self.run_js(r"""const e='\u{1F600}'.repeat(81),r=as_(e,80);

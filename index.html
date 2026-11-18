@@ -1257,7 +1257,7 @@ const avEl=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=
   return u.protocol=='https:'&&u.hostname&&!u.username&&!u.password?u:null};
 // a label that names another site than its link shows the link's host instead (as Aiva does); every other label gets the host beside it
 const avBad=()=>{throw 0},AHOST=/(?:[a-z][\w+.-]*:)?\/\/([^\s\/?#]+)|\b(www\.[^\s\/?#]+)/gi;
-function alink(u,t){const a=avEl('a','avl');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';t=String(t).trim();let same=false;try{same=new URL(t).href==u.href}catch(e){}
+function alink(u,t){const a=avEl('a','avl');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';t=String(t).trim();const same=t==u.href||t+'/'==u.href;// the text is its own address only when it says so literally (a look-alike host shows the real one)
  if(!same&&[...t.matchAll(AHOST)].some(m=>(m[1]||m[2]).split('@').pop().split(':')[0].toLowerCase()!=u.hostname))t=u.host;
  a.textContent=t||u.host;if(t&&!same&&t!=u.host)a.append(avEl('small',0,' '+u.host));return a}
 // lead text: # to ### headings, - * and 1. lists, blank-line paragraphs, single newlines as breaks, ``` code, **bold**, *italic* _italic_, `code`, [label](https://…) and bare https:// links
