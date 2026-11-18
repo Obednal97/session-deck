@@ -202,6 +202,7 @@ pre.dif{--db:var(--s)}.sheet pre.dif{--db:var(--bg)}.hk{margin-top:4px}.dx>.hk:f
 .pf{border-top:1px solid var(--l);padding:10px 14px 0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:13px;color:var(--m)}.pf+.df{border-top:0}.pf small{flex-basis:100%;font-size:12px}
 .clip{border:0;background:none;color:var(--m);padding:8px 2px;flex:none;display:grid}.clip svg{width:22px;height:22px}.send:disabled{opacity:.5}
 .att{display:flex;gap:8px;align-items:center;overflow-x:auto;margin-bottom:8px;padding-top:2px}
+body.drop::after{content:'Drop to attach';position:fixed;inset:8px;z-index:60;display:grid;place-items:center;border:2px dashed var(--c);border-radius:14px;background:color-mix(in srgb,var(--bg) 75%,transparent);color:var(--fg);font-weight:600;pointer-events:none}
 .ach{position:relative;flex:none;width:64px;height:64px;border-radius:10px;border:1px solid var(--l);background:var(--r);overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--m);font:10px ui-monospace,monospace}
 .ach img{width:100%;height:100%;object-fit:cover}.ach svg{width:22px;height:22px;flex:none}.ach span{max-width:60px;padding:0 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ach b{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.45);color:#fff;font:600 12px ui-monospace,monospace}.ach i{position:absolute;left:0;bottom:0;height:3px;background:var(--c)}
@@ -893,6 +894,12 @@ function attach(files){if(!cur||!(cur.pane||cur.via))return;for(const f of files
 const FIA=$('fi').accept;$('clip').onclick=()=>{$('fi').accept=FIA;$('fi').click()};$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
 $('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
 $('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
+// files dragged in from the computer, dropped on the messages or the box, attach as the paperclip does; a file dropped anywhere else
+// is ignored rather than opened in place of the deck. Drags that start on the page (an image in a reply) are left alone
+let ownDrag=0,dropT;addEventListener('dragstart',()=>ownDrag=1);addEventListener('dragend',()=>ownDrag=0);
+const fileDrag=e=>!ownDrag&&e.dataTransfer.types.includes('Files'),dropOk=e=>!inSplit&&cur&&!cur.aiva&&(cur.pane||cur.via)&&!(e.target.closest&&e.target.closest('.drawer,.sheet,.lock'));
+addEventListener('dragover',e=>{if(!fileDrag(e))return;e.preventDefault();const ok=dropOk(e);e.dataTransfer.dropEffect=ok?'copy':'none';document.body.classList.toggle('drop',!!ok);clearTimeout(dropT);dropT=setTimeout(()=>document.body.classList.remove('drop'),150)});
+addEventListener('drop',e=>{if(!fileDrag(e))return;e.preventDefault();document.body.classList.remove('drop');if(dropOk(e))(cur.ssh?sshAttach:attach)([...e.dataTransfer.files])});
 const vv=window.visualViewport;
 if(vv){let ft=[];/* while typing, pin the page to the visible area: newer iOS shrinks innerHeight with the keyboard too, so guessing "keyboard open" from the two heights failed and left the page scrolled up.
  With nothing being typed in, the page fills the screen and a scrolled viewport is put back: after a rotation iOS can leave it offset (a gap above the header, taps landing off target) */
