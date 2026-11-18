@@ -634,7 +634,7 @@ function renameStep(t){const row=t&&t.id!==undefined;if(!row)t={id:cur.session,p
  <label class=ck><input type=checkbox id=rc checked> Claude session name</label>
  <label class=ck><input type=checkbox id=rt ${t.pane?'checked':'disabled'}> tmux window name${t.pane?'':' (only for live chats)'}</label>
  <button class=go id=rgo>Save</button>`;showSheet(1);if(!row)$('rback').onclick=showInfo;
- $('rgo').onclick=async()=>{const name=$('rn').value.trim();if(!name)return;const r=await api('/api/rename',{session:t.id||'',pane:t.pane||'',name,claude:$('rc').checked,tmux:$('rt').checked});
+ $('rgo').onclick=async()=>{const name=$('rn').value.trim();if(!name)return;let r;try{r=await api('/api/rename',{session:t.id||'',pane:t.pane||'',name,claude:$('rc').checked,tmux:$('rt').checked})}catch(e){return toast(e.reason||'Couldn\'t rename the chat.')}
   if(r.done&&r.done.length){if(cur&&(t.id?cur.session==t.id:cur.pane==t.pane)){cur.title=name;$('title').textContent=name}hideSheet();if(row)list()}}}
 $('title').onclick=showInfo;
 sb.addEventListener('click',e=>{if(e.target.closest('#agopen')){hideSheet();rpAll=(info&&info.agents)||rpAll;openRP()}});

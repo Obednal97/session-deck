@@ -2835,7 +2835,6 @@ class H(BaseHTTPRequestHandler):
             live = bool(s) and not s.get("dropped")
             h = None if f and not remote_of(f) or not re.fullmatch(SID_RE, sid) else ssh_host((s or {}).get("host") or body.get("host") or (f and remote_of(f)))  # a remote chat's title goes on the server, never the mirror
             if not name: return self.send(400, {"error": "name"})
-            if body.get("claude") and s and s.get("remote") and s["dropped"]: return self.send(409, {"error": "This chat isn't connected. Reconnect it first."})
             if body.get("claude") and live and s.get("remote") and input_box(pane) is None: return self.send(409, {"error": "Claude's message box isn't showing. Try again in a moment."})
             done = []
             if body.get("claude") and (f and not remote_of(f) or live or h):
@@ -2862,12 +2861,12 @@ class H(BaseHTTPRequestHandler):
             pane = str(body.get("pane", "")); _live[0] = _rch[0] = 0
             s = re.fullmatch(PANE_RE, pane) and next((x for x in chats() if x["pane"] == pane), None)
             if not s: return self.send(200, {"gone": True})
-            if not body.get("kill") and s.get("dropped"): return self.send(409, {"error": "This chat isn't connected. Reconnect it first."})  # /exit would reach ssh, or a password prompt
+            kill = body.get("kill") or s.get("dropped")  # a dropped remote chat: /exit would reach ssh or a password prompt, so it is closed
             rt = s.get("remote") and next((t["rtmux"] for t in ssh_terms() if t["pane"] == pane), "")  # the server's tmux session keeps its first name through a /clear
-            if body.get("kill") and rt and re.fullmatch(r"deck-[0-9a-f-]{36}", rt) and (h := ssh_host(s["host"])):  # Claude in it would outlive the connection
+            if kill and rt and re.fullmatch(r"deck-[0-9a-f-]{36}", rt) and (h := ssh_host(s["host"])):  # Claude in it would outlive the connection
                 try: ssh_run(h, "tmux kill-session -t " + shlex.quote("=" + rt), timeout=15)
                 except (subprocess.TimeoutExpired, ValueError): pass
-            if body.get("kill"): tm(pane, "kill-pane", "-t", "{P}")
+            if kill: tm(pane, "kill-pane", "-t", "{P}")
             else: end_chat(pane)
             _live[0] = _rch[0] = 0; return self.send(200, {"ok": True})  # straight away: the pane may already be gone
         if pages_api(self, self.path, body) or aiva_api(self, self.path.split("?")[0], body): return

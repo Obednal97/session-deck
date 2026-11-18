@@ -789,9 +789,10 @@ class Chats(unittest.TestCase):
         no = (409, {"error": "This chat isn't connected. Reconnect it first."})
         self.assertEqual(self.post("/api/key", {"pane": pane, "key": "Enter"}), no)
         self.assertEqual(self.post("/api/send", {"pane": pane, "text": "hunter2"}), no)
-        self.assertEqual(self.post("/api/rename", {"pane": pane, "session": sid, "name": "x", "claude": True}), no)
-        self.assertEqual(self.post("/api/end", {"pane": pane}), no)
+        self.assertEqual(self.post("/api/rename", {"pane": pane, "session": sid, "name": "x", "claude": True}), (200, {"done": []}))  # the server's transcript, never typed (none here yet)
         self.assertEqual(typed, [])
+        self.assertEqual(self.post("/api/end", {"pane": pane}), (200, {"ok": True}))  # End on a dropped chat closes it: /exit would reach the prompt
+        self.assertEqual(typed, []); self.assertTrue(until(lambda: s not in T("list-sessions", "-F", "#{session_name}").split()))
         T("kill-server"); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="tmux"); self.scan()  # connected, but Claude's box isn't showing: no /rename typed
         self.assertFalse(next(x for x in self.rc() if x["pane"] == pane)["dropped"])
         self.assertEqual(self.post("/api/rename", {"pane": pane, "session": sid, "name": "x", "claude": True})[0], 409); self.assertEqual(typed, [])
