@@ -146,6 +146,24 @@ class Bridge(unittest.TestCase):
             self.assertTrue(until(lambda: "deck-view-" not in T("list-sessions", "-F", "#{session_name}") and chat not in server.VIEWING, 3))
         self.assertEqual(T("display", "-p", "-t", "=work:", "#{window_index}"), "0")
 
+    def test_view_counts_as_seen(self):  # the terminal view stands in for the chat's status poll: a reply that finishes while watched isn't news
+        T("new-session", "-d", "-s", "work", "cat")
+        self.addCleanup(T, "kill-session", "-t", "=work")
+        chat = "decktest." + T("display", "-p", "-t", "=work:0", "#{pane_id}")[1:]
+        st = {"pane": chat, "state": "idle", "menu": None}
+        self.addCleanup(lambda: (server.WATCH.pop(chat, None), server.SEEN.pop(chat, None)))
+        server.SEEN[chat] = 0; server.WATCH[chat] = {"fin": time.time()}
+        self.assertEqual(server.attn(st), "done")
+        with mock.patch.object(server, "valid_pane", lambda p: p == chat):
+            s, f, _ = self.ws(chat)
+            self.assertTrue(until(lambda: chat in server.VIEWING))
+            server.WATCH[chat]["fin"] = time.time()  # finishes mid-view
+            self.assertIsNone(server.attn(st))
+            f.close(); s.close()
+            self.assertTrue(until(lambda: chat not in server.VIEWING, 3))
+        self.assertGreaterEqual(server.SEEN[chat], server.WATCH[chat]["fin"])
+        self.assertIsNone(server.attn(st))
+
 
 if __name__ == "__main__":
     unittest.main()

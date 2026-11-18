@@ -148,7 +148,7 @@ def term_bridge(h, pane, cols, rows):
         if m is not None and not t: os.close(m)
         if made: tm(pane, "kill-session", "-t", f"={made}")
         with _view_lock:
-            VIEWING[pane] -= 1
+            SEEN[pane] = time.time(); VIEWING[pane] -= 1  # watched to the end: what finished meanwhile has been seen
             if not VIEWING[pane]: del VIEWING[pane]
 
 ROOMY = (120, 50)
@@ -1250,7 +1250,7 @@ def push_all(msg, skip=()):
 
 def attn(s):
     if s["state"] == "waiting" or s["menu"]: return "needs"
-    return "done" if WATCH.get(s["pane"], {}).get("fin", 0) > SEEN.get(s["pane"], 0) else None
+    return "done" if s["pane"] not in VIEWING and WATCH.get(s["pane"], {}).get("fin", 0) > SEEN.get(s["pane"], 0) else None  # open in the terminal: seen
 
 def last_reply(sid):
     f = sid and find_file(sid)
