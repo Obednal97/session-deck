@@ -59,17 +59,19 @@ class Route(socketserver.BaseRequestHandler):
             who = html.escape(logins[0]) if len(logins) == 1 else "this device"
             return c.sendall(page(403, "Not set up for you", f"Session Deck on this Mac isn't set up for <code>{who}</code>. "
                                   "Ask the Mac's owner to add your Tailscale login."))
-        # One request per connection: the decks speak HTTP/1.0 and close after each reply, and so does the router.
+        # One request per connection: the decks speak HTTP/1.0 and close after each reply, and so does the router. A WebSocket
+        # (the live terminal) keeps its upgrade; after the deck's 101 the bytes are piped as they are, its pings beating IDLE.
         rl = lines[0].split(" ")
         if len(rl) == 3 and STRIP and (rl[1] == STRIP or rl[1].startswith(STRIP + "/") or rl[1].startswith(STRIP + "?")):
             lines[0] = " ".join((rl[0], rl[1][len(STRIP):] if rl[1][len(STRIP):][:1] == "/" else "/" + rl[1][len(STRIP):], rl[2]))
         keep = [l for l in lines if l.split(":", 1)[0].strip().lower() not in ("connection", "keep-alive", "proxy-connection")]
+        up = any(l.partition(":")[0].strip().lower() == "upgrade" and l.partition(":")[2].strip().lower() == "websocket" for l in lines[1:])
         try:
             u = socket.socket(socket.AF_UNIX) if to.startswith("/") else socket.socket()
             u.settimeout(IDLE); u.connect(to if to.startswith("/") else ("127.0.0.1", int(to)))
         except (OSError, ValueError):
             return c.sendall(page(502, "Your deck isn't running", "It usually comes back within a minute. Try again shortly."))
-        u.sendall("\r\n".join(keep + ["Connection: close"]).encode("latin-1") + b"\r\n\r\n" + rest)
+        u.sendall("\r\n".join(keep + ["Connection: Upgrade" if up else "Connection: close"]).encode("latin-1") + b"\r\n\r\n" + rest)
         t = threading.Thread(target=pipe, args=(c, u), daemon=True); t.start()
         pipe(u, c, True); t.join(IDLE); u.close()
 

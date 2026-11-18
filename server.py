@@ -16,8 +16,6 @@ SOCK = os.environ.get("DECK_SOCKET")  # a Unix socket for the router: the Tailsc
 SECRETS = Path(os.environ.get("DECK_SECRETS") or (HOME / ".secrets" if (HOME / ".secrets").is_dir() else HOME / ".config/session-deck"))
 SECRET_FILE = SECRETS / "session-deck.json"  # token, cookie key and VAPID key in one file, easy to keep in a password manager
 KEYS = {"Escape", "Enter", "Up", "Down", "Tab", "BTab", "C-c", "C-o", "C-b"} | set("0123456789")
-CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; "
-       "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
 
 def load_secrets():
     """{token, cookie_key, vapid_pem}; missing values come from the old one-per-secret files, else are made, then saved once."""
@@ -51,17 +49,107 @@ def sockets():
         if ok: out.append(s.name)
     return out
 
-RESZ = {}  # pane -> when the phone's terminal view last sized its window (like Termius: the TUI redraws to fit)
-def term_size(pane, cols, rows):
-    if not (20 <= cols <= 400 and 5 <= rows <= 200): return
-    if tm(pane, "display", "-p", "-t", "{P}", "#{window_width}x#{window_height}").strip() != f"{cols}x{rows}":
-        tm(pane, "resize-window", "-t", "{P}", "-x", str(cols), "-y", str(rows))
-    RESZ[pane] = time.time()
+# --- Live terminal: the phone's xterm talks to a real tmux client in a pty over a WebSocket (RFC 6455), like any terminal app ---
+import fcntl, select, signal, termios, weakref
+VIEWING, _view_lock, _wl = {}, threading.Lock(), weakref.WeakKeyDictionary()  # pane -> live viewers; socket -> its write lock
 
-def term_release(pane):
-    """Hands sizing back to tmux (window-size latest): the desktop terminal takes over again."""
-    if RESZ.pop(pane, None) is not None:
-        tm(pane, "resize-window", "-A", "-t", "{P}"); tm(pane, "set-option", "-wu", "-t", "{P}", "window-size")  # resize-window sets manual: unset after
+def ws_handshake(h):
+    """Checks the upgrade and the page's Origin (a browser WebSocket skips CORS, so this is what stops another site); sends 101."""
+    g = lambda k: h.headers.get(k) or ""
+    ok = (ORIGIN,) if h.via_ts() else (f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}")
+    if g("Upgrade").lower() != "websocket" or g("Sec-WebSocket-Version") != "13" or not g("Sec-WebSocket-Key") or g("Origin") not in ok:
+        h.send(403, {"error": "Not a terminal connection from this deck."}); return False
+    acc = base64.b64encode(hashlib.sha1((g("Sec-WebSocket-Key").strip() + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+    h.wfile.write(f"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {acc}\r\n\r\n".encode()); h.wfile.flush()
+    return True
+
+def ws_read(f, sock=None):
+    """One message (opcode, payload): masked client frames only, fragments joined, 1 MiB at most; a ping is answered on sock."""
+    def rd(n):
+        b = f.read(n)
+        if len(b) < n: raise ConnectionError("closed")
+        return b
+    op, out = None, b""
+    while True:
+        a, b = rd(2); n = b & 127
+        if not b & 0x80: raise ValueError("unmasked frame")
+        if n >= 126: n = int.from_bytes(rd(2 if n == 126 else 8), "big")
+        if len(out) + n > 1 << 20: raise ValueError("too big")
+        k = rd(4); d = rd(n)
+        d = (int.from_bytes(d, "big") ^ int.from_bytes((k * (n // 4 + 1))[:n], "big")).to_bytes(n, "big")
+        if a & 15 == 8: return 8, b""
+        if a & 15 == 9 and sock: ws_write(sock, 10, d)
+        if a & 15 >= 8: continue
+        op = op or a & 15; out += d
+        if a & 0x80: return op, out
+
+def ws_write(sock, op, data):
+    n = len(data)
+    h = bytes([0x80 | op]) + (bytes([n]) if n < 126 else b"\x7e" + n.to_bytes(2, "big") if n < 65536 else b"\x7f" + n.to_bytes(8, "big"))
+    with _wl.setdefault(sock, threading.Lock()): sock.sendall(h + data)
+
+def view_target(pane):
+    """(tmux session to attach, the one made for this view or None). An SSH terminal's own session; for a chat, a new session grouped
+    with the chat's, showing the chat's window, so the Mac's own clients in that session stay on the window they were on."""
+    t = next((t for t in ssh_terms() if t["pane"] == pane), None)
+    if t: return t["session"], None
+    sock, n = pane.rsplit(".", 1)
+    s, w = next((l.split("\t")[1:] for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_index}").splitlines()
+                 if l.startswith(f"%{n}\t") and not l.split("\t")[1].startswith("deck-view-")), (None, None))
+    if not s: return None, None
+    made = f"deck-view-{secrets.token_hex(4)}"
+    ok = tm(pane, "new-session", "-d", "-t", f"={s}", "-s", made, ";", "set-option", "-t", f"={made}:", "status", "off", ";", "select-window", "-t", f"={made}:{w}", ok=True)
+    if not ok: tm(pane, "kill-session", "-t", f"={made}")
+    return (made, made) if ok else (None, None)
+
+def winsz(fd, cols, rows):
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", max(5, min(200, int(rows))), max(20, min(400, int(cols))), 0, 0))
+
+def term_bridge(h, pane, cols, rows):
+    """Runs one viewer: a tmux client in a pty, its output as binary frames, binary frames typed into it, text frames {"cols", "rows"}
+    resizing it. Whatever ends it (close frame, dropped socket, tmux gone), the client, the pty and any view session go with it."""
+    c = h.connection; c.settimeout(60); h.close_connection = True  # the page answers the 25 s pings: a silent minute is a phone gone
+    target, made = view_target(pane)
+    if not target: return ws_write(c, 8, b"")
+    with _view_lock: VIEWING[pane] = VIEWING.get(pane, 0) + 1
+    m = p = t = None; done = threading.Event()
+    try:
+        m, s = os.openpty(); winsz(m, cols, rows)
+        env = {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")} | {"TERM": "xterm-256color"}
+        try: p = subprocess.Popen(["tmux", "-u", "-L", pane.rsplit(".", 1)[0], "attach-session", "-t", f"={target}"], stdin=s, stdout=s, stderr=s, start_new_session=True, env=env)
+        finally: os.close(s)
+        def out():
+            last = time.time()
+            try:
+                while not done.is_set():
+                    r = select.select([m], [], [], max(0, last + 25 - time.time()))[0]
+                    if time.time() - last >= 25: ws_write(c, 9, b""); last = time.time()
+                    if r:
+                        b = os.read(m, 1 << 16)
+                        if not b: break
+                        ws_write(c, 2, b)
+            except OSError: pass
+            try: ws_write(c, 8, b""); c.shutdown(socket.SHUT_RDWR)  # wakes the reader below when tmux ended first
+            except OSError: pass
+            done.wait(); os.close(m)  # only once the reader has stopped writing to it
+        t = threading.Thread(target=out, daemon=True); t.start()
+        while True:
+            op, d = ws_read(h.rfile, c)
+            if op == 8: break
+            if op == 2:
+                while d: d = d[os.write(m, d):]
+            elif op == 1:
+                try: j = json.loads(d); winsz(m, j["cols"], j["rows"]); p.send_signal(signal.SIGWINCH)  # no controlling tty: tell tmux itself
+                except (ValueError, TypeError, KeyError): pass
+    except (OSError, ValueError): pass
+    finally:
+        done.set()
+        if p: p.kill(); p.wait()
+        if m is not None and not t: os.close(m)
+        if made: tm(pane, "kill-session", "-t", f"={made}")
+        with _view_lock:
+            VIEWING[pane] -= 1
+            if not VIEWING[pane]: del VIEWING[pane]
 
 ROOMY = (120, 50)
 def roomy():
@@ -69,20 +157,16 @@ def roomy():
     top falls off the screen. Give such windows room (tmux sizes them to a client again once one attaches)."""
     for s in live_sessions():
         p = s["pane"]
-        if p in RESZ: continue
+        if p in VIEWING: continue
         w, h, n = (tm(p, "display", "-p", "-t", "{P}", "#{window_width} #{window_height} #{session_attached}").split() + ["", "", ""])[:3]
         if n == "0" and (w, h) != tuple(map(str, ROOMY)):
             tm(p, "resize-window", "-t", "{P}", "-x", str(ROOMY[0]), "-y", str(ROOMY[1])); tm(p, "set-option", "-wu", "-t", "{P}", "window-size")
 
-def term_reaper():  # a phone that closed or locked mid-view never says goodbye
+def term_reaper():
     while True:
         time.sleep(10)
         try: roomy()
         except Exception: pass
-        for p, t in list(RESZ.items()):
-            if time.time() - t > 30:
-                try: term_release(p)
-                except Exception: RESZ.pop(p, None)
 
 def tm(key, *args, ok=False):
     """Run tmux against the server and pane named by key ("ssh.63"); "{P}" in args becomes the pane target. With ok, whether it worked."""
@@ -1711,6 +1795,9 @@ TS_NAME, TS_LOGIN = _ts() if not (os.environ.get("DECK_RP_ID") and os.environ.ge
 RP_ID = os.environ.get("DECK_RP_ID") or TS_NAME
 HOSTS |= {RP_ID, RP_ID.split(".")[0]}  # the https name, and the short name that redirects to it
 ORIGIN = os.environ.get("DECK_ORIGIN", "https://" + RP_ID)
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; "
+       f"connect-src 'self' wss://{urllib.parse.urlsplit(ORIGIN).netloc} ws://127.0.0.1:{PORT} ws://localhost:{PORT}; "
+       "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'")
 CK, CK_PATH = "__Secure-deck", os.environ.get("DECK_COOKIE_PATH", "/deck")  # the browser sees the deck under /deck
 TTL = int(os.environ.get("DECK_SESSION_TTL", 30 * 86400))  # sliding: refreshed when a session is used
 TS_USERS = {u.strip().lower() for u in (os.environ.get("DECK_TS_USER") or TS_LOGIN).split(",") if u.strip()}  # default: the Mac's own login
@@ -2012,14 +2099,14 @@ class H(BaseHTTPRequestHandler):
         ck = self.__dict__.pop("_ck", None)  # a session cookie set or slid during this request
         if ck: self.send_header("Set-Cookie", ck)
         self.send_header("Content-Length", str(len(b))); self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(b)
-    def authed(self):
+    def authed(self, tok=""):
         host = (self.headers.get("Host") or "").split(":")[0]
         if host not in HOSTS: return False
         # The Host header is chosen by the client, so it decides nothing. Anything on the Tailscale port, or carrying a proxy's
         # headers, needs the owner's login (tailscale serve sets Tailscale-User-Login itself and drops any copy the client sends)
         # plus a passkey session cookie bound to that login. Only direct local requests use the token.
         if self.via_ts(): return bool(self.session())
-        return secrets.compare_digest(self.headers.get("X-Deck-Token", "").encode("utf8", "replace"), TOK.encode())
+        return secrets.compare_digest((self.headers.get("X-Deck-Token") or tok).encode("utf8", "replace"), TOK.encode())
     def via_ts(self):
         return getattr(self.server, "ts", False) or any(k.lower() == "x-forwarded-for" or k.lower().startswith("tailscale-") for k in self.headers)
     def login(self):
@@ -2114,6 +2201,13 @@ class H(BaseHTTPRequestHandler):
         if path.startswith("/api/auth/"): return self.auth(path)
         m = re.fullmatch(r"/api/file/(\d+)\.([\w-]+)\.([\w-]+)/[^/]*", path, re.A)
         if m: return self.file(m)
+        m = re.fullmatch(r"/api/term/(" + PANE_RE + ")", path)
+        if m:  # a browser WebSocket can't send X-Deck-Token, so locally the token comes in the query
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query); n = lambda k, d: int(q[k][0]) if q.get(k, [""])[0].isdigit() else d
+            if not self.authed(q.get("tok", [""])[0]): return self.send(401, {"error": "token"})
+            if not (valid_pane(m.group(1)) or valid_term(m.group(1))): return self.send(404, {"error": "This terminal has closed."})
+            if ws_handshake(self): term_bridge(self, m.group(1), n("cols", 80), n("rows", 24))
+            return
         if not self.authed(): return self.send(401, {"error": "token"})
         if pages_api(self, path) or aiva_api(self, path): return
         if path == "/api/siri":
@@ -2183,14 +2277,6 @@ class H(BaseHTTPRequestHandler):
             s = next((x for x in live_sessions() if x["pane"] == qs.get("pane", [""])[0]), None)  # cwd comes from the live chat, never the client
             if not s or not os.path.isdir(s["cwd"] or ""): return self.send(404, {"error": "pane"})
             return self.send(200, {"files": files(s["cwd"], qs.get("q", [""])[0][:100])})
-        m = re.fullmatch(r"/api/screen/(" + PANE_RE + ")", path)
-        if m and valid_pane(m.group(1)):
-            SEEN[m.group(1)] = time.time(); q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            if q.get("release"): term_release(m.group(1)); return self.send(200, {"ok": True})
-            if q.get("cols") and q.get("rows"):
-                try: term_size(m.group(1), int(q["cols"][0]), int(q["rows"][0]))
-                except ValueError: pass
-            return self.send(200, {"screen": tm(m.group(1), "capture-pane", "-p", "-t", "{P}", "-S", "-40")})
         self.send(404, {"error": "nf"})
     def file(self, m):
         """A file Claude made, by the signed link out_files gave the page: the link stands in for the passkey cookie, as a new tab or a
