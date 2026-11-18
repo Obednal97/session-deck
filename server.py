@@ -2036,11 +2036,11 @@ def ssh_terms():
     out = []
     for sock in sockets():
         for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{@deck_ssh}\t#{pane_id}\t#{session_name}\t#{pane_dead}\t#{session_created}\t#{@deck_ssh_host}\t"
-                     "#{@deck_claude}\t#{@deck_rcwd}\t#{@deck_rpid}\t#{@deck_rkind}\t#{window_name}").splitlines():
-            x = l.split("\t", 10)
-            if len(x) == 11 and x[0] and x[1].startswith("%"):  # claude, rcwd, rpid, rkind: a remote chat's (see remote_chats)
+                     "#{@deck_claude}\t#{@deck_rcwd}\t#{@deck_rpid}\t#{@deck_rkind}\t#{@deck_rtmux}\t#{window_name}").splitlines():
+            x = l.split("\t", 11)
+            if len(x) == 12 and x[0] and x[1].startswith("%"):  # claude, rcwd, rpid, rkind, rtmux: a remote chat's (see remote_chats)
                 out.append({"pane": f"{sock}.{x[1][1:]}", "session": x[2], "host": x[0], "dead": x[3] == "1", "created": int(x[4]) if x[4].isdigit() else 0, "rec": x[5],
-                            "claude": x[6], "rcwd": x[7], "rpid": x[8], "rkind": x[9], "title": x[10]})
+                            "claude": x[6], "rcwd": x[7], "rpid": x[8], "rkind": x[9], "rtmux": x[10], "title": x[11]})
     return out
 
 def valid_term(p):
@@ -2202,6 +2202,7 @@ def chat_file(sid, hid=None):
 
 # SSH: remote chats. A remote chat is an SSH terminal whose server runs Claude: matched to the server's $C/sessions/<pid>.json, the
 # match kept in the Mac session's tmux options (so a deck restart keeps it). Typing, questions and status read the Mac's pane as for a local chat.
+_RBOX = {}  # pane -> when an unmatched terminal was first seen showing Claude's input box
 _RSCAN, _rscan_lock = {}, threading.Lock()  # host id -> [when the last ask ended (inf while one runs), the last good list, when it was got]
 RSCAN_SH = r"""C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 for f in "$C"/sessions/*.json; do p=${f##*/}; p=${p%.json}; case $p in ""|*[!0-9]*) continue;; esac
@@ -2239,9 +2240,11 @@ def rmatch(hid, items):
     """Matches the host's terminals to its live Claude sessions, oldest terminal first, each json to one terminal at most:
     1. a terminal with @deck_rpid keeps that pid's session (@deck_claude follows a /clear), or loses it when the pid has gone (a hand-typed
        chat then becomes a terminal again); 2. a deck chat takes the session with its @deck_claude id, or with none yet, the unclaimed one
-       started in its folder (@deck_rcwd) nearest the terminal's start; 3. a terminal showing Claude's input box takes the newest unclaimed
-       one started since it opened (Claude typed by hand: the screen doesn't show the folder)."""
-    ts, by, mine = sorted((t for t in ssh_terms() if t["host"] == hid), key=lambda t: t["created"]), {x["pid"]: x for x in items}, set()
+       started in its folder (@deck_rcwd) nearest the terminal's start; 3. then a terminal showing Claude's input box (Claude typed by hand:
+       the screen doesn't show the folder) takes an unclaimed one started since it opened and no later than its box first showed, but
+       only when that is unambiguous: no other such terminal fits that json, and it is the only one showing a box or the json is the only fit."""
+    terms = ssh_terms(); ts, by, mine = sorted((t for t in terms if t["host"] == hid), key=lambda t: t["created"]), {x["pid"]: x for x in items}, set()
+    for p in [p for p in _RBOX if p not in {t["pane"] for t in terms}]: del _RBOX[p]
     def put(t, **kv):  # tmux options on the Mac session, "" unsets
         a = [x for k, v in kv.items() for x in (";", "set-option", *(["-u"] if v == "" else []), "-t", f"={t['session']}:", f"@deck_{k}", *([str(v)] if v != "" else []))]
         tm(t["pane"], *a[1:]); t.update({k: str(v) for k, v in kv.items()})
@@ -2255,12 +2258,19 @@ def rmatch(hid, items):
     for t in ts:
         x = not t["rpid"] and t["claude"] and next((x for x in items if x["sessionId"] == t["claude"] and x["pid"] not in mine), None)
         if x: mine.add(x["pid"]); put(t, rpid=x["pid"])
+    for t in ts:  # every folder match before any hand match
+        if t["rpid"] or t["claude"] or t["dead"] or not t["rcwd"]: continue
+        x = min((x for x in free() if x["cwd"] == t["rcwd"] and x["startedAt"] / 1000 >= t["created"] - 10), key=lambda x: abs(x["startedAt"] / 1000 - t["created"]), default=None)
+        if x: mine.add(x["pid"]); put(t, rpid=x["pid"], claude=x["sessionId"])
+    box, now = [], time.time()
     for t in ts:
-        if t["rpid"] or t["claude"] or t["dead"]: continue
-        if t["rcwd"]: x = min((x for x in free() if x["cwd"] == t["rcwd"] and x["startedAt"] / 1000 >= t["created"] - 10), key=lambda x: abs(x["startedAt"] / 1000 - t["created"]), default=None)
-        else: x = max((x for x in free() if x["startedAt"] / 1000 >= t["created"] - 10), key=lambda x: x["startedAt"], default=None)
-        if x and (t["rcwd"] or input_box(t["pane"]) is not None):
-            mine.add(x["pid"]); put(t, rpid=x["pid"], claude=x["sessionId"], **({} if t["rcwd"] else {"rkind": "hand"}))
+        if t["rpid"] or t["claude"] or t["rcwd"] or t["dead"] or input_box(t["pane"]) is None: _RBOX.pop(t["pane"], None); continue
+        box.append(t); _RBOX.setdefault(t["pane"], now)
+    fits = lambda t: [x for x in free() if t["created"] - 10 <= x["startedAt"] / 1000 <= _RBOX[t["pane"]] + 10]  # a Claude started after the box showed is another's
+    for t in box:
+        fx = fits(t); c = [x for x in fx if not any(x in fits(u) for u in box if u is not t and not u["claude"])]
+        if c and (len(box) == 1 or len(fx) == 1):
+            x = max(c, key=lambda x: x["startedAt"]); mine.add(x["pid"]); put(t, rpid=x["pid"], claude=x["sessionId"], rkind="hand"); _RBOX.pop(t["pane"], None)
 
 def remote_chats():
     """One item per remote chat, with a live_sessions() item's keys plus host, rkind, dropped (its connection has ended) and remote.
@@ -2672,8 +2682,9 @@ class H(BaseHTTPRequestHandler):
             pane = str(body.get("pane", "")); _live[0] = 0
             s = re.fullmatch(PANE_RE, pane) and next((x for x in chats() if x["pane"] == pane), None)
             if not s: return self.send(200, {"gone": True})
-            if body.get("kill") and s.get("rkind") == "tmux" and (h := ssh_host(s["host"])):  # Claude in the server's own tmux would outlive the connection
-                try: ssh_run(h, "tmux kill-session -t " + shlex.quote("=deck-" + s["session"]), timeout=15)
+            rt = s.get("remote") and next((t["rtmux"] for t in ssh_terms() if t["pane"] == pane), "")  # the server's tmux session keeps its first name through a /clear
+            if body.get("kill") and rt and re.fullmatch(r"deck-[0-9a-f-]{36}", rt) and (h := ssh_host(s["host"])):  # Claude in it would outlive the connection
+                try: ssh_run(h, "tmux kill-session -t " + shlex.quote("=" + rt), timeout=15)
                 except (subprocess.TimeoutExpired, ValueError): pass
             if body.get("kill"): tm(pane, "kill-pane", "-t", "{P}")
             else: end_chat(pane)

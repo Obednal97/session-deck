@@ -313,6 +313,47 @@ class Chats(unittest.TestCase):
         self.assertEqual([self.opt(s, k) for k in ("claude", "rpid", "rkind")], ["", "", ""])
         self.assertIn(pane, {t["pane"] for t in server.ssh_state()["terms"]})
 
+    def test_hand_no_swap(self):  # a terminal showing an older Claude never takes a newer Claude's session, nor a deck fork's
+        boxes = set(); server.input_box = lambda key, wait=0: "" if key in boxes else None
+        a, pa = self.term(); ca = self.created(a); boxes.add(pa)
+        self.claude(str(uuid.uuid4()), started=ca - 60)  # A's own Claude: started before A opened (a tmux attach), so it never fits
+        f, pf = self.term(rcwd="/root/f", rkind="plain"); sf = str(uuid.uuid4()); self.claude(sf, cwd="/root/f", started=time.time())  # a fork, found by folder
+        got = {x["pane"]: x["session"] for x in self.scan()}
+        self.assertEqual(got, {pf: sf})  # folder matches come first: A, the only box, doesn't take the fork's
+        server._RBOX[pa] -= 30  # A has shown its box for 30 s
+        c, pc = self.term(); sc = str(uuid.uuid4()); self.claude(sc, started=time.time())  # a new Claude in a newer terminal C, its box not drawn yet
+        self.assertEqual({x["pane"]: x["session"] for x in self.scan()}, {pf: sf})  # A is still the only box, but its box was there before this Claude started
+        boxes.add(pc)
+        self.assertEqual({x["pane"]: x["session"] for x in self.scan()}, {pf: sf, pc: sc})
+        self.assertEqual((self.opt(a, "claude"), self.opt(c, "rkind")), ("", "hand"))
+        (p, pp), (q, pq) = self.term(), self.term(); boxes |= {pp, pq}  # two new boxes and one new Claude that fits both: ambiguous, so neither
+        self.claude(str(uuid.uuid4()), started=time.time())
+        self.assertEqual({x["pane"]: x["session"] for x in self.scan()}, {pf: sf, pc: sc})
+        self.assertEqual([self.opt(x, "claude") for x in (a, p, q)], ["", "", ""])
+
+    def test_hand_two_fits(self):  # with two boxes on the host, a terminal that two Claudes fit takes neither; with one fit it takes it
+        (p, pp), (q, pq) = self.term(), self.term(); server.input_box = lambda key, wait=0: "" if key in (pp, pq) else None
+        real = server.ssh_terms  # p opened 100 s before q
+        server.ssh_terms = lambda: [{**t, "created": t["created"] - 100 * (t["session"] == p)} for t in real()]
+        self.addCleanup(setattr, server, "ssh_terms", real)
+        x1 = self.claude(str(uuid.uuid4()), started=time.time() - 50); s2 = str(uuid.uuid4()); self.claude(s2, started=time.time() - 40)  # both since p opened, before q
+        self.assertEqual(self.scan(), [])
+        x1.kill(); x1.wait()
+        self.assertEqual([(x["pane"], x["session"]) for x in self.scan()], [(pp, s2)])
+
+    def test_end_kills_rtmux(self):  # Stop ends the server's tmux session by the name it started with, not the id a /clear gave the chat
+        real, scripts = server.ssh_run, []
+        def spy(h, script, *a, **k): scripts.append(script); return real(h, script, *a, **k)
+        server.ssh_run = spy; self.addCleanup(setattr, server, "ssh_run", real)
+        for rt in (f"deck-{uuid.uuid4()}", "deck-x; tmux kill-server"):
+            new = str(uuid.uuid4()); s, pane = self.term(claude=new, rcwd="/root/x", rkind="tmux", rtmux=rt)
+            self.claude(new); self.scan(); scripts.clear()
+            self.assertEqual(self.post("/api/end", {"pane": pane, "kill": True}), (200, {"ok": True}))
+            kill = [x for x in scripts if "kill-session" in x]
+            self.assertEqual(kill, [f"tmux kill-session -t ={rt}"] if rt[5:].count("-") == 4 else [])  # a tampered name is never sent
+            self.assertFalse(any(new in x for x in kill))
+            self.assertTrue(until(lambda: s not in T("list-sessions", "-F", "#{session_name}").split()))
+
     def test_no_master_fast(self):
         sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="tmux")
         p = self.claude(sid, status="busy"); self.scan()
