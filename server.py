@@ -2326,9 +2326,10 @@ def _remote_chats():
         if scans[t["host"]] is None or not re.fullmatch(SID_RE, t["claude"]): continue
         L = scans[t["host"]]; x = next((x for x in L if str(x["pid"]) == t["rpid"]), None) or next((x for x in L if x["sessionId"] == t["claude"]), None)
         f = RMIR / t["host"] / f"{t['claude']}.jsonl"; f = f if f.is_file() else None
+        last = "" if t["dead"] else next((l.rstrip() for l in reversed(tm(t["pane"], "capture-pane", "-p", "-t", "{P}").splitlines()) if l.strip()), "")
         out.append({"pane": t["pane"], "where": t["session"], "name": t["title"], "cwd": (x or {}).get("cwd") or t["rcwd"], "engine": "claude", "plan": None, "pinned": False,
                     "state": x and x["status"], "session": t["claude"], "title": (f and cached(f, title_of)) or t["title"], "mtime": f.stat().st_mtime if f else 0,
-                    **pane_screen(t["pane"]), "host": t["host"], "rkind": t["rkind"] or None, "dropped": t["dead"], "remote": True})
+                    **pane_screen(t["pane"]), "host": t["host"], "rkind": t["rkind"] or None, "dropped": t["dead"] or bool(PW_PROMPT.search(last)), "remote": True})
     return out
 
 def chats():
@@ -2829,6 +2830,8 @@ class H(BaseHTTPRequestHandler):
             live = bool(s) and not s.get("dropped")
             h = None if f and not remote_of(f) or not re.fullmatch(SID_RE, sid) else ssh_host((s or {}).get("host") or body.get("host") or (f and remote_of(f)))  # a remote chat's title goes on the server, never the mirror
             if not name: return self.send(400, {"error": "name"})
+            if body.get("claude") and s and s.get("remote") and s["dropped"]: return self.send(409, {"error": "This chat isn't connected. Reconnect it first."})
+            if body.get("claude") and live and s.get("remote") and input_box(pane) is None: return self.send(409, {"error": "Claude's message box isn't showing. Try again in a moment."})
             done = []
             if body.get("claude") and (f and not remote_of(f) or live or h):
                 line = json.dumps({"type": "custom-title", "customTitle": name, "sessionId": sid}, separators=(",", ":")) + "\n"
@@ -2854,6 +2857,7 @@ class H(BaseHTTPRequestHandler):
             pane = str(body.get("pane", "")); _live[0] = _rch[0] = 0
             s = re.fullmatch(PANE_RE, pane) and next((x for x in chats() if x["pane"] == pane), None)
             if not s: return self.send(200, {"gone": True})
+            if not body.get("kill") and s.get("dropped"): return self.send(409, {"error": "This chat isn't connected. Reconnect it first."})  # /exit would reach ssh, or a password prompt
             rt = s.get("remote") and next((t["rtmux"] for t in ssh_terms() if t["pane"] == pane), "")  # the server's tmux session keeps its first name through a /clear
             if body.get("kill") and rt and re.fullmatch(r"deck-[0-9a-f-]{36}", rt) and (h := ssh_host(s["host"])):  # Claude in it would outlive the connection
                 try: ssh_run(h, "tmux kill-session -t " + shlex.quote("=" + rt), timeout=15)
@@ -2955,6 +2959,8 @@ class H(BaseHTTPRequestHandler):
             except subprocess.TimeoutExpired: return self.send(400, {"error": "The server took too long to answer."})
         pane = body.get("pane", "")
         if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(400, {"error": "pane"})
+        if self.path in ("/api/send", "/api/choose", "/api/key") and any(x["pane"] == pane and x["dropped"] for x in remote_chats()):  # typing would reach ssh, or a password prompt
+            return self.send(409, {"error": "This chat isn't connected. Reconnect it first."})
         if self.path == "/api/procs/kill":
             pid = body.get("pid")
             r = stop_proc(pane, pid) if isinstance(pid, int) and not isinstance(pid, bool) and pid > 1 else {"error": "pid"}

@@ -779,6 +779,25 @@ class Chats(unittest.TestCase):
         server.remote_chats(); server.remote_chats(); self.assertEqual(n, ["ssh_terms"])  # kept for a second
         server._live[0] = server._rch[0] = 0; server.remote_chats(); self.assertEqual(n, ["ssh_terms"] * 2)  # and cleared with the Mac's own list
 
+    def test_password_prompt_dropped(self):  # ssh waiting for a password: the chat is dropped, so nothing typed reaches the prompt
+        sid = str(uuid.uuid4()); s, pane = self.term(cmd="printf '%s' \"root@h's password: \"; exec cat", claude=sid, rcwd="/root/x", rkind="tmux")
+        self.claude(sid); until(lambda: "password" in T("capture-pane", "-p", "-t", f"={s}:"))
+        c = next(x for x in self.scan() if x["pane"] == pane)
+        self.assertEqual((c["dropped"], c["session"]), (True, sid))
+        typed, real = [], server.tm
+        server.tm = lambda key, *a, **k: (typed.append(a[0]) if a[0] in ("send-keys", "paste-buffer", "set-buffer") else None) or real(key, *a, **k); self.addCleanup(setattr, server, "tm", real)
+        no = (409, {"error": "This chat isn't connected. Reconnect it first."})
+        self.assertEqual(self.post("/api/key", {"pane": pane, "key": "Enter"}), no)
+        self.assertEqual(self.post("/api/send", {"pane": pane, "text": "hunter2"}), no)
+        self.assertEqual(self.post("/api/rename", {"pane": pane, "session": sid, "name": "x", "claude": True}), no)
+        self.assertEqual(self.post("/api/end", {"pane": pane}), no)
+        self.assertEqual(typed, [])
+        T("kill-server"); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="tmux"); self.scan()  # connected, but Claude's box isn't showing: no /rename typed
+        self.assertFalse(next(x for x in self.rc() if x["pane"] == pane)["dropped"])
+        self.assertEqual(self.post("/api/rename", {"pane": pane, "session": sid, "name": "x", "claude": True})[0], 409); self.assertEqual(typed, [])
+        server.input_box = lambda key, wait=0: ""
+        self.assertEqual(self.post("/api/rename", {"pane": pane, "session": sid, "name": "x", "claude": True}), (200, {"done": ["claude"]})); self.assertIn("paste-buffer", typed)
+
 class StartArgs(unittest.TestCase):
     """claude_args is start()'s own checks and flags, factored out: a local chat's argv is exactly what it was."""
     def test_claude_args_same(self):
