@@ -1,6 +1,6 @@
 # SSH in Session Deck
 
-Status: draft for the owner's approval, 2026-11-18.
+Status: approved by the owner, 2026-11-18.
 
 ## Why
 
@@ -26,7 +26,8 @@ questions, permission prompts, diffs, subagents, notifications), not just a term
 
 ## Non-goals (for now)
 
-- SFTP or a file browser, port forwarding, snippets, host groups or tags.
+- An SFTP file browser (browsing folders, renaming, deleting), port forwarding, snippets, host groups or tags. Moving
+  single files is covered (see Files).
 - Importing keys made elsewhere, or a key per host. The Mac's one key serves every key-based host.
 - Running the deck on the servers themselves (approach 2 below).
 - Listing every `~/.ssh/config` entry automatically.
@@ -141,6 +142,19 @@ SSH                                          +
 - The local chats' Terminal view switches to the same live terminal (my call: it is the same component, and today's
   snapshot view is the weaker one). The chat view and its key bar stay as they are.
 
+### Files (the owner's decision)
+
+Both go over the host's shared connection (`scp`), and both work in stage 1:
+
+- **Attach** in an SSH terminal (the paperclip, as in chats): the file is copied to an uploads folder on the server
+  (my call: `~/.cache/session-deck/uploads/`, created if missing, old files tidied as on the Mac) and its server path is
+  typed at the prompt, not run.
+- **Get file:** type or paste a path on the server; the file opens or saves on the device in use, with the deck's
+  existing size limit.
+
+Claude chats on a server use the same two paths: uploads become a server path given to Claude, and files Claude names
+in a reply can be opened or saved.
+
 ### Claude over SSH
 
 - **Starting one:** the new-chat sheet gets a "Where" choice: This Mac (today) or a saved host. For a host, the folder
@@ -168,7 +182,7 @@ SSH                                          +
 ### Order of work
 
 1. **SSH:** hosts, password and key sign-in, host keys, throwaway connections, the SSH section, the live terminal
-   (including the local chats' Terminal view).
+   (including the local chats' Terminal view), Attach and Get file in terminals.
 2. **Claude over SSH:** remote chats in the SSH section, starting from the new-chat sheet, the remote transcript and
    the rest of the list above, remote history.
 
