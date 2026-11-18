@@ -247,7 +247,7 @@ class Chats(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp()); os.environ["FAKE_SSH_HOME"] = str(self.home)
         (self.home / ".claude/sessions").mkdir(parents=True)
-        server.ssh_hosts_write([]); server._SYNC.clear(); server._RSCAN.clear(); server._live[0] = 0
+        server.ssh_hosts_write([]); server._SYNC.clear(); server._RSCAN.clear(); server._RBOX.clear(); server._live[0] = server._rch[0] = 0
         self.h, _ = server.ssh_host_save({"addr": "pi@10.0.0.5", "auth": "key", "name": "Pi"}); self.hid = self.h["id"]
         server.input_box = lambda key, wait=0: None
         self.n = 0
@@ -278,6 +278,9 @@ class Chats(unittest.TestCase):
 
     def scan(self):  # a fresh scan, waited for (matching runs on every good scan); then the list as /api/sessions sees it
         server._RSCAN.clear(); server.rscan(self.h); return server.remote_chats()
+
+    def rc(self):  # remote_chats() asked again now, not its last second's answer
+        server._rch[0] = 0; return server.remote_chats()
 
     def get(self, path):
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=15)
@@ -393,15 +396,15 @@ class Chats(unittest.TestCase):
             finally: done.set()
         server.ssh_run = slow; self.addCleanup(setattr, server, "ssh_run", real)
         server._RSCAN[self.hid][0] = 0  # the cache is stale: the next look asks the server again
-        t0 = time.time(); ch = server.chats()
+        server._rch[0] = 0; t0 = time.time(); ch = server.chats()
         self.assertLess(time.time() - t0, 2)
         self.assertEqual(next(x for x in ch if x["pane"] == pane)["state"], "busy")
-        time.sleep(0.5); server.chats(); self.assertEqual(len(calls), 1)  # one ask at a time per host, however long it takes
+        time.sleep(0.5); self.rc(); self.assertEqual(len(calls), 1)  # one ask at a time per host, however long it takes
         self.assertTrue(done.wait(10)); time.sleep(0.2)
-        self.assertEqual(next(x for x in server.remote_chats() if x["pane"] == pane)["state"], "busy")  # the last good scan, under 60 s old
+        self.assertEqual(next(x for x in self.rc() if x["pane"] == pane)["state"], "busy")  # the last good scan, under 60 s old
         self.assertEqual(self.opt(s, "rpid"), str(p.pid))  # a failed scan matches nothing and clears nothing
         server._RSCAN[self.hid][2] -= 61
-        self.assertIsNone(next(x for x in server.remote_chats() if x["pane"] == pane)["state"])
+        self.assertIsNone(next(x for x in self.rc() if x["pane"] == pane)["state"])
 
     def test_drop_no_push(self):
         sent, real = [], (server.push_all, server.push_subs)
@@ -620,7 +623,7 @@ class Chats(unittest.TestCase):
         (a, pa), (b, pb), (c, pc) = (self.term(cmd=f"exit {n}", claude=str(uuid.uuid4()), rcwd="/root/x", rkind=k) for n, k in ((0, "plain"), (255, "tmux"), (0, "tmux")))
         t, pt = self.term(cmd="exit 0")  # an ordinary terminal that ended: kept, as in Stage 1
         until(lambda: all(T("display", "-p", "-t", f"={x}:", "#{pane_dead}") == "1" for x in (a, b, c, t)))
-        ch = {x["pane"]: x for x in server.remote_chats()}
+        ch = {x["pane"]: x for x in self.rc()}
         self.assertEqual(list(ch), [pb]); self.assertTrue(ch[pb]["dropped"])
         self.assertEqual(set(T("list-sessions", "-F", "#{session_name}").split()), {b, t})
 
@@ -630,10 +633,10 @@ class Chats(unittest.TestCase):
         real, n = server.ssh_run, []
         server.ssh_run = lambda *a, **k: n.append(1) or real(*a, **k); self.addCleanup(setattr, server, "ssh_run", real)
         server._RSCAN[self.hid] = [time.time() - 10, [], 0]
-        server.remote_chats(); time.sleep(0.3); self.assertEqual(n, [])
-        server._RSCAN[self.hid][0] -= 25; server.remote_chats(); time.sleep(0.5); self.assertEqual(n, [1])
+        self.rc(); time.sleep(0.3); self.assertEqual(n, [])
+        server._RSCAN[self.hid][0] -= 25; self.rc(); time.sleep(0.5); self.assertEqual(n, [1])
         T("kill-server"); self.term(claude=str(uuid.uuid4()), rcwd="/root/x", rkind="plain")  # a live chat: every 3 s again
-        server._RSCAN[self.hid][0] = time.time() - 4; server.remote_chats(); time.sleep(0.5); self.assertEqual(n, [1, 1])
+        server._RSCAN[self.hid][0] = time.time() - 4; self.rc(); time.sleep(0.5); self.assertEqual(n, [1, 1])
 
     def repo(self):  # a git repo on the fake server (this Mac under its HOME): a modified file, a staged rename, untracked text, binary, symlink and an awkward name
         r = os.path.realpath(self.home / "repo"); g = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", r, *a], capture_output=True, check=True)
@@ -761,6 +764,20 @@ class Chats(unittest.TestCase):
         p = self.claude(sid, status="busy"); ch = {x["pane"]: x for x in self.scan()}
         self.assertEqual((self.opt(l, "rpid"), self.opt(d, "rpid")), (str(p.pid), ""))
         self.assertEqual((ch[pl]["state"], ch[pl]["dropped"], ch[pd]["dropped"]), ("busy", False, True))
+
+    def test_local_poll_light(self):  # a local chat's 1 s status poll never lists SSH terminals or remote chats
+        s, pane = self.term(claude=str(uuid.uuid4()), rcwd="/root/x", rkind="plain"); self.claude(self.opt(s, "claude")); self.scan()
+        T("new-session", "-d", "-s", "local", "-x", "80", "-y", "24", "cat"); lp = "decktest." + T("display", "-p", "-t", "=local:", "#{pane_id}")[1:]
+        n, old = [], {k: getattr(server, k) for k in ("live_sessions", "ssh_terms", "remote_chats", "accounts")}; self.addCleanup(lambda: [setattr(server, k, v) for k, v in old.items()])
+        server.live_sessions = lambda: [{"pane": lp, "plan": "max", "pinned": True}]; server.accounts = lambda: []
+        server.ssh_terms = lambda: n.append("ssh_terms") or old["ssh_terms"](); server.remote_chats = lambda: n.append("remote_chats") or old["remote_chats"]()
+        self.assertTrue(server.valid_pane(lp))
+        st, d = self.get(f"/api/status/{lp}")
+        self.assertEqual((st, d["plan"], d["pinned"], n), (200, "max", True, []))
+        self.assertTrue(server.valid_pane(pane)); self.assertEqual(self.get(f"/api/status/{pane}")[0], 200); self.assertIn("remote_chats", n)  # a remote chat: found after the Mac's own
+        server.remote_chats = old["remote_chats"]; n.clear(); server._rch[0] = 0
+        server.remote_chats(); server.remote_chats(); self.assertEqual(n, ["ssh_terms"])  # kept for a second
+        server._live[0] = server._rch[0] = 0; server.remote_chats(); self.assertEqual(n, ["ssh_terms"] * 2)  # and cleared with the Mac's own list
 
 class StartArgs(unittest.TestCase):
     """claude_args is start()'s own checks and flags, factored out: a local chat's argv is exactly what it was."""

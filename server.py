@@ -649,7 +649,7 @@ def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=Non
         r = run("tmux", "-L", sock, "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", target, "-c", cwd, "-n", name, *full)
     else:
         r = run("tmux", "-L", sock, "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"={target}:", "-c", cwd, "-n", name, *full)
-    _live[0] = 0; _socks.pop(sock, None)  # the chat may have started a new tmux server
+    _live[0] = _rch[0] = 0; _socks.pop(sock, None)  # the chat may have started a new tmux server
     return f"{sock}.{r.strip()[1:]}" if r.strip().startswith("%") else None
 
 def find_file(session):
@@ -1128,8 +1128,8 @@ def files(cwd, q, limit=30, host=None):
     base = lambda p: p.rstrip("/").rsplit("/", 1)[-1].lower()
     return sorted(hit, key=lambda p: (not base(p).startswith(ql), ql not in base(p), len(p)))[:limit]
 
-def valid_pane(p):
-    return p in {s["pane"] for s in chats()}
+def valid_pane(p):  # the Mac's own chats first: a local chat's 1 s status poll never lists SSH terminals
+    return p in {s["pane"] for s in live_sessions()} or p in {s["pane"] for s in remote_chats()}
 
 def chat_cwd(key):
     """(folder, host) of a live pane or a saved chat: host None for the Mac's own, else the server's (its folder is never looked for on the Mac).
@@ -1364,7 +1364,7 @@ def siri_pane():
     if not p: return None
     SIRI["pane"] = p
     for _ in range(40):  # until Claude is running in it
-        _live[0] = 0
+        _live[0] = _rch[0] = 0
         if any(x["pane"] == p for x in live_sessions()): break
         time.sleep(0.5)
     return p
@@ -1408,7 +1408,7 @@ def idle_sweep():
         pv = procs_view(s["pane"])
         if pv["procs"] or pv["shells"] or pv["agents"]: continue
         print(f"idle-end {s['pane']} {s['title'] or s['name']!r}: no activity for {(time.time() - s['mtime']) / 86400:.1f} days", flush=True)
-        end_chat(s["pane"]); _live[0] = 0
+        end_chat(s["pane"]); _live[0] = _rch[0] = 0
 
 def idler():
     while True:
@@ -2040,7 +2040,7 @@ def ssh_open(hid, password=None, rcmd=None, opts=None):
                 ";", "set-option", "-t", f"={s}:", "@deck_ssh", hid, ";", "set-option", "-t", f"={s}:", "status", "off", ";", "set-option", "-w", "-t", f"={s}:", "remain-on-exit", "on",
                 *([";", "set-option", "-t", f"={s}:", "@deck_ssh_host", json.dumps({k: h.get(k) for k in ("name", "host", "user", "port", "auth")})] if h.get("temp") else []),
                 *[x for k, v in (opts or {}).items() for x in (";", "set-option", "-t", f"={s}:", f"@{k}", str(v))])
-    _live[0] = 0; _socks.pop(sock, None)  # this may have started the tmux server
+    _live[0] = _rch[0] = 0; _socks.pop(sock, None)  # this may have started the tmux server
     if not r.strip().startswith("%"): return None
     pane = f"{sock}.{r.strip()[1:]}"
     if feed: threading.Thread(target=pw_feed, args=(pane, password, h), daemon=True).start()
@@ -2270,6 +2270,7 @@ def _rscan(host, c):
     c[1:] = [out, time.time()]
     try: rmatch(host["id"], out)
     except Exception as e: print("rmatch:", e, flush=True)
+    _rch[0] = 0
 
 def rmatch(hid, items):
     """Matches the host's terminals to its live Claude sessions, oldest terminal first, each json to one terminal at most:
@@ -2308,10 +2309,16 @@ def rmatch(hid, items):
         if c and (len(box) == 1 or len(fx) == 1):
             x = max(c, key=lambda x: x["startedAt"]); mine.add(x["pid"]); put(t, rpid=x["pid"], claude=x["sessionId"], rkind="hand"); _RBOX.pop(t["pane"], None)
 
+_rch = [0, None]  # remote_chats' answer and when, kept 1 s; cleared with _live's
 def remote_chats():
-    """One item per remote chat, with a live_sessions() item's keys plus host, rkind, dropped (its connection has ended) and remote.
-    Never waits on a server: the scan comes from rscan's cache, so the first look after a start may have no state. A host whose chats
-    have all dropped is asked every 30 s at most. A deck-started chat whose ssh ended with 0 (Claude exited) is closed."""
+    if time.time() - _rch[0] < 1 and _rch[1] is not None: return _rch[1]
+    _rch[1] = _remote_chats(); _rch[0] = time.time(); return _rch[1]
+
+def _remote_chats():
+    """One item per remote chat, with a live_sessions() item's keys plus host, rkind, dropped (its connection has ended, or ssh is asking
+    for a password, so typing would reach the prompt) and remote. Never waits on a server: the scan comes from rscan's cache, so the first
+    look after a start may have no state. A host whose chats have all dropped is asked every 30 s at most. A deck-started chat whose ssh
+    ended with 0 (Claude exited) is closed."""
     out, scans, terms = [], {}, ssh_terms(); up = {t["host"] for t in terms if not t["dead"]}
     for t in terms:
         if t["dead"] and t["exit"] == "0" and t["rkind"] in ("tmux", "plain"): tm(t["pane"], "kill-session", "-t", "{P}"); continue  # Claude ended (/exit): so does the chat
@@ -2703,7 +2710,7 @@ class H(BaseHTTPRequestHandler):
         if m and valid_pane(m.group(1)):
             SEEN[m.group(1)] = time.time(); q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             if q.get("f") == ["1"] and DEV_RE.fullmatch((q.get("d") or [""])[0]): VIEW[(m.group(1), q["d"][0])] = time.time()
-            s = next((s for s in chats() if s["pane"] == m.group(1)), {})
+            s = next((s for s in live_sessions() if s["pane"] == m.group(1)), None) or next((s for s in remote_chats() if s["pane"] == m.group(1)), {})
             return self.send(200, {**pane_screen(m.group(1)), "device": device(), "accounts": accounts(), "plan": s.get("plan"), "pinned": s.get("pinned")})
         if path == "/api/accounts": return self.send(200, {"accounts": accounts(), "models": account_models()})  # rclaude's plans, for the Account choice
         m = re.fullmatch(r"/api/procs/(" + PANE_RE + ")", path)
@@ -2837,14 +2844,14 @@ class H(BaseHTTPRequestHandler):
                     done.append("claude")
             if body.get("tmux") and s:
                 tm(pane, "rename-window", "-t", "{P}", name); done.append("tmux")
-            _live[0] = 0
+            _live[0] = _rch[0] = 0
             return self.send(200, {"done": done})
         if self.path == "/api/new":
             p = start(str(body.get("cwd", "")), body.get("engine"), body.get("resume"), bool(body.get("fork")), body.get("perm") or "bypass",
                       body.get("model"), body.get("effort"), body.get("name"), bool(body.get("worktree")), body.get("account"))
             return self.send(200, {"pane": p}) if p else self.send(400, {"error": "bad"})
         if self.path == "/api/end":  # /exit, or with kill the pane itself; only ever a pane that is running Claude right now
-            pane = str(body.get("pane", "")); _live[0] = 0
+            pane = str(body.get("pane", "")); _live[0] = _rch[0] = 0
             s = re.fullmatch(PANE_RE, pane) and next((x for x in chats() if x["pane"] == pane), None)
             if not s: return self.send(200, {"gone": True})
             rt = s.get("remote") and next((t["rtmux"] for t in ssh_terms() if t["pane"] == pane), "")  # the server's tmux session keeps its first name through a /clear
@@ -2853,7 +2860,7 @@ class H(BaseHTTPRequestHandler):
                 except (subprocess.TimeoutExpired, ValueError): pass
             if body.get("kill"): tm(pane, "kill-pane", "-t", "{P}")
             else: end_chat(pane)
-            _live[0] = 0; return self.send(200, {"ok": True})  # straight away: the pane may already be gone
+            _live[0] = _rch[0] = 0; return self.send(200, {"ok": True})  # straight away: the pane may already be gone
         if pages_api(self, self.path, body) or aiva_api(self, self.path.split("?")[0], body): return
         if self.path == "/api/siri/key":  # a new key; the old one stops working at once
             SEC["siri_key"] = secrets.token_urlsafe(24); save_secrets(SEC); return self.send(200, {"url": ORIGIN + CK_PATH + "/api/siri/" + SEC["siri_key"]})
@@ -2972,8 +2979,8 @@ class H(BaseHTTPRequestHandler):
             if err: return self.send(409, {"error": err})
             t0 = time.time()  # before delivering: under load Claude Code can record the prompt seconds before deliver returns
             err = deliver(pane, text, imgs)
-            if ag: view_agent(pane); _live[0] = 0  # back to the main agent, where the terminal normally sits
-            if err: _live[0] = 0; return self.send(409, {"error": err})
+            if ag: view_agent(pane); _live[0] = _rch[0] = 0  # back to the main agent, where the terminal normally sits
+            if err: _live[0] = _rch[0] = 0; return self.send(409, {"error": err})
             sid = c.get("session")
             if sid and not ag and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), t0))
             r = {"ok": True, "text": text}
@@ -2989,7 +2996,7 @@ class H(BaseHTTPRequestHandler):
                 T = m.get("tabs") or []; c = next((i for i, t in enumerate(T) if t["current"]), None); to = body["tab"]
                 if c is None or not isinstance(to, int) or not 0 <= to < len(T): return self.send(409, {"error": "Couldn't switch question. Try again."})
                 for _ in range(abs(to - c)): tm(pane, "send-keys", "-t", "{P}", "Right" if to > c else "Left"); time.sleep(0.05)
-                _live[0] = 0; return self.send(200, {"ok": True})
+                _live[0] = _rch[0] = 0; return self.send(200, {"ok": True})
             idx, text = body.get("index"), body.get("text")
             amend = None
             if text is not None:
@@ -3001,7 +3008,7 @@ class H(BaseHTTPRequestHandler):
                 if idx is None or m["mode"] == "keys": return self.send(409, {"error": "This question has no place for a typed answer. Pick an option."})
             elif not isinstance(idx, int) or not 0 <= idx < len(m["options"]): return self.send(400, {"error": "index"})
             if m["mode"] == "keys":
-                tm(pane, "send-keys", "-t", "{P}", m["options"][idx]["key"]); _live[0] = 0; return self.send(200, {"ok": True})
+                tm(pane, "send-keys", "-t", "{P}", m["options"][idx]["key"]); _live[0] = _rch[0] = 0; return self.send(200, {"ok": True})
             if idx is not None:
                 d = int(idx) - m["selected"]
                 for _ in range(abs(d)): tm(pane, "send-keys", "-t", "{P}", "Down" if d > 0 else "Up"); time.sleep(0.05)
@@ -3009,10 +3016,10 @@ class H(BaseHTTPRequestHandler):
                 time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Tab"); time.sleep(0.3)
                 a = pane_screen(pane)["menu"]
                 if not a or a["options"][idx:idx + 1] == m["options"][idx:idx + 1]:  # Tab didn't open the note: send nothing
-                    _live[0] = 0; return self.send(409, {"error": "Couldn't add a note to that option. Check the question and try again."})
+                    _live[0] = _rch[0] = 0; return self.send(409, {"error": "Couldn't add a note to that option. Check the question and try again."})
             if text is not None:
                 time.sleep(0.15); tm(pane, "set-buffer", "-b", "deck", "--", text); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
-            time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter"); _live[0] = 0
+            time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter"); _live[0] = _rch[0] = 0
             return self.send(200, {"ok": True})
         if self.path == "/api/key" and body.get("key") == "SendNow":  # Claude Code's chat:sendNow (ctrl+x ctrl+s)
             tm(pane, "send-keys", "-t", "{P}", "C-x"); time.sleep(0.05); tm(pane, "send-keys", "-t", "{P}", "C-s"); return self.send(200, {"ok": True})
