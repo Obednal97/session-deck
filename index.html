@@ -337,7 +337,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .sadd{border:0;background:none;color:var(--c);font:500 20px/1 system-ui,sans-serif;padding:0 4px;margin:-6px -4px -6px 8px;vertical-align:-1px}
 .tmi{flex:none;width:34px;text-align:center;font:600 12px ui-monospace,monospace;font-style:normal;color:var(--m)}.crow.sht{padding-left:22px}.card>.sht+.sht::before{left:66px}
 .sshb{display:flex;align-items:center;gap:10px;padding:6px 16px;background:var(--r);border-bottom:1px solid var(--l);font-size:13.5px}.sshb span{flex:1;min-width:0;color:var(--o);font-weight:600}
-.kill.op{color:var(--c)}.sshb button{flex:none;border:1px solid var(--l);background:var(--s);border-radius:99px;padding:3px 12px;color:var(--c);font-size:13px}
+.kill.op{color:var(--c)}.rfl{display:flex;flex-direction:column;gap:6px;max-height:min(40vh,320px);overflow:auto;margin-top:6px}.sshb button{flex:none;border:1px solid var(--l);background:var(--s);border-radius:99px;padding:3px 12px;color:var(--c);font-size:13px}
 </style>
 <header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class="ic sshx" id=sclip aria-label="Attach a file" title="Attach a file"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg></button><button class="ic sshx" id=sget aria-label="Get a file from the server" title="Get a file from the server"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg></button><button class=chip id=tv hidden>Terminal</button></header>
 <div class=off id=off hidden>Reconnecting…</div><div class=sshb id=sshb hidden></div>
@@ -379,7 +379,9 @@ const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,
 let fails=0,retryAt=0;const net=ok=>{if(ok){fails=0;retryAt=0}else if(Date.now()>=retryAt){fails++;retryAt=Date.now()+[1,2,5,10,15][Math.min(fails,5)-1]*1e3}$('off').hidden=fails<2};
 async function api(p,b,ms=2e4){let r;const av=p.startsWith('/api/aiva/');try{r=await fetch(p.replace(/^\//,''),{method:b?'POST':'GET',headers:{'X-Deck-Token':TOK,'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout?AbortSignal.timeout(ms):undefined})}catch(e){net(0);throw Object.assign(e,{st:0})}
  if(r.status>=502&&r.status<=504&&!av){net(0);throw Object.assign(new Error(r.status),{st:r.status})}net(1);if(r.status==401){if(TS!==false){if(TS)lock();throw new Error('401')}localStorage.removeItem('deck');alert('Token not accepted. Paste it again.');location.reload()}if(r.status==409){const e=new Error('409');e.reason=(await r.json().catch(()=>({}))).error||'The screen changed.';throw e}if(!r.ok)throw Object.assign(new Error(r.status),{st:r.status},(av||p.startsWith('/api/ssh/'))&&{reason:(await r.json().catch(()=>({}))).error});return r.json()}
-let cur=null,term=false,live=[],timer,SSH={hosts:[],terms:[]};// SSH: saved and throwaway hosts and open SSH terminals, from /api/sessions
+let cur=null,term=false,live=[],timer,SSH={hosts:[],terms:[],chats:[]};// SSH: saved and throwaway hosts, open SSH terminals and remote Claude chats, from /api/sessions
+// a live chat by pane: the Mac's own (live), or one on a server (SSH.chats, listed only in the SSH section); RH: a chat's server, '' for the Mac's and for SSH terminals
+const chatOf=p=>p&&(live.find(x=>x.pane==p)||(SSH.chats||[]).find(x=>x.pane==p)),RH=s=>s&&!s.ssh&&s.host||'',hq=(c='?')=>RH(cur)?c+'host='+encodeURIComponent(cur.host):'';// hq: session routes read a server's transcript
 let inSplit=false,OPEN=new Set();// the outer page: split view on, and the panes and sessions open in its columns
 // a column always takes the computer layout (floating composer, dialogs), however narrow it is
 if(COL)for(const r of document.styleSheets[0].cssRules)if(r.media&&/^\(min-width: ?700px\)$/.test(r.conditionText))r.media.appendMedium('all');
@@ -420,7 +422,7 @@ const rowsAt=()=>new Map([...$('dl').querySelectorAll('.card>.crow')].map(r=>[r.
 function reflow(was){if(!was.size||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
  rowsAt().forEach(({r,y},k)=>{const o=was.get(k)?.y;if(o==null||Math.abs(o-y)<1)return;
   r.style.zIndex=1;r.animate([{transform:`translateY(${o-y}px)`},{transform:'none'}],{duration:380,easing:'cubic-bezier(.32,.72,0,1)'}).onfinish=()=>r.style.zIndex=''})}
-async function list(){if(Date.now()-pfAt>3e4)prefs();const d=await api('/api/sessions');live=d.live;hist=d.history;SSH=d.ssh||SSH;PN={};[...hist,...live].sort((a,b)=>a.mtime-b.mtime).forEach(x=>{const p=proj0(x.cwd);PN[pnk(p)]=p});attnUI();if(dOpen)drawMenu();sshUI()}
+async function list(){if(Date.now()-pfAt>3e4)prefs();const d=await api('/api/sessions');live=d.live;hist=d.history;SSH=d.ssh||SSH;PN={};[...hist,...live].sort((a,b)=>a.mtime-b.mtime).forEach(x=>{const p=proj0(x.cwd);PN[pnk(p)]=p});attnUI();if(dOpen)drawMenu();sshUI();rAuto()}
 const setQ=()=>{$('q').value='';$('q').placeholder=nav.v=='root'?'Search all chats':'Filter '+nav.p+' chats';$('dl').scrollTop=0};
 function openMenu(){dOpen=true;$('drawer').classList.add('on');$('scrim').classList.add('on');drawMenu(1);list()}
 function closeMenu(){dOpen=false;$('drawer').classList.remove('on');$('scrim').classList.remove('on');$('q').blur()}
@@ -430,7 +432,7 @@ let rOpen=false,rpAll=[],rpT=0,rpS=null;
 function rpDraw(){const top=kidsOf(rpAll,null),R=top.filter(a=>a.running),F=top.filter(a=>!a.running);$('rps').textContent=rpAll.length?`${rpAll.filter(a=>a.running).length} running of ${rpAll.length}`:'';
  $('rpl').innerHTML=rpAll.length?`<section><div class=sec>Running<span>${R.length||''}</span></div><div class="card agc2">${agentRows(R,rpAll)||'<div class=none>Nothing running now.</div>'}</div></section>`+
   (F.length?`<section><div class=sec>Finished<span>${F.length}</span></div><div class="card agc2">${agentRows(F,rpAll)}</div></section>`:''):'<div class=none>No subagents in this chat yet.</div>'}
-async function rpLoad(){if(!cur||!cur.session)return;const me=cur;let d;try{d=await api('/api/info/'+cur.session)}catch(e){return}if(cur!==me)return;rpS=me.session;rpAll=d.agents||[];rpBadge();if(rOpen)rpDraw()}
+async function rpLoad(){if(!cur||!cur.session)return;const me=cur;let d;try{d=await api('/api/info/'+cur.session+hq())}catch(e){return}if(cur!==me)return;rpS=me.session;rpAll=d.agents||[];rpBadge();if(rOpen)rpDraw()}
 function rpBadge(){const n=rpAll.filter(a=>a.running).length,b=$('sbn');$('sab').hidden=!cur||!cur.session||cur.agent||!rpAll.length;b.hidden=!n;b.textContent=n}
 const rpReset=()=>{const r=$('rp'),c=$('scrim');r.classList.remove('drag');c.classList.remove('drag');r.style.transform=c.style.opacity=''};// never leave a half-finished drag behind
 function openRP(){if(!cur||!cur.session)return;rpReset();rOpen=true;rpDraw();$('rp').classList.add('on');$('scrim').classList.add('on');rpLoad()}
@@ -450,7 +452,7 @@ $('dl').onclick=e=>{const b=e.target.closest('button');if(!b)return;
  if(b.id=='dmore'){nav.n=(nav.n||40)+40;return drawMenu(1)}
  if(inSplit&&(e.metaKey||e.ctrlKey||e.target.closest('.ncol'))&&!OPEN.has(b.dataset.pane)&&!colSplit())return;// a new column first, then as usual
  if(b.classList.contains('pnew')){closeMenu();return newChat(b.dataset.c)}
- stack=[];if(b.dataset.pane){const s=live.find(x=>x.pane==b.dataset.pane);closeMenu();if(s)open_(s);return}
+ stack=[];if(b.dataset.pane){const s=chatOf(b.dataset.pane);closeMenu();if(s)open_(s);return}
  if(b.dataset.h){closeMenu();pickup(b.dataset.h,b.dataset.c,b.querySelector('b').textContent)}};
 function settings(){closeMenu();let a='Blue';try{a=localStorage.getItem('accent')||'Blue'}catch(e){}const lt=document.documentElement.dataset.theme=='light'||(!document.documentElement.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);
  sb.innerHTML=`<h2>Settings</h2><div class=sg><div class=lbl>Appearance</div><div class=srow><span>Theme</span><div class=seg id=seg><button data-t="">System</button><button data-t=light>Light</button><button data-t=dark>Dark</button></div></div>
@@ -466,7 +468,7 @@ $('sbody').addEventListener('click',e=>{const t=e.target,th=t.closest('#seg [dat
  const tb=t.closest('#stv [data-v]');if(tb){try{tb.dataset.v=='1'?localStorage.removeItem('termbtn'):localStorage.setItem('termbtn','0')}catch(x){}noTerm();if(term&&tb.dataset.v=='0')$('tv').click();return $('stv').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===tb))}
  const ac=t.closest('#sw [data-a]');if(ac){try{ac.dataset.a=='Blue'?localStorage.removeItem('accent'):localStorage.setItem('accent',ac.dataset.a)}catch(x){}setAcc(ac.dataset.a);return $('sw').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b===ac))}
  if(t.closest('#pf'))return pfClick(e);if(t.closest('#spk'))return passkeys(1);if(t.closest('#ssiri'))return siri(1);if(t.closest('#sso'))au('logout',{}).then(()=>au('state')).then(lock)});
-$('nc').onclick=()=>{closeMenu();newChat(nav.v=='proj'?root(nav.p):cur&&cur.cwd||here())};
+$('nc').onclick=()=>{closeMenu();RH(cur)&&nav.v!='proj'?newChat(cur.cwd,cur.host):newChat(nav.v=='proj'?root(nav.p):cur&&cur.cwd||here())};
 let qt;$('q').oninput=()=>{clearTimeout(qt);const v=$('q').value.trim();if(nav.v=='proj'||v.length<3)return drawMenu(1);qt=setTimeout(async()=>{const d=await api('/api/search?q='+encodeURIComponent(v));if($('q').value.trim()!==v)return;
  dKey='';$('dl').innerHTML=`<div class=sec>${d.results.length} chats mention "${esc(v)}"</div><div class=card>`+d.results.map(r=>crowH(r,null,r.snippet)).join('')+'</div>'},350)};
 const theme=t=>{try{t?localStorage.setItem('theme',t):localStorage.removeItem('theme')}catch(e){}t?document.documentElement.dataset.theme=t:delete document.documentElement.dataset.theme;$('seg')&&$('seg').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.t==t))};
@@ -541,11 +543,13 @@ function home(){termSet(false);cur=null;AV.cf=null;document.body.classList.remov
  $('main').innerHTML='<div class=empty><p>Pick a chat from the menu, or start a new one.</p><button class=go id=eo>Open menu</button><button class=pick id=en style="text-align:center">New chat</button></div>'}
 /* sheets */
 const sh=$('sheet'),sp=$('spanel'),sd=$('shd'),sb=$('sbody');sh.onclick=e=>{if(e.target===sh&&getSelection().isCollapsed)hideSheet()};// not when a text selection drag ends on the backdrop
-function engines(){eng=CFG.engines[0].id;const r=CFG.engines.some(e=>e.id=='rotate');if(r)loadAccounts();return`<div class=lbl>Run on</div><div class=eng>${CFG.engines.map((e,i)=>`<button${e.id=='local'?' class=l':''} data-e="${esc(e.id)}" aria-pressed=${!i}><b>${esc(e.label)}</b><br><small>${esc(e.sub)}</small></button>`).join('')}</div>`+
+const RENG={claude:['Claude','claude on the server'],rotate:['Claude Rotate','rclaude on the server'],local:['Local model','claude-local on the server']};
+function engines(ids){const E=ids?ids.map(i=>({id:i,label:RENG[i][0],sub:RENG[i][1]})):CFG.engines;eng=E.length?E[0].id:'';if(!E.length)return ids?'<div class=lbl>Run on</div><small class=sub2>Claude Code wasn\'t found on this server (claude, rclaude or claude-local in a login shell).</small>':'';
+ const r=!ids&&E.some(e=>e.id=='rotate');if(r)loadAccounts();return`<div class=lbl>Run on</div><div class=eng>${E.map((e,i)=>`<button${e.id=='local'?' class=l':''} data-e="${esc(e.id)}" aria-pressed=${!i}><b>${esc(e.label)}</b><br><small>${esc(e.sub)}</small></button>`).join('')}</div>`+
  (r?`<div id=acw${eng=='rotate'?'':' hidden'}><div class=lbl>Account</div><select id=oac><option value="">Automatic</option></select><small class=sub2 style="display:block;margin-top:4px">Automatic moves between plans as limits hit. A named account pins the chat to it.</small></div>`:'')}
 let MODS={};// rclaude account -> model ids it can use, newest first
 const MFAM=['mythos','fable','opus','sonnet','haiku'],mName=id=>id.slice(7).replace(/^([a-z]+)-/,(m,f)=>f[0].toUpperCase()+f.slice(1)+' ').replace(/-/g,'.');
-function modelOpts(){const m=$('om'),a=$('oac');if(!m)return;const ls=eng=='rotate'?(a&&a.value?[MODS[a.value]]:Object.values(MODS)).filter(Boolean):[];
+function modelOpts(){const m=$('om'),a=$('oac');if(!m)return;const ls=eng=='rotate'&&$('acw')?(a&&a.value?[MODS[a.value]]:Object.values(MODS)).filter(Boolean):[];// a server's rclaude: not the Mac's accounts
  let o=[['opus','Opus'],['sonnet','Sonnet'],['haiku','Haiku']];// no account lists: Claude Code's own names
  if(ls.length){const ok=ls.reduce((x,l)=>x.filter(i=>l.includes(i)));// Automatic can move the chat to any account, so only what they all have
   const top={};ok.filter(i=>!/\d{8}$/.test(i)).forEach(i=>{const f=i.split('-')[1];top[f]=top[f]||i});
@@ -555,24 +559,32 @@ async function loadAccounts(){let a=[],k='';try{const d=await api('/api/accounts
  s.innerHTML='<option value="">Automatic</option>'+a.map(x=>{const ok=x.status=='available';return`<option value="${esc(x.name)}"${ok?'':' disabled'}>${esc(x.name)} · ${ok?'available':'limited'+(x.until?' until '+esc(x.until):'')}${x.models?' · limited for '+esc(x.models):''} · 5h ${esc(x.h5)} · wk ${esc(x.week)}</option>`}).join('');
  if(a.some(x=>x.name==k&&x.status=='available'))s.value=k;s.onchange=()=>{modelOpts();try{s.value?localStorage.setItem('acct',s.value):localStorage.removeItem('acct')}catch(e){}};modelOpts()}
 let eng='';sb.onclick=e=>{const b=e.target.closest('[data-e]');if(b){eng=b.dataset.e;sb.querySelectorAll('[data-e]').forEach(x=>x.setAttribute('aria-pressed',x===b));if($('acw'))$('acw').hidden=eng!='rotate';modelOpts()}};
-async function launch(cwd,resume,o){const a=eng=='rotate'&&$('oac')?$('oac').value:'';const d=await api('/api/new',{cwd,engine:eng,resume,...o,...(a?{account:a}:{})});hideSheet();if(!d.pane)return alert('Could not start');toast('Starting the chat…');// open it as soon as the deck sees it running
- for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,i?600:300));await list(1).catch(()=>{});const s=live.find(x=>x.pane==d.pane);if(s){$('toast').hidden=true;return open_(s)}}toast('The chat is taking a while to start. It will show under Active.')}
-function pickup(id,cwd,title){sb.innerHTML=`<h2>${esc(title)}</h2><div class=lbl>${esc(rel(cwd))}</div>${engines()}<button class=go id=gor>Resume in a new live session</button><button class=pick id=gov>Just read it</button><button class=pick id=gofk>Fork into a new chat<small>A copy with its own session ID; the original stays as it is</small></button>`;showSheet();
- $('gor').onclick=()=>launch(cwd,id);$('gofk').onclick=()=>launch(cwd,id,{fork:1});$('gov').onclick=()=>{hideSheet();open_({session:id,title,ro:1,cwd})}}
-async function newChat(cwd){const f=(await api('/api/folders')).folders;cwd=cwd||CFG.root;
+async function launch(cwd,resume,o={}){const R=o.host,a=!R&&eng=='rotate'&&$('oac')?$('oac').value:'';let d;// o.host: on that server (/api/ssh/rnew)
+ try{d=await api(R?'/api/ssh/rnew':'/api/new',{cwd,engine:eng,resume,...o,...(a?{account:a}:{})},R?4e4:2e4)}catch(e){if(!R)throw e;return toast(e.reason||'Couldn\'t start the chat.')}
+ hideSheet();if(!d.pane)return alert('Could not start');toast('Starting the chat…');// open it as soon as the deck sees it running
+ for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,i?600:300));await list(1).catch(()=>{});const s=chatOf(d.pane);if(s){$('toast').hidden=true;return open_(s)}}toast('The chat is taking a while to start. It will show under '+(R?'SSH.':'Active.'))}
+// a past chat: the Mac's, or (hid) one on that server, whose engines come from rinfo
+async function pickup(id,cwd,title,hid){const h=hid&&sshH(hid),o=h?{host:hid}:{};let I;if(hid){if(!h)return toast('That host has gone.');try{I=await rReady(hid)}catch(e){if($('rcon'))hideSheet();return toast(e.reason||'Couldn\'t reach '+h.name+'.')}}
+ sb.innerHTML=`<h2>${esc(title)}</h2><div class=lbl>${esc(h?h.name+' · '+rrel(hid,cwd):rel(cwd))}</div>${engines(I&&I.engines)}<button class=go id=gor>Resume in a new live session</button><button class=pick id=gov>Just read it</button><button class=pick id=gofk>Fork into a new chat<small>A copy with its own session ID; the original stays as it is</small></button>`;showSheet();
+ $('gor').onclick=()=>launch(cwd,id,o);$('gofk').onclick=()=>launch(cwd,id,{fork:1,...o});$('gov').onclick=()=>{hideSheet();open_({session:id,title,ro:1,cwd,...o})}}
+// Where: this Mac, or a saved host (hid), whose sheet is rNew's
+async function newChat(cwd,hid){const H=SSH.hosts.filter(x=>!x.temp||x.id==hid),h=hid&&sshH(hid);if(hid&&!h)return toast('That host has gone.');
+ const W=H.length?`<div class=lbl>Where</div><select id=nw><option value="">This Mac</option>${H.map(x=>`<option value="${esc(x.id)}"${x.id==hid?' selected':''}>${esc(x.name)}</option>`).join('')}</select>`:'';
+ if(h)return rNew(h,cwd||'~',W);
+ const f=(await api('/api/folders')).folders;cwd=cwd||CFG.root;
  const opts=[...new Set([cwd,...live.map(s=>s.cwd),...f])];
- sb.innerHTML=`<h2>New chat</h2><div class=lbl>Folder</div><select id=nf>${opts.map(o=>`<option ${o==cwd?'selected':''} value="${esc(o)}">${esc(rel(o))}</option>`).join('')}</select>${engines()}${chatOpts()}<button class=go id=gof>Start fresh</button><div class=lbl>Or resume one from this folder</div><input id=rf type=search placeholder="Filter past chats"><div id=rl></div>`;showSheet();
+ sb.innerHTML=`<h2>New chat</h2>${W}<div class=lbl>Folder</div><select id=nf>${opts.map(o=>`<option ${o==cwd?'selected':''} value="${esc(o)}">${esc(rel(o))}</option>`).join('')}</select>${engines()}${chatOpts()}<button class=go id=gof>Start fresh</button><div class=lbl>Or resume one from this folder</div><input id=rf type=search placeholder="Filter past chats"><div id=rl></div>`;showSheet();
  const draw=()=>{const c=$('nf').value,t=$('rf').value.toLowerCase();$('rl').innerHTML=hist.filter(h=>h.cwd==c&&(h.title||'').toLowerCase().includes(t)).slice(0,25).map(h=>`<button class=pick data-r="${esc(h.session)}">${esc(h.title||h.session.slice(0,8))}<small>${ago(h.mtime)}</small></button>`).join('')||'<small>No past chats here.</small>'};
  const git=()=>api('/api/git?cwd='+encodeURIComponent($('nf').value)).then(r=>{$('ow').disabled=!r.git;if(!r.git)$('ow').checked=false});
- draw();git();$('nf').onchange=()=>{draw();git()};$('rf').oninput=draw;$('rl').onclick=e=>{const b=e.target.closest('[data-r]');if(b)launch($('nf').value,b.dataset.r,optVals())};$('gof').onclick=()=>launch($('nf').value,null,optVals())}
+ draw();git();$('nf').onchange=()=>{draw();git()};if($('nw'))$('nw').onchange=()=>newChat($('nw').value?'~':null,$('nw').value);$('rf').oninput=draw;$('rl').onclick=e=>{const b=e.target.closest('[data-r]');if(b)launch($('nf').value,b.dataset.r,optVals())};$('gof').onclick=()=>launch($('nf').value,null,optVals())}
 const PERMO=[['bypass','Bypass'],['default','Asks before acting'],['acceptEdits','Accept edits'],['plan','Plan'],['auto','Auto']];// Claude's permission modes (the server's PERMS)
 const sel=(id,l,o)=>`<div><div class=lbl>${l}</div><select id=${id}>${o.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select></div>`;
-function chatOpts(){return`<details class=more2><summary>Options</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">`+
- sel('op','Permissions',PERMO.map(([v,t])=>[v,v=='bypass'?t+' (current)':t]))+
+function chatOpts(r){return`<details class=more2><summary>Options</summary><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">`+// r: a server's chat, with no worktree
+ sel('op','Permissions',PERMO.map(([v,t])=>[v,v=='bypass'&&!r?t+' (current)':t]))+
  sel('om','Model (cloud)',[['','Default'],['opus','Opus'],['sonnet','Sonnet'],['haiku','Haiku']])+
  sel('oe','Effort',[['','Default'],['low','Low'],['medium','Medium'],['high','High'],['xhigh','Extra high'],['max','Max']])+
- `<div><div class=lbl>Name</div><input id=on type=text maxlength=60 autocomplete=off placeholder="Optional"></div></div><label class=ck style="margin-top:8px"><input type=checkbox id=ow disabled> New git worktree (fresh chats only)</label></details>`}
-const optVals=()=>({perm:$('op').value,model:$('om').value,effort:$('oe').value,name:$('on').value.trim(),worktree:$('ow').checked});
+ `<div><div class=lbl>Name</div><input id=on type=text maxlength=60 autocomplete=off placeholder="Optional"></div></div>${r?'':'<label class=ck style="margin-top:8px"><input type=checkbox id=ow disabled> New git worktree (fresh chats only)</label>'}</details>`}
+const optVals=()=>({perm:$('op').value,model:$('om').value,effort:$('oe').value,name:$('on').value.trim(),worktree:!!$('ow')&&$('ow').checked});
 function open_(s){termSet(false);if(!s.aiva)AV.cf=null;cur=s;$('back').hidden=!stack.length&&!s.aiva;$('mb').hidden=!!stack.length||!!s.aiva;document.body.classList.toggle('aiva',!!s.aiva);document.body.classList.toggle('sshv',!!s.ssh);sshUI();agT=0;if(s.pane)try{localStorage.setItem('last',s.pane)}catch(e){};$('title').textContent=s.title||s.name;$('foot').hidden=!!s.ro;$('tv').hidden=!!s.ro||!!s.agent;if(s.agent||s.aiva)busy=false;if(s.aiva)$('ta').placeholder='Message Aiva';$('main').dataset.s='';cur.key='';menuKey='';$('menu').hidden=true;const ro=!!s.ro&&!s.agent;$('stats').hidden=ro||!statsOpen;$('status').hidden=ro;loadDraft();poll();$('main').innerHTML='<div class=h>Loading…</div>';if(s.ssh)return termSet(true);if(!s.aiva)return draw();requestAnimationFrame(()=>requestAnimationFrame(()=>cur===s&&draw()));tick(avLoad)}// Aiva's is painted after the layout settles, or the resize keeping the bottom line in place scrolls it back up
 let stack=[];$('back').onclick=()=>{if(cur&&cur.aiva&&!stack.length){home();return COL||openMenu()}$('menu').hidden=true;menuKey='';const p=stack.pop();if(p)open_(p)};
 const tok=n=>(n=n||0)>=1e6?(n/1e6).toFixed(1)+'M':n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
@@ -588,32 +600,33 @@ const agentRows=(list,all)=>list.map(a=>{const k=kidsOf(all,a.id),o=agOpen.has(a
 function agTap(e,redraw){const ag=e.target.closest('.agr');if(!ag)return false;const id=ag.dataset.a,k=+ag.dataset.k;
  if(k&&(e.target.closest('[data-t]')||!agOpen.has(id))){agOpen.has(id)?agOpen.delete(id):agOpen.add(id);redraw();return true}
  openAgent(id,ag.dataset.d);return true}
-function openAgent(id,desc){hideSheet();if(rOpen)closeRP();if(COL&&COL!='agp'&&parent.deck&&parent.deck.agent)return parent.deck.agent(cur.session,id,desc,cur.pane||cur.via);const v=cur.pane||cur.via;stack.push(cur);open_({session:cur.session,agent:id,title:'Subagent: '+desc,ro:v?0:1,via:v})}
+function openAgent(id,desc){hideSheet();if(rOpen)closeRP();if(COL&&COL!='agp'&&parent.deck&&parent.deck.agent)return parent.deck.agent(cur.session,id,desc,cur.pane||cur.via);const v=cur.pane||cur.via;stack.push(cur);open_({session:cur.session,agent:id,title:'Subagent: '+desc,ro:v?0:1,via:v,...RH(cur)&&{host:cur.host}})}
 sb.addEventListener('click',e=>agTap(e,()=>{if(info&&$('agl'))$('agl').innerHTML=agentsBlock(info.agents||[],agFull)}));
 function agentsBlock(all,full){const t=kidsOf(all,null),n=all.filter(a=>a.running).length,show=full?t:t.slice(0,6);
  return all.length?`<button class=srow id=agopen><span>Subagents</span><small>${n?n+' running of ':''}${all.length} ›</small></button>`:''}
 let info=null,agFull=false;
 async function showInfo(){if(cur&&cur.ssh)return sshMenu();if(!cur||(!cur.session&&!cur.pane))return;if(cur.agent){statsOpen=!statsOpen;$('stats').hidden=!statsOpen;$('status').classList.toggle('open',statsOpen);return}const me=cur;
- const d=cur.session?await api('/api/info/'+cur.session+(cur.pane?'?pane='+cur.pane:'')):{session:'(not saved yet)',file:'(created on first message)',agents:[]};if(cur!==me)return;info=d;agFull=false;
+ const d=cur.session?await api('/api/info/'+cur.session+(cur.pane?'?pane='+cur.pane+hq('&'):hq())):{session:'(not saved yet)',file:'(created on first message)',agents:[]};if(cur!==me)return;info=d;agFull=false;
  sb.innerHTML=`<h2>${esc(cur.title||'Chat')}</h2><small class=sub2>${esc(rel(d.cwd||cur.cwd||''))}${d.branch?' · '+esc(d.branch):''}</small><dl class=info>`+
   drow('Model',esc(cur.model||d.model||''))+drow('Plan',esc(cur.plan||'')+(cur.plan&&cur.pinned?' (pinned)':''))+drow('Context',esc(cur.ctx||''))+drow(d.running?'Running for':'Age',esc(d.running||(d.first&&d.last?dur(d.first,d.last):'')))+
   drow('Messages',d.prompts!=null?`${d.prompts} from you · ${d.replies} replies · ${d.tools} tool calls`:'')+`</dl><div id=agl>${agentsBlock(d.agents||[])}</div>
  <details class=more2><summary>More details</summary><dl class=info>`+drow('Started',when(d.first))+drow('Last activity',when(d.last))+drow('Size',d.bytes?mb(d.bytes):'')+
   drow('Engine',esc(cur.engine||''))+drow('Claude Code',esc(d.version||''))+drow('Window',esc(d.pane||''))+drow('Session ID',`<code>${esc(d.session)}</code>`)+drow('Transcript',`<code>${esc(d.file)}</code>`)+`</dl></details>
- <button class=pick id=chg style="text-align:center">Changes</button><button class=pick id=rnb style="text-align:center">Rename…</button>`+(cur.session?'<div class=two><button class=pick id=ipin style="text-align:center"></button><button class=pick id=iarc style="text-align:center"></button></div>':'');showSheet(-1);
- $('rnb').onclick=renameStep;$('chg').onclick=changesSheet;lifeButtons(d);procsUI();if(!cur.session)return;
+ <button class=pick id=chg style="text-align:center">Changes</button><button class=pick id=rnb style="text-align:center">Rename…</button>`+(cur.session&&!RH(cur)?'<div class=two><button class=pick id=ipin style="text-align:center"></button><button class=pick id=iarc style="text-align:center"></button></div>':'');showSheet(-1);
+ $('rnb').onclick=renameStep;$('chg').onclick=changesSheet;lifeButtons(d);procsUI();if(!cur.session||RH(cur))return;
  const x={type:'chat',id:cur.session,title:cur.title||cur.name||'',cwd:d.cwd||cur.cwd||''},up=()=>{if(!$('ipin'))return;$('ipin').textContent=isPinned('chat',x.id)?'Unpin':'Pin';$('iarc').textContent=isArc(x.id)?'Unarchive':'Archive'};up();
  $('ipin').onclick=()=>pinToggle(x).then(up);$('iarc').onclick=()=>arcSet(x,!isArc(x.id)).then(up)}
-function lifeButtons(d){const p=cur.pane,id=cur.session,cwd=d.cwd||cur.cwd,t=cur.title;
+function lifeButtons(d){const p=cur.pane,id=cur.session,cwd=d.cwd||cur.cwd,t=cur.title,rh=RH(cur);// rh: a fork of a server's chat starts on that server
  sb.insertAdjacentHTML('beforeend',(id?'<button class=pick id=fkb style="text-align:center">Fork into a new chat</button>':'')+(p?'<button class=pick id=endb style="text-align:center;color:#e5484d">End chat</button>':''));
- if(id)$('fkb').onclick=()=>{sb.innerHTML=`<button class=dback id=fback style="padding:0;text-align:left">‹ Chat info</button><h2>Fork into a new chat</h2><small class=sub2>A copy of “${esc(t||'this chat')}” with its own session ID, in ${esc(rel(cwd))}. The original stays as it is.</small>${engines()}<button class=go id=fgo>Start the fork</button>`;showSheet(1);
-  $('fback').onclick=showInfo;$('fgo').onclick=()=>launch(cwd,id,{fork:1})};
+ if(id)$('fkb').onclick=async()=>{let E;if(rh)try{E=(await rReady(rh)).engines}catch(e){if($('rcon'))hideSheet();return toast(e.reason||'Couldn\'t reach the server.')}
+  sb.innerHTML=`<button class=dback id=fback style="padding:0;text-align:left">‹ Chat info</button><h2>Fork into a new chat</h2><small class=sub2>A copy of “${esc(t||'this chat')}” with its own session ID, in ${esc(rh?rrel(rh,cwd):rel(cwd))}. The original stays as it is.</small>${engines(E)}<button class=go id=fgo>Start the fork</button>`;showSheet(1);
+  $('fback').onclick=showInfo;$('fgo').onclick=()=>launch(cwd,id,{fork:1,...rh&&{host:rh}})};
  if(p)twice($('endb'),'Tap again to end this chat',()=>endChat(p))}
 function twice(b,label,fn){const t=b.textContent;b.onclick=()=>{if(b.dataset.armed){delete b.dataset.armed;return fn()}b.dataset.armed=1;b.textContent=label;setTimeout(()=>{if(b.dataset.armed){delete b.dataset.armed;b.textContent=t}},4000)}}
-async function endChat(p){const b=$('endb'),gone=()=>!live.find(x=>x.pane==p),done=m=>{hideSheet();toast(m);if(cur&&cur.pane==p)home()};
+async function endChat(p){const b=$('endb'),gone=()=>!chatOf(p),done=m=>{hideSheet();toast(m);if(cur&&cur.pane==p)home()};
  b.onclick=null;b.textContent='Ending…';if((await api('/api/end',{pane:p})).gone)return done('Chat already ended');
  for(let i=0;i<8;i++){await new Promise(r=>setTimeout(r,1000));await list();if(gone())return done('Chat ended');
-  const s=live.find(x=>x.pane==p);if(s.menu&&i>1){hideSheet();if(!cur||cur.pane!=p)open_(s);return toast('Claude asks before it exits. Answer below.')}}
+  const s=chatOf(p);if(s.menu&&i>1){hideSheet();if(!cur||cur.pane!=p)open_(s);return toast('Claude asks before it exits. Answer below.')}}
  b.textContent='Still running: close window';twice(b,'Tap again to close the window',async()=>{b.onclick=null;await api('/api/end',{pane:p,kill:true});await list();done('Window closed')})}
 // t: a chat from the row menu {id, pane, title}; without it, the open chat (from Chat info)
 function renameStep(t){const row=t&&t.id!==undefined;if(!row)t={id:cur.session,pane:cur.pane,title:cur.title};sb.innerHTML=(row?'':'<button class=dback id=rback style="padding:0;text-align:left">‹ Chat info</button>')+`<h2>Rename</h2><input id=rn type=text value="${esc(t.title||'')}" autocomplete=off>
@@ -624,8 +637,8 @@ function renameStep(t){const row=t&&t.id!==undefined;if(!row)t={id:cur.session,p
   if(r.done&&r.done.length){if(cur&&(t.id?cur.session==t.id:cur.pane==t.pane)){cur.title=name;$('title').textContent=name}hideSheet();if(row)list()}}}
 $('title').onclick=showInfo;
 sb.addEventListener('click',e=>{if(e.target.closest('#agopen')){hideSheet();rpAll=(info&&info.agents)||rpAll;openRP()}});
-setInterval(async()=>{if(sh.hidden||!$('agl')||!cur||!cur.session||cur.agent)return;const me=cur;let d;try{d=await api('/api/info/'+cur.session)}catch(e){return}if(cur!==me||!$('agl'))return;info.agents=d.agents;$('agl').innerHTML=agentsBlock(d.agents||[],agFull)},3000);
-let agT=0;async function agentPoll(){if(Date.now()-agT<2500)return;agT=Date.now();const me=cur;let d;try{d=await api('/api/info/'+cur.session)}catch(e){return}if(cur!==me)return;
+setInterval(async()=>{if(sh.hidden||!$('agl')||!cur||!cur.session||cur.agent)return;const me=cur;let d;try{d=await api('/api/info/'+cur.session+hq())}catch(e){return}if(cur!==me||!$('agl'))return;info.agents=d.agents;$('agl').innerHTML=agentsBlock(d.agents||[],agFull)},3000);
+let agT=0;async function agentPoll(){if(Date.now()-agT<2500)return;agT=Date.now();const me=cur;let d;try{d=await api('/api/info/'+cur.session+hq())}catch(e){return}if(cur!==me)return;
  const all=d.agents||[],a=all.find(x=>x.id==cur.agent);if(!a)return;const st=$('status'),kids=kidsOf(all,a.id);st.hidden=false;st.classList.toggle('on',a.running);
  st.innerHTML='<span class=stx>'+(a.running?'Running':'Finished')+' · '+esc(dur(a.first,a.running?null:a.last))+' · '+tok(a.total)+' tokens</span>';
  $('stats').innerHTML='<h4>This subagent</h4>'+drow('Task',esc(a.desc||''))+drow('Type',esc(a.type||''))+drow('Model',esc(a.model||''))+drow('Started',when(a.first))+drow(a.running?'Running for':'Took',dur(a.first,a.running?null:a.last))+
@@ -669,10 +682,11 @@ const FILE='<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=
 // a user message: "Attached: <path> (<name>, <size>)" lines from /api/send become file chips
 const ub=t=>{const fs=[];t=(t||'').replace(/^Attached: (\/\S+) \((.*), ([\d.]+ [KM]B)\)$/gm,(m,p,n,s)=>{fs.push(`<span class=fch title="${esc(p)}">${FILE}<b>${esc(n)}</b><small>${esc(s)}</small></span>`);return''}).trim();return(t?md(t):'')+fs.join('')};
 // files Claude made (a pdf, csv, image…) named in a reply: images show, and each file gets a chip to open or save it on this device
-const outF=fs=>(fs||[]).map(f=>(f.img?`<img class=fim src="${esc(f.url)}" alt="${esc(f.name)}" loading=lazy>`:'')+`<span class="fch out">${FILE}<b>${esc(f.name)}</b><small>${esc(f.size)}</small>${f.show?`<a href="${esc(f.url)}" target=_blank rel=noopener>Open</a>`:''}<a href="${esc(f.url)}&dl=1" download="${esc(f.name)}">Save</a></span>`).join('');
+const RGET={};// a server file named in a reply, once fetched: host\npath -> its chip (out_files)
+const outF=fs=>(fs||[]).map(f=>f.rpath?RGET[f.host+'\n'+f.rpath]?outF([RGET[f.host+'\n'+f.rpath]]):`<span class="fch out" title="${esc(f.rpath)}">${FILE}<b>${esc(f.name)}</b><small>On ${esc((sshH(f.host)||{}).name||'the server')}</small><a href="#" data-rget="${esc(f.rpath)}" data-rh="${esc(f.host)}">Get</a></span>`:(f.img?`<img class=fim src="${esc(f.url)}" alt="${esc(f.name)}" loading=lazy>`:'')+`<span class="fch out">${FILE}<b>${esc(f.name)}</b><small>${esc(f.size)}</small>${f.show?`<a href="${esc(f.url)}" target=_blank rel=noopener>Open</a>`:''}<a href="${esc(f.url)}&dl=1" download="${esc(f.name)}">Save</a></span>`).join('');
 function item(x){const ac=artItem(x);if(ac)return ac;
- if(x.kind=='image')return x.img.map(i=>`<img class=${x.role} data-src="api/img/${imgSrc()}/${i}" alt="">`).join('');if(x.kind=='tool'&&x.diff!=null)return diffItem(x);
- if(x.kind=='tool')return`<div class=t><button>${esc(x.name)} · ${esc(x.summary)}</button><pre hidden>${lk(x.detail)}${x.result?'\n\n→ '+lk(x.result):''}</pre>${x.img?'<div class=imgs>'+x.img.map(i=>`<img data-src="api/img/${imgSrc()}/${i}" alt="">`).join('')+'</div>':''}${x.agent?`<button class=sub data-agent="${esc(x.agent)}" data-desc="${esc(x.summary)}">Open subagent ›</button>`:''}</div>`;
+ if(x.kind=='image')return x.img.map(i=>`<img class=${x.role} data-src="api/img/${imgSrc()}/${i}${hq()}" alt="">`).join('');if(x.kind=='tool'&&x.diff!=null)return diffItem(x);
+ if(x.kind=='tool')return`<div class=t><button>${esc(x.name)} · ${esc(x.summary)}</button><pre hidden>${lk(x.detail)}${x.result?'\n\n→ '+lk(x.result):''}</pre>${x.img?'<div class=imgs>'+x.img.map(i=>`<img data-src="api/img/${imgSrc()}/${i}${hq()}" alt="">`).join('')+'</div>':''}${x.agent?`<button class=sub data-agent="${esc(x.agent)}" data-desc="${esc(x.summary)}">Open subagent ›</button>`:''}</div>`;
  if(x.kind=='compact')return`<details class=cmp><summary>Context compacted · tap to read the summary</summary><div class=a>${window.marked?DOMPurify.sanitize(marked.parse(x.text)):esc(x.text)}</div></details>`;if(x.kind=='pend')return`<div class="u q${x.s?' s':''}">${ub(x.text)}</div>`;if(x.kind=='cmd')return`<div class=cmd>${esc(x.text)}</div>`;if(x.kind=='note')return`<div class=note>${esc(x.text)}</div>`;if(x.kind=='cmdout')return`<pre class=cmdout>${lk(x.text)}</pre>`;if(x.kind=='text'&&x.role!='user'&&window.marked)return`<div class=a>${DOMPurify.sanitize(marked.parse(x.text))}</div>`+outF(x.files);if(x.kind=='text'&&x.role=='user')return`<div class="u${x.queued?' q':''}">${ub(x.text)}</div>`+(x.queued&&cur.pane?'<button class=now>Send now</button>':'');if(x.kind=='text')return`<div class=${x.role=='user'?'u':'a'}>${esc(x.text)}</div>`;
  return`<div class=t><button>${esc(x.name)} · ${esc(x.summary)}</button><pre hidden>${lk(x.detail)}${x.result?'\n\n→ '+lk(x.result):''}</pre></div>`}
 function render(items,raw){let out=[],run=[];const flush=()=>{if(run.length&&document.documentElement.classList.contains('notools')){const n=run.length;
@@ -683,11 +697,11 @@ function render(items,raw){let out=[],run=[];const flush=()=>{if(run.length&&doc
  for(const x of items){if(x.kind=='tool'&&!artItem(x))run.push(x);else{flush();out.push({h:item(x),x})}}flush();return raw?out:out.map(o=>o.h).join('')}
 async function draw(){if(!cur)return;if(cur.aiva)return avPaint();const me=cur;
  if(term)return;if(!cur.session&&!cur.pend){$('main').innerHTML='<div class=h>No messages yet</div>';if(!cur.ro)await list2()}
- else{const d=cur.session?await api(cur.agent?'/api/agent/'+cur.session+'/'+cur.agent:'/api/session/'+cur.session+'?n='+(cur.n||60)):{items:[]},m=$('main'),atEnd=m.scrollHeight-m.scrollTop-m.clientHeight<80;// a new chat has no transcript until Claude saves the first message; show it meanwhile
-  if(cur!==me)return;if(cur.pend&&!cur.pend.s){const p=cur.pend.t.trim();if(Date.now()-cur.pend.at>6e5||(d.items||[]).slice(-15).some(x=>x.role=='user'&&(x.text||'').trim()==p))cur.pend=null}const key=JSON.stringify(d.items)+(cur.pend?cur.pend.t+cur.pend.s:'');if(key===cur.key&&cur.box&&m.contains(cur.box)){if(!cur.ro)await list2();return}
+ else{const d=cur.session?await api(cur.agent?'/api/agent/'+cur.session+'/'+cur.agent+hq():'/api/session/'+cur.session+'?n='+(cur.n||60)+hq('&')).catch(e=>{if(e.st==404&&RH(me))return{items:[],none:1};throw e}):{items:[]},m=$('main'),atEnd=m.scrollHeight-m.scrollTop-m.clientHeight<80;// a new chat has no transcript until Claude saves the first message; show it meanwhile
+  if(cur!==me)return;if(d.none&&!cur.pend){m.innerHTML='<div class=h>No messages yet</div>';cur.key='';jumpUI();if(!cur.ro)await list2();return}// a server's chat knows its session id before the transcript existsif(cur.pend&&!cur.pend.s){const p=cur.pend.t.trim();if(Date.now()-cur.pend.at>6e5||(d.items||[]).slice(-15).some(x=>x.role=='user'&&(x.text||'').trim()==p))cur.pend=null}const key=JSON.stringify(d.items)+(cur.pend?cur.pend.t+cur.pend.s:'');if(key===cur.key&&cur.box&&m.contains(cur.box)){if(!cur.ro)await list2();return}
   if(paint(m,render((d.items||[]).concat(cur.pend?[{kind:'pend',role:'user',text:cur.pend.t,s:cur.pend.s}]:[]),1),(d.items||[]).length>=(cur.n||60)&&!cur.agent,atEnd))cur.key=key;jumpUI()}
  if(cur===me&&!cur.ro&&!cur.agent){await list2()}}
-async function list2(){await list();if(!cur)return;const s=live.find(x=>x.pane==cur.pane);if(!s)return;if(s.session&&s.session!==cur.session){cur.session=s.session;cur.key='';cur.n=0};
+async function list2(){await list();if(!cur)return;const s=chatOf(cur.pane);if(!s)return;if(s.session&&s.session!==cur.session){cur.session=s.session;cur.key='';cur.n=0};
  $('title').innerHTML=esc(s.title||s.name)+(s.working?' <span class=work>●</span>':'');}
 /* chat painting: blocks that didn't change keep their DOM (selection, open details, loaded images).
    Line up the new blocks with the longest identical run of old ones and redo only what follows it.
@@ -742,7 +756,10 @@ $('main').addEventListener('click',e=>{const im=e.target.closest('img');if(im&&i
 const saveF={},saveH=async e=>{const a=e.target.closest('.fch.out a[download]');if(!a||!navigator.standalone||!navigator.share)return;e.preventDefault();const u=a.getAttribute('href').replace('&dl=1','');
  try{if(!saveF[u]){a.textContent='…';const r=await fetch(u);if(!r.ok)throw new Error('gone');const b=await r.blob();saveF[u]=new File([b],a.download,{type:b.type})}a.textContent='Save';await navigator.share({files:[saveF[u]]})}
  catch(x){a.textContent='Save';if(x.name=='NotAllowedError')toast('Ready: tap Save again');else if(x.name!='AbortError')toast("Couldn't save that file")}};
-$('main').addEventListener('click',saveH);$('sbody').addEventListener('click',saveH);// sbody: Get file's sheet
+$('main').addEventListener('click',saveH);
+$('main').addEventListener('click',async e=>{const a=e.target.closest('[data-rget]');if(!a)return;e.preventDefault();if(a.dataset.busy)return;a.dataset.busy=1;a.textContent='Getting…';const k=a.dataset.rh+'\n'+a.dataset.rget;
+ try{RGET[k]=await api('/api/ssh/get',{host:a.dataset.rh,path:a.dataset.rget},36e5);const c=a.closest('.fch'),t=document.createElement('template');t.innerHTML=outF([RGET[k]]);if(c)c.innerHTML=t.content.querySelector('.fch').innerHTML}// in place: the painted block keeps its nodes
+ catch(x){delete a.dataset.busy;a.textContent='Get';toast(x.reason||'Couldn\'t get that file.')}});$('sbody').addEventListener('click',saveH);// sbody: Get file's sheet
 $('main').addEventListener('mouseover',e=>{hovImg=e.target.closest('img')});$('main').addEventListener('mouseout',e=>{if(e.target===hovImg)hovImg=null});
 $('lbx').onclick=lbHide;
 window.lbKey=e=>{if($('lbx').hidden)return false;if(e.key=='Escape'||e.key==' '){e.preventDefault();e.stopPropagation();lbHide()}else if(e.key=='ArrowRight'||e.key=='ArrowLeft'){e.preventDefault();lbShow(lbL,lbI+(e.key=='ArrowRight'?1:-1))}return true};
@@ -759,7 +776,7 @@ const fullDiff={},dlines=d=>{const L=d.split('\n'),H=L.map(l=>l.match(HK)),w=Mat
 const cnt=(a,d)=>a==null?'':`<span class=dn><b>+${a}</b> <i>−${d}</i></span>`;
 function diffItem(x){const d=fullDiff[x.id];return`<div class=t><button class=dfh><span>${esc(x.name)} · ${esc(x.summary.split('/').pop())}</span>${cnt(x.add,x.del)}</button><pre class=dif hidden>${dlines('@'+x.summary+'\n'+(d||x.diff))}${x.result?`<span class=ln-e>${esc(x.result)}</span>`:''}${x.more&&!d?`<button class=dfm data-id="${esc(x.id)}">Load full diff (${x.more} lines)</button>`:''}</pre></div>`}
 $('main').addEventListener('click',async e=>{const b=e.target.closest('.dfm');if(!b)return;b.disabled=true;b.textContent='Loading…';const id=b.dataset.id,dx=b.parentNode.querySelector('.dx');
- const d=await api('/api/diff/'+cur.session+(cur.agent?'/'+cur.agent:'')+'/'+id);if(d.diff==null){b.textContent='Not found';return}fullDiff[id]=d.diff;dx.outerHTML=dlines('@'+dx.firstChild.textContent+'\n'+d.diff);b.remove()});
+ const d=await api('/api/diff/'+cur.session+(cur.agent?'/'+cur.agent:'')+'/'+id+hq());if(d.diff==null){b.textContent='Not found';return}fullDiff[id]=d.diff;dx.outerHTML=dlines('@'+dx.firstChild.textContent+'\n'+d.diff);b.remove()});
 const ST={M:'modified',A:'added',D:'deleted',R:'renamed',C:'copied',U:'conflict',T:'type changed','?':'new, untracked'},stName=s=>(ST[(s.trim()||'?')[0]]||s)+(s[0]!=' '&&s[0]!='?'?', staged':'');
 const bk=t=>`<button class=dback id=cback style="padding:0;text-align:left">‹ ${t}</button>`;
 async function changesSheet(dir){const me=cur;sb.innerHTML=bk('Chat info')+'<h2>Changes</h2><div id=chw class=lbl>Loading…</div>';showSheet(dir==-1?-1:1);$('cback').onclick=showInfo;
@@ -788,7 +805,7 @@ const bgMark=s=>{const p=s.procs;return p&&(p.longest>=1800||p.cpu>=50)?`<span c
 const poll0=poll;poll=async()=>{await poll0();const st=$('status'),s=cur&&cur.pane&&!cur.ro&&live.find(x=>x.pane==cur.pane),n=s&&s.procs?s.procs.procs:0;let b=st.querySelector('.bgs');
  if(!n)return b&&b.remove();if(!b){st.insertAdjacentHTML('beforeend','<span class=bgs></span>');b=st.lastChild}b.textContent=n+' background'};
 let bgD=null,bgArm='',bgAT;const bgOpen=new Set();
-async function procsUI(){if(!cur||!cur.pane||cur.ro)return;let el=$('bgp');if(!el){el=document.createElement('div');el.id='bgp';el.className='bgp';const a=$('agl')||$('chg');a?a[a.id=='agl'?'after':'before'](el):sb.append(el)}
+async function procsUI(){if(!cur||!cur.pane||cur.ro||RH(cur))return;// a server's processes aren't the Mac's to listlet el=$('bgp');if(!el){el=document.createElement('div');el.id='bgp';el.className='bgp';const a=$('agl')||$('chg');a?a[a.id=='agl'?'after':'before'](el):sb.append(el)}
  const me=cur;let d;try{d=await api('/api/procs/'+cur.pane)}catch(e){return}if(cur!==me||!el.isConnected)return;bgD=d;bgDraw()}
 function bgDraw(){const d=bgD,el=$('bgp');if(!d||!el)return;const n=d.procs.length,a=d.agents.length,hc=d.helpers.reduce((s,h)=>s+h.cpu,0),hm=d.helpers.reduce((s,h)=>s+h.mem,0);
  el.innerHTML=`<div class=lbl>Background · ${n?n+' process'+(n==1?'':'es'):'nothing running'}</div>`+(d.shells&&d.shells!=d.procs.filter(p=>!p.detached).length?`<small class=sub2>Claude Code counts ${d.shells} background shell${d.shells>1?'s':''}.</small>`:'')+
@@ -844,7 +861,7 @@ const CMDS=[['/compact','Summarise the chat to free up context'],['/clear','Star
 function slashUI(){const v=$('ta').value,el=$('slash');if(!/^\/\S*$/.test(v)){el.hidden=true;return}const m=CMDS.filter(c=>c[0].startsWith(v.toLowerCase()));el.hidden=!m.length;
  el.innerHTML=m.map(c=>`<button data-c="${c[0]}"><code>${c[0]}</code><span>${esc(c[1])}</span></button>`).join('')}
 $('ta').addEventListener('input',slashUI);
-$('slash').onclick=e=>{const b=e.target.closest('[data-c]');if(!b)return;$('slash').hidden=true;if(b.dataset.c=='/resume'){$('ta').value='';grow();return newChat(cur.cwd)}$('ta').value=b.dataset.c;grow();$('ta').focus()};
+$('slash').onclick=e=>{const b=e.target.closest('[data-c]');if(!b)return;$('slash').hidden=true;if(b.dataset.c=='/resume'){$('ta').value='';grow();return newChat(cur.cwd,RH(cur))}$('ta').value=b.dataset.c;grow();$('ta').focus()};
 /* terminal key bar, @ file suggestions, ! shell mode */
 const kbShow=on=>{$('kbar').hidden=!on;$('kbt').setAttribute('aria-pressed',on);try{localStorage.setItem('kbar',on?1:0)}catch(e){}};
 try{kbShow(localStorage.getItem('kbar')=='1')}catch(e){kbShow(false)}$('kbt').onclick=()=>kbShow($('kbar').hidden);
@@ -894,7 +911,7 @@ $('ta').addEventListener('focus',()=>document.body.classList.add('kb'));$('ta').
 $('mb').insertAdjacentHTML('beforeend','<b class=bdg id=mbn hidden></b>');
 const rank=s=>s.attn=='needs'?2:s.attn=='done'&&!(cur&&cur.pane==s.pane||OPEN.has(s.pane))?1:0;
 const attnTxt=p=>{const a=live.filter(x=>proj(x.cwd)==p),n=a.filter(x=>rank(x)==2).length,r=a.filter(x=>rank(x)==1).length;return(n?`<span class=nd>${n} need${n>1?'':'s'} you</span> · `:'')+(r?`<span class=nr>${r} new repl${r>1?'ies':'y'}</span> · `:'')};
-let badgeN=-1;function attnUI(){live.sort((a,b)=>rank(b)-rank(a));const o=live.filter(s=>rank(s)&&!(cur&&cur.pane==s.pane)),n=o.length,b=$('mbn');
+let badgeN=-1;function attnUI(){live.sort((a,b)=>rank(b)-rank(a));const o=[...live,...SSH.chats||[]].filter(s=>rank(s)&&!(cur&&cur.pane==s.pane)),n=o.length,b=$('mbn');
  b.hidden=!n;b.textContent=n;b.classList.toggle('w',o.some(s=>s.attn=='needs'));
  if(n!==badgeN&&navigator.setAppBadge&&!COL){badgeN=n;(n?navigator.setAppBadge(n):navigator.clearAppBadge()).catch(()=>{})}}
 // the service worker is only registered once notifications are switched on (an existing one is reused): nothing else needs it
@@ -917,7 +934,7 @@ const pfClick=async e=>{const b=e.target.closest('[data-n]');if(!b)return;
  if(b.dataset.n=='t')return pushUI(await pushAll().catch(x=>'Could not send: '+x.message));
  const R=await SWR,s=R&&await R.pushManager.getSubscription();if(s){await api('/api/push/unsubscribe',{endpoint:s.endpoint}).catch(()=>{});await s.unsubscribe()}pushUI('')};
 if(!COL)pushUI();
-if(navigator.serviceWorker&&!COL)navigator.serviceWorker.addEventListener('message',e=>{const p=e.data&&e.data.pane;if(p)list().then(()=>{const s=live.find(x=>x.pane==p);if(s){closeMenu();hideSheet();stack=[];open_(s)}})});
+if(navigator.serviceWorker&&!COL)navigator.serviceWorker.addEventListener('message',e=>{const p=e.data&&e.data.pane;if(p)list().then(()=>{const s=chatOf(p);if(s){closeMenu();hideSheet();stack=[];open_(s)}})});
 const qp=new URLSearchParams(location.search).get('pane');if(qp){try{localStorage.setItem('last',qp)}catch(e){}history.replaceState(null,'',location.pathname)}
 setInterval(()=>{if(cur)tick(draw);if(!cur||cur.ro||cur.ssh)tick(list)},2500);
 /* passkeys: Face ID sign-in on the Tailscale route; direct local use keeps the token */
@@ -961,7 +978,7 @@ const siriPrompt=()=>`Create a shortcut named exactly "${SIRI.name}" (not "Ask $
 sb.addEventListener('click',async e=>{const c=e.target.closest('[data-cp]');if(c&&SIRI)return copyText(c.dataset.cp=='prompt'?siriPrompt():SIRI[c.dataset.cp]);
  if(e.target.id=='sirinew'&&confirm('Make a new key? The shortcut stops working until you paste the new address into it.')){const d=await tell('/api/siri/key',{});if(d&&d.url){SIRI.url=d.url;copyText(d.url)}}});
 sb.addEventListener('change',async e=>{if(e.target.id!='sirn')return;const d=await tell('/api/siri/name',{name:e.target.value});if(d&&d.name){SIRI.name=d.name;siri(0)}});
-async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{if(avHash())return;const l=localStorage.getItem('last'),s=live.find(x=>x.pane==l);if(s)open_(s);else if(SSH.terms.some(t=>t.pane==l))sshOpen(l);else openMenu()})}
+async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{if(avHash())return;const l=localStorage.getItem('last'),s=chatOf(l);if(s)open_(s);else if(SSH.terms.some(t=>t.pane==l))sshOpen(l);else openMenu()})}
 async function boot(){const r=await fetch('api/auth/state'),s=await r.json().catch(()=>({}));TS=!!s.ts||r.status==403;
  if(!TS){if(!TOK){TOK=clean(prompt('Token'));localStorage.setItem('deck',TOK)}started=true;return start()}
  try{localStorage.removeItem('deck')}catch(e){}TOK='';
@@ -1109,7 +1126,7 @@ const here=()=>{const x=inSplit&&COLS[FOC]&&COLS[FOC].x,s=x&&x.pane&&live.find(l
 function shared(f){return(!f&&lsP&&Date.now()-lsAt<2400?lsP:list()).then(()=>({live,hist,PN,SSH}))}
 function colSave(){if(inSplit)try{localStorage.setItem('cols',JSON.stringify({c:COLS.map(c=>c.x),f:FOC,s:s0}))}catch(e){}}
 function colLoad(){let d={},l=null;try{d=JSON.parse(localStorage.getItem('cols'))||{};l=localStorage.getItem('last')}catch(e){}s0=!!d.s;document.body.classList.toggle('s0',s0);
- const L=new Set(live.map(s=>s.pane)),c=d.c||[],f=c[d.f];// chats that have ended since are dropped
+ const L=new Set([...live,...SSH.chats||[]].map(s=>s.pane)),c=d.c||[],f=c[d.f];// chats that have ended since are dropped
  COLS=c.filter(x=>x&&(!x.pane||L.has(x.pane)||x.ssh&&SSH.terms.some(t=>t.pane==x.pane))).map(x=>({id:++cid,x}));FOC=Math.max(0,COLS.findIndex(k=>k.x===f));
  if(!COLS.length)COLS=[{id:++cid,x:L.has(l)?{pane:l}:null}]}
 // iframes are only ever added or removed, never moved: moving one reloads it
@@ -1122,7 +1139,7 @@ function colUI(){const n=nvis(),sp=COLS.length<room();OPEN=new Set(COLS.slice(0,
  const c=COLS[FOC],t=c&&c.x&&c.t;document.title=t?t+' · Session Deck':'Session Deck';if(dOpen)drawMenu()}
 const colShow=c=>{const w=cwin(c);if(w)w.colGo(c.x)};
 // a chat picked in the list goes to the focused column, or to the column that already has it
-function colOpen(s){const x=s.aiva?{aiva:1,title:'Aiva'}:s.ssh?{ssh:1,pane:s.pane}:s.pane?{pane:s.pane}:{session:s.session,title:s.title,ro:1,cwd:s.cwd},k=x.pane||x.session||'aiva',i=COLS.findIndex(c=>c.x&&(c.x.pane||c.x.session||'aiva')==k);
+function colOpen(s){const x=s.aiva?{aiva:1,title:'Aiva'}:s.ssh?{ssh:1,pane:s.pane}:s.pane?{pane:s.pane}:{session:s.session,title:s.title,ro:1,cwd:s.cwd,...RH(s)&&{host:s.host}},k=x.pane||x.session||'aiva',i=COLS.findIndex(c=>c.x&&(c.x.pane||c.x.session||'aiva')==k);
  if(i>=0&&i<nvis())return colFocus(i,1);if(i>=0)COLS.splice(i,1);
  const c=COLS[FOC];c.x=x;c.t=s.title||s.name||'';colShow(c);colSave();colUI()}
 function colFocus(i,ta){const c=COLS[i];if(!c||i>=nvis())return;if(i!=FOC){FOC=i;colSave();colUI()}
@@ -1146,11 +1163,11 @@ $('drawer').addEventListener('click',e=>{if(document.body.classList.contains('pe
 function colWake(){COLS.forEach(c=>{const w=c.f&&c.f.contentWindow;if(w&&w.colWait)w.location.reload()})}// columns that found the deck locked
 function mode(){if(COL||!started)return;const on=SPLIT.matches;if(on==inSplit)return on&&layout();inSplit=on;document.body.classList.toggle('split',on);
  if(on){const b=stack[0]||cur;termSet(false);if(rOpen)closeRP();stack=[];home();colLoad();layout();if(b)colOpen(b);return}
- const x=(COLS[FOC]||{}).x,s=x&&!x.ssh&&(x.pane?live.find(l=>l.pane==x.pane):{...x});COLS.forEach(c=>c.el&&c.el.remove());COLS=[];OPEN=new Set();document.title='Session Deck';x&&x.ssh&&SSH.terms.some(t=>t.pane==x.pane)?sshOpen(x.pane):s?open_(s):home();drawMenu(1)}
+ const x=(COLS[FOC]||{}).x,s=x&&!x.ssh&&(x.pane?chatOf(x.pane):{...x});COLS.forEach(c=>c.el&&c.el.remove());COLS=[];OPEN=new Set();document.title='Session Deck';x&&x.ssh&&SSH.terms.some(t=>t.pane==x.pane)?sshOpen(x.pane):s?open_(s):home();drawMenu(1)}
 if(!COL){
  window.deck={shared,ready:id=>{const c=COLS[cix(id)];if(c){c.ready=1;colUI();colShow(c)}},foc:id=>id!='agp'&&colFocus(cix(id)),isFoc:id=>id=='agp'||COLS[FOC]&&COLS[FOC].id==id,key:e=>e.key=='Escape'&&agpOn()?agpClose:gkey(e),agent:agpOpen,
   saw:(id,st)=>{const c=COLS[cix(id)];if(!c||!c.ready)return;const x=st.x&&JSON.parse(JSON.stringify(st.x)),ch=JSON.stringify(x)!=JSON.stringify(c.x);if(!ch&&c.t==st.t)return;c.x=x;c.t=st.t;if(ch)colSave();colUI()},
-  close:id=>id=='agp'?agpClose():colClose(cix(id)),split:id=>id!='agp'&&colSplit(cix(id)),lock:s=>lock(s),newChat:c=>newChat(c),openMenu:()=>{if(s0)side();$('q').focus()}};
+  close:id=>id=='agp'?agpClose():colClose(cix(id)),split:id=>id!='agp'&&colSplit(cix(id)),lock:s=>lock(s),newChat:(c,h)=>newChat(c,h),openMenu:()=>{if(s0)side();$('q').focus()}};
  const list0=list,open2=open_,start2=start;list=()=>{lsAt=Date.now();return lsP=list0()};open_=s=>inSplit?colOpen(s):open2(s);
  start=async()=>{if(!SPLIT.matches)return start2();try{CFG=await api('/api/config')}catch(e){}dock();home();await list().catch(()=>{});mode();avHash()};
  SPLIT.addEventListener('change',mode);let rz=0;addEventListener('resize',()=>{if(inSplit&&!rz)rz=requestAnimationFrame(()=>{rz=0;layout()})});
@@ -1164,14 +1181,14 @@ addEventListener('keydown',e=>{if(e.key=='Escape'&&agpOn()&&!sh.classList.contai
 /* column mode: this page as one column of the split view. The outer page (deck) owns the chat list, settings, sign-in and the window's shortcuts */
 if(COL){const P=parent.deck,me=COL,o=open_,h=home,l2=list2,p1=poll;let pAt=0;
  list=async f=>{const d=await P.shared(f);live=d.live.map(x=>({...x}));hist=d.hist;PN=d.PN;SSH=d.SSH||SSH;attnUI();sshUI()};
- lock=s=>{if(!started)window.colWait=1;P.lock(s)};openMenu=()=>P.openMenu();newChat=c=>P.newChat(c);$('mb').onclick=openMenu;
+ lock=s=>{if(!started)window.colWait=1;P.lock(s)};openMenu=()=>P.openMenu();newChat=(c,h)=>P.newChat(c,h);$('mb').onclick=openMenu;
  start=async()=>{try{CFG=await api('/api/config')}catch(e){}P.ready(me);if(me=='agp'){const q=new URLSearchParams(location.search),[ss,a]=(q.get('ag')||'').split('/');await list();const v=q.get('agv')||undefined;open_({session:ss,agent:a,title:'Subagent: '+(q.get('agd')||''),ro:v?0:1,via:v})}};
- const st=()=>{const b=stack[0]||cur;return{x:b&&(b.aiva?{aiva:1,title:'Aiva'}:b.ssh?{ssh:1,pane:b.pane}:b.pane?{pane:b.pane}:b.session?{session:b.session,title:b.title,ro:1,cwd:b.cwd}:null),t:$('title').textContent.replace(/●/g,'').trim()}};
- const head=()=>{const b=stack[0]||cur,s=b&&b.pane&&live.find(x=>x.pane==b.pane),c=b&&(b.cwd||s&&s.cwd);$('cdot').hidden=!s;if(s)$('cdot').className='sc '+stc(s);
+ const st=()=>{const b=stack[0]||cur;return{x:b&&(b.aiva?{aiva:1,title:'Aiva'}:b.ssh?{ssh:1,pane:b.pane}:b.pane?{pane:b.pane}:b.session?{session:b.session,title:b.title,ro:1,cwd:b.cwd,...RH(b)&&{host:b.host}}:null),t:$('title').textContent.replace(/●/g,'').trim()}};
+ const head=()=>{const b=stack[0]||cur,s=b&&b.pane&&chatOf(b.pane),c=b&&(b.cwd||s&&s.cwd);$('cdot').hidden=!s;if(s)$('cdot').className='sc '+stc(s);
   $('ptag').innerHTML=c?tile(proj(c))+`<span>${esc(proj(c))}</span>`:'';P.saw(me,st())};
  open_=s=>{o(s);head()};home=()=>{h();$('title').textContent='New column';$('main').querySelector('.empty p').textContent='Pick a chat from the list, or start a new one.';head()};list2=async()=>{await l2();head()};
  poll=async()=>{if(!P.isFoc(me)&&Date.now()-pAt<2900)return;pAt=Date.now();return p1()};// a column without focus checks its status every 3 s
- window.colGo=async x=>{x=x&&{...x};hideSheet();if(rOpen)closeRP();stack=[];if(x&&x.ssh){await list();return SSH.terms.some(t=>t.pane==x.pane)?sshOpen(x.pane):home()}if(x&&x.pane){await list();const s=live.find(l=>l.pane==x.pane);return s?open_(s):home()}x?open_(x):home()};
+ window.colGo=async x=>{x=x&&{...x};hideSheet();if(rOpen)closeRP();stack=[];if(x&&x.ssh){await list();return SSH.terms.some(t=>t.pane==x.pane)?sshOpen(x.pane):home()}if(x&&x.pane){await list();const s=chatOf(x.pane);return s?open_(s):home()}x?open_(x):home()};
  $('title').insertAdjacentHTML('beforebegin','<i class="sc idle" id=cdot hidden></i>');$('title').insertAdjacentHTML('afterend','<small class=ptag id=ptag></small>');
  $('tv').insertAdjacentHTML('afterend',`<button class="ic csp" id=csp title="Open a new column" aria-label="Open a new column">${SPL}</button><button class="ic cx" id=cx title="Close column" aria-label="Close column">✕</button>`);
  $('csp').onclick=()=>P.split(me);$('cx').onclick=()=>P.close(me);
@@ -1415,26 +1432,33 @@ const sshc=v=>{try{if(v===undefined)return localStorage.getItem('sshc')=='1';v?l
 const sshH=id=>SSH.hosts.find(h=>h.id==id),sshN=t=>+t.session.split('-').pop()||1,sshT=h=>SSH.terms.filter(t=>t.host==h).sort((a,b)=>sshN(a)-sshN(b));
 const sshA=h=>(h.user?h.user+'@':'')+(h.host.includes(':')?'['+h.host+']':h.host)+(h.port?':'+h.port:''),sshAddr=h=>sshA(h)+(h.auth=='config'?' (~/.ssh/config)':'');
 const tRow=(t,x)=>`<button class="crow${x?'':' lv sht'}${cur&&cur.pane==t.pane||OPEN.has(t.pane)?' cur':''}" data-st="${esc(t.pane)}"><i class=tmi>&gt;_</i><span><b>Terminal ${sshN(t)}</b><small>${t.dead?'<span class=nd>Disconnected</span>':'Open'} · ${ago(t.created)}</small></span></button>`;
-// hosts with open terminals first, each with its terminals under it, then the rest by name; a throwaway host shows only while it has a terminal
-function sshSec(){const T=SSH.terms,f=sshc(),n=h=>T.filter(t=>t.host==h.id).length,H=SSH.hosts.filter(h=>!h.temp||n(h)).sort((a,b)=>!n(a)-!n(b)||a.name.localeCompare(b.name));
- return`<section><div class=sec><button class=sst data-sshc=1 aria-expanded=${!f}>SSH</button><span>${T.length||''}<button class=sadd data-ssha=1 aria-label="Add an SSH host" title="Add an SSH host">+</button></span></div>`+(f?'':`<div class=card>${H.map(h=>{const ts=sshT(h.id);
-  return`<button class=crow data-sh="${esc(h.id)}"><i class="sc ${ts.length?'done':'idle'}"></i><span><b>${esc(h.name)}</b><small>${ts.length?ts.length+' open'+(h.temp?' · not saved':''):esc(sshAddr(h))}</small></span></button>`+ts.map(t=>tRow(t)).join('')}).join('')||'<div class=none>No hosts yet. Add one with +.</div>'}</div>`)+'</section>'}
+// a remote Claude chat's row (data-pane, opened as any chat): its attention dot, then needs you, working or paused (its link has dropped)
+const sshC=h=>(SSH.chats||[]).filter(c=>c.host==h).sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),RHOME={};// RHOME: a host's home folder, once rfolders has listed ~
+const rrel=(h,p)=>{const H=RHOME[h];return H&&p&&(p==H||p.startsWith(H+'/'))?'~'+p.slice(H.length):p||''};
+const rcRow=(s,x)=>`<button class="crow${x?'':' lv sht'}${cur&&cur.pane==s.pane||OPEN.has(s.pane)?' cur':''}" data-pane="${esc(s.pane)}"><i class="sc ${s.dropped?'idle':stc(s)}"></i><span><b>${esc(s.title||s.name||'Claude')}</b><small>${s.dropped?'<span class=nd>paused</span>':rank(s)==2?'<span class=nd>needs you</span>':s.working?'<span class=work>working</span>':s.mtime?ago(s.mtime):'new'}${s.cwd?' · '+esc(rrel(s.host,s.cwd)):''}</small></span></button>`;
+// hosts with open chats or terminals first, each with its Claude chats then its terminals under it, then the rest by name; a throwaway host shows only while it has one
+function sshSec(){const T=SSH.terms,C=SSH.chats||[],f=sshc(),n=h=>T.filter(t=>t.host==h.id).length+C.filter(c=>c.host==h.id).length,H=SSH.hosts.filter(h=>!h.temp||n(h)).sort((a,b)=>!n(a)-!n(b)||a.name.localeCompare(b.name));
+ return`<section><div class=sec><button class=sst data-sshc=1 aria-expanded=${!f}>SSH</button><span>${T.length+C.length||''}<button class=sadd data-ssha=1 aria-label="Add an SSH host" title="Add an SSH host">+</button></span></div>`+(f?'':`<div class=card>${H.map(h=>{const ts=sshT(h.id),cs=sshC(h.id),k=ts.length+cs.length;
+  return`<button class=crow data-sh="${esc(h.id)}"><i class="sc ${cs.some(c=>rank(c)==2)?'needs':k?'done':'idle'}"></i><span><b>${esc(h.name)}</b><small>${k?k+' open'+(h.temp?' · not saved':''):esc(sshAddr(h))}</small></span></button>`+cs.map(c=>rcRow(c)).join('')+ts.map(t=>tRow(t)).join('')}).join('')||'<div class=none>No hosts yet. Add one with +.</div>'}</div>`)+'</section>'}
 function sshOpen(p){const t=SSH.terms.find(x=>x.pane==p);if(!t)return toast('That terminal has closed.');const h=sshH(t.host);open_({ssh:1,pane:p,host:t.host,title:(h?h.name:t.title)+(sshN(t)>1?' · '+sshN(t):'')})}
-// the terminal view: Disconnected (the connection dropped, the pane stays) with Reconnect, or closed
-function sshUI(){const b=$('sshb');if(!cur||!cur.ssh){b.hidden=true;b.dataset.k='';return}const t=SSH.terms.find(x=>x.pane==cur.pane),h=sshH(cur.host),k=!t?'gone':t.dead?'dead':'';b.hidden=!k;
- if(k&&b.dataset.k!=k+cur.pane)b.innerHTML=k=='dead'?'<span>Disconnected</span><button id=sshre>Reconnect</button>':`<span>This terminal has closed.</span>${h&&!h.lost?'<button id=sshnt>New terminal</button>':''}`;b.dataset.k=k&&k+cur.pane;
+// the terminal view: Disconnected (the connection dropped, the pane stays) with Reconnect, or closed. A remote chat whose link dropped: tmux kind,
+// Claude carries on and the deck reconnects (reattach on the Mac, rAuto here); plain kind, Claude stopped, so Resume; hand-typed, only the notice
+function sshUI(){const b=$('sshb'),c=RH(cur)&&!cur.ro&&(SSH.chats||[]).find(x=>x.pane==cur.pane),t=cur&&cur.ssh&&SSH.terms.find(x=>x.pane==cur.pane),h=cur&&sshH(cur.host),hn=esc(h?h.name:'the server');
+ const k=c?c.dropped?'r'+(c.rkind||'hand'):'':cur&&cur.ssh?!t?'gone':t.dead?'dead':'':'';b.hidden=!k;
+ if(k&&b.dataset.k!=k+cur.pane)b.innerHTML=k=='rtmux'?`<span>The link to ${hn} dropped. Claude is still working; the deck reconnects when it can.</span>${h&&h.auth=='password'?'<button id=sshre>Reconnect</button>':''}`:k[0]=='r'?`<span>Disconnected from ${hn}.</span>${k=='rplain'?'<button id=sshre>Resume</button>':''}`:
+  k=='dead'?'<span>Disconnected</span><button id=sshre>Reconnect</button>':`<span>This terminal has closed.</span>${h&&!h.lost?'<button id=sshnt>New terminal</button>':''}`;b.dataset.k=k&&k+cur.pane;
  const x=$('xhp');if(x&&sh.classList.contains('on')&&x.dataset.k!=sshK(x.dataset.h))sshHost(x.dataset.h,1)}
 $('sshb').onclick=e=>{if(e.target.id=='sshre')sshRe(cur.pane);if(e.target.id=='sshnt')sshConnect(cur.host)};
 // a password for a password host: the saved one, else nothing when another terminal there is up (its shared connection needs none), else asked for
 function pwAsk(h){return new Promise(ok=>{sb.innerHTML=`<h2>Password</h2><small class=sub2>${esc(h.name)} · ${esc(sshAddr(h))}</small><input id=pwi type=password autocomplete=off placeholder="Password${h.user?' for '+esc(h.user):''}">`+
   (h.temp?'':'<label class=ck><input type=checkbox id=pwk checked> Remember on this device</label>')+'<button class=go id=pwgo>Connect</button>';showSheet(1);
  const go=()=>{const v=$('pwi').value;if(!v)return $('pwi').focus();$('pwi').value='';ok({pw:v,keep:!!($('pwk')&&$('pwk').checked)})};$('pwgo').onclick=go;$('pwi').onkeydown=e=>{if(e.key=='Enter')go()};setTimeout(()=>$('pwi')&&$('pwi').focus(),60)})}
-async function pwFor(h,skip){if(h.auth!='password')return'';const p=!h.temp&&await pwGet(h.id);if(p)return p;if(SSH.terms.some(t=>t.host==h.id&&!t.dead&&t.pane!=skip))return'';
+async function pwFor(h,skip){if(h.auth!='password')return'';const p=!h.temp&&await pwGet(h.id);if(p)return p;if([...SSH.terms,...SSH.chats||[]].some(t=>t.host==h.id&&!t.dead&&!t.dropped&&t.pane!=skip))return'';
  const r=await pwAsk(h);if(r.keep&&!h.temp)await pwSet(h.id,r.pw);return r.pw}
 async function sshGo(b,h,pw){if(pw&&h.auth=='password')b.password=pw;let d;try{d=await api('/api/ssh/connect',b)}catch(e){return toast(e.reason||'Couldn\'t connect.')}
  hideSheet();closeMenu();stack=[];await list(1).catch(()=>{});sshOpen(d.pane)}// fresh: a column's shared list may predate the new pane
 async function sshConnect(hid,pw){const h=sshH(hid);if(!h)return toast('That host has gone.');sshGo({host:hid},h,pw||await pwFor(h))}
-async function sshRe(p){const t=SSH.terms.find(x=>x.pane==p),h=t&&sshH(t.host);if(!h)return toast('That host isn\'t saved any more.');const pw=await pwFor(h,p);
+async function sshRe(p){const t=[...SSH.terms,...SSH.chats||[]].find(x=>x.pane==p),h=t&&sshH(t.host);// a terminal's Reconnect, or a remote chat's Resumeif(!h)return toast('That host isn\'t saved any more.');const pw=await pwFor(h,p);
  try{await api('/api/ssh/reconnect',{pane:p,...pw?{password:pw}:{}})}catch(e){return toast(e.reason||'Couldn\'t reconnect.')}hideSheet();await list().catch(()=>{});if(LT&&cur&&cur.pane==p)LT.focus()}
 async function sshClose(p){try{await api('/api/ssh/close',{pane:p})}catch(e){return toast(e.reason||'Couldn\'t close it.')}if(cur&&cur.pane==p){hideSheet();home();if(!COL)openMenu()}toast('Connection closed');list().catch(()=>{})}
 // + and Edit: a save replaces every field, so the whole form goes. Connect once makes a throwaway host: never saved, its password never kept
@@ -1451,21 +1475,54 @@ async function sshAdd(h){closeMenu();let cfg=[],au=h?h.auth:'password';try{cfg=(
    if(x.auth!='password'||p&&!k)pwForget(x.id);if(p&&k)await pwSet(x.id,p);await list().catch(()=>{});return x}catch(e){toast(e.reason||'Couldn\'t save that.')}finally{bs.forEach(b=>b.disabled=false)}};
  $('xsv').onclick=async()=>{const x=await save(pw());if(x)sshHost(x.id)};$('xsc').onclick=async()=>{const p=pw(),x=await save(p);if(x)sshConnect(x.id,p)};
  if(h)$('xcn').onclick=()=>sshHost(h.id);else $('xso').onclick=()=>{const v=V();sshGo({temp:{addr:v.addr,auth:au}},{auth:au},pw())}}
-// a host's page: its terminals (Open, Close), New terminal, Edit, Forget saved password, Delete. Redrawn when its terminals change (sshUI)
-const sshK=hid=>JSON.stringify([sshH(hid),sshT(hid),pwHas(hid)]);
-function sshHost(hid,re){const h=sshH(hid);if(!h){if(re)hideSheet();return toast('That host has gone.')}closeMenu();const T=sshT(hid),B=(id,t,c)=>`<button class=pick id=${id} style="text-align:center${c?';color:#e5484d':''}">${t}</button>`;
- sb.innerHTML=`<div class=pg id=xhp data-h="${esc(hid)}" data-k="${esc(sshK(hid))}"><div class=ph>${tile(h.name,1)}<span><h3>${esc(h.name)}</h3><small>${esc(sshAddr(h))}${h.temp?' · not saved':''}</small></span></div>
+// a host's page: what a dropped link does to Claude there (rinfo), its Claude chats (live, then past ones: pickup), its terminals (Open, Close),
+// New Claude chat, New terminal, Edit, Forget saved password, Delete. Redrawn when its chats or terminals change (sshUI) and when rinfo or rhistory answers
+const sshK=hid=>JSON.stringify([sshH(hid),sshT(hid),pwHas(hid),sshC(hid).map(c=>[c.pane,c.title,c.attn,c.working,c.dropped,c.mtime])]);
+// a dropped tmux-kind chat on a password host: this device, with the password saved, reconnects it once per page load (a key host's the Mac reattaches itself)
+const RAUTO=new Set();function rAuto(){if(COL)return;(SSH.chats||[]).forEach(async c=>{const h=sshH(c.host);if(!c.dropped||c.rkind!='tmux'||RAUTO.has(c.pane)||!h||h.auth!='password'||h.temp||!pwHas(h.id))return;
+ RAUTO.add(c.pane);const pw=await pwGet(h.id);if(pw)api('/api/ssh/reconnect',{pane:c.pane,password:pw}).catch(()=>{})})}
+// a host's rinfo (engines, tmux). With no live connection to a password host: its password (pwFor), a terminal there opened in the background, then asked again
+const RI={};async function rReady(hid){const h=sshH(hid),q=()=>api('/api/ssh/rinfo?host='+encodeURIComponent(hid),0,3e4).then(d=>RI[hid]=d),no=e=>/^Open a terminal/.test(e.reason||'');if(!h)throw{reason:'That host has gone.'};
+ try{return await q()}catch(e){if(!no(e)||h.auth!='password'||h.lost)throw e}
+ const pw=await pwFor(h);sb.innerHTML=`<h2 id=rcon>Connecting…</h2><small class=sub2>${esc(h.name)} · ${esc(sshAddr(h))}</small>`;showSheet(1);
+ try{await api('/api/ssh/connect',{host:hid,...pw?{password:pw}:{}})}catch(e){throw{reason:e.reason||'Couldn\'t connect.'}}list().catch(()=>{});
+ for(let i=0;i<20;i++){await new Promise(r=>setTimeout(r,1500));try{return await q()}catch(e){if(!no(e))throw e}}
+ throw{reason:'Couldn\'t connect to '+h.name+'. Open its terminal to see why.'}}
+// a server folder's folders (~ at first); the server's past chats, kept 20 s: {at, L: [{session, cwd, title, mtime}], err}, with p while asked
+async function rFold(hid,p){const d=await api('/api/ssh/rfolders?host='+encodeURIComponent(hid)+'&path='+encodeURIComponent(p),0,3e4);if(p=='~'&&d.folders.length)RHOME[hid]=d.folders[0].replace(/\/[^/]+$/,'')||'/';return d.folders}
+const RHI={};function rHist(hid){const c=RHI[hid];if(c&&(c.p||Date.now()-c.at<2e4))return c.p||Promise.resolve(c);
+ return(RHI[hid]={...c,p:api('/api/ssh/rhistory?host='+encodeURIComponent(hid),0,4e4).then(d=>({L:d.history}),e=>({L:[],err:e.reason||'Couldn\'t read the past chats.'})).then(r=>RHI[hid]={...r,at:Date.now()})}).p}
+// the new chat sheet on a server: its folders (tap to go in, Up), its engines, the host's permission mode, no Account or worktree, its past chats in the folder
+async function rNew(h,p,W){const hid=h.id;let I,F,R={L:[],p:1};toast('Asking '+h.name+'…');
+ try{I=await rReady(hid);F=await rFold(hid,p).catch(e=>p=='~'?Promise.reject(e):rFold(hid,p='~'))}catch(e){if($('rcon'))hideSheet();else if($('nw'))$('nw').value='';return toast(e.reason||'Couldn\'t reach '+h.name+'.')}
+ $('toast').hidden=true;const ab=()=>p=='~'&&RHOME[hid]||p;// absolute once the home is known: what transcripts record
+ sb.innerHTML=`<h2>New chat</h2>${W}<div class=lbl>Folder</div><div id=rfw data-h="${esc(hid)}"></div>${engines(I.engines)}${chatOpts(1)}<button class=go id=gof>Start fresh</button><div class=lbl>Or resume one from this folder</div><input id=rf type=search placeholder="Filter past chats"><div id=rl></div>`;showSheet();
+ $('op').value=h.perm||'default';
+ const fd=()=>{const a=ab(),up=a[0]=='/'&&a!='/'?a.replace(/\/[^/]+$/,'')||'/':'';$('rfw').innerHTML=`<small class=sub2>${esc(rrel(hid,a))}</small><div class=rfl>${up?`<button class=pick data-fd="${esc(up)}">‹ Up</button>`:''}${F.map(x=>`<button class=pick data-fd="${esc(x)}">${esc(x.split('/').pop())}</button>`).join('')||'<small>No folders in here.</small>'}</div>`};
+ const draw=()=>{const a=ab(),t=$('rf').value.toLowerCase();$('rl').innerHTML=R.L.filter(x=>x.cwd==a&&(x.title||'').toLowerCase().includes(t)).slice(0,25).map(x=>`<button class=pick data-r="${esc(x.session)}">${esc(x.title||x.session.slice(0,8))}<small>${ago(x.mtime)}</small></button>`).join('')||`<small>${R.p?'Loading…':esc(R.err||'No past chats here.')}</small>`};
+ fd();draw();rHist(hid).then(r=>{R=r;if($('rfw')&&$('rfw').dataset.h==hid)draw()});if($('nw'))$('nw').onchange=()=>newChat($('nw').value?'~':null,$('nw').value);
+ $('rfw').onclick=async e=>{const b=e.target.closest('[data-fd]');if(!b)return;const q=b.dataset.fd;try{F=await rFold(hid,q);p=q}catch(x){return toast(x.reason||'Couldn\'t open that folder.')}fd();draw()};
+ $('rf').oninput=draw;$('rl').onclick=e=>{const b=e.target.closest('[data-r]');if(b)launch(ab(),b.dataset.r,{...optVals(),host:hid})};$('gof').onclick=()=>launch(ab(),null,{...optVals(),host:hid})}
+function sshHost(hid,re){const h=sshH(hid);if(!h){if(re)hideSheet();return toast('That host has gone.')}closeMenu();const T=sshT(hid),C=sshC(hid),I=RI[hid],R=RHI[hid],P=(R&&R.L||[]).filter(x=>!C.some(c=>c.session==x.session)).slice(0,30),B=(id,t,c)=>`<button class=pick id=${id} style="text-align:center${c?';color:#e5484d':''}">${t}</button>`;
+ sb.innerHTML=`<div class=pg id=xhp data-h="${esc(hid)}" data-k="${esc(sshK(hid))}"><div class=ph>${tile(h.name,1)}<span><h3>${esc(h.name)}</h3><small>${esc(sshAddr(h))}${h.temp?' · not saved':''}</small>${I?`<small style="display:block">${I.tmux?'Claude keeps running if the link drops (tmux)':'Claude stops if the link drops; Resume picks it up'}</small>`:''}</span></div>
+ <section><div class=sec>Claude chats<span>${C.length||''}</span></div><div class=card>${C.map(c=>rcRow(c,1)).join('')+P.map(x=>`<button class=crow data-rh="${esc(x.session)}" data-c="${esc(x.cwd||'~')}"><span><b>${esc(x.title||x.session.slice(0,8))}</b><small>${x.cwd?esc(rrel(hid,x.cwd))+' · ':''}${ago(x.mtime)}</small></span></button>`).join('')||
+  `<div class=none>${h.lost||R&&!R.p?esc(R&&R.err||'No Claude chats yet.'):'Loading…'}</div>`}</div></section>
  <section><div class=sec>Terminals<span>${T.length||''}</span></div><div class=card>${T.map(t=>`<div class=arow>${tRow(t,1)}<button class="kill op" data-st="${esc(t.pane)}">Open</button><button class=kill data-sx="${esc(t.pane)}">Close</button></div>`).join('')||'<div class=none>No open terminals.</div>'}</div></section>
- ${h.lost?'':'<button class=go id=xnt>New terminal</button>'}`+(h.temp?'':(pwHas(hid)?`<div class=two>${B('xed','Edit')}${B('xfg','Forget saved password')}</div>`:B('xed','Edit')))+
- (h.auth=='password'&&!h.temp&&T.some(t=>!t.dead)?B('xik','Install key (sign in without a password)'):'')+(h.lost?'':B('xrk','Remove old host key'))+(h.temp?'':B('xdl','Delete host',1))+'</div>';if(!re)showSheet(-1);
+ ${h.lost?'':h.temp?'<button class=go id=xnt>New terminal</button>':'<div class=two><button class=go id=xnc>New Claude chat</button><button class=go id=xnt>New terminal</button></div>'}`+(h.temp?'':(pwHas(hid)?`<div class=two>${B('xed','Edit')}${B('xfg','Forget saved password')}</div>`:B('xed','Edit')))+
+ (h.auth=='password'&&!h.temp&&(T.some(t=>!t.dead)||C.some(c=>!c.dropped))?B('xik','Install key (sign in without a password)'):'')+(h.lost?'':B('xrk','Remove old host key'))+(h.temp?'':B('xdl','Delete host',1))+'</div>';if(!re)showSheet(-1);
  $('xhp').querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{hideSheet();stack=[];sshOpen(b.dataset.st)});$('xhp').querySelectorAll('[data-sx]').forEach(b=>twice(b,'Tap to close',()=>sshClose(b.dataset.sx)));
- if(h.lost)return;$('xnt').onclick=()=>sshConnect(hid);twice($('xrk'),'Tap again to remove it',async()=>{let r;try{r=await api('/api/ssh/forgetkey',{host:hid})}catch(e){r={}}sshHost(hid,1);
+ $('xhp').querySelectorAll('[data-pane]').forEach(b=>b.onclick=()=>{const s=chatOf(b.dataset.pane);hideSheet();stack=[];if(s)open_(s)});
+ $('xhp').querySelectorAll('[data-rh]').forEach(b=>b.onclick=()=>pickup(b.dataset.rh,b.dataset.c,b.querySelector('b').textContent,hid));
+ if(h.lost)return;const rd=()=>{const x=$('xhp');if(x&&x.dataset.h==hid&&sh.classList.contains('on'))sshHost(hid,1)};
+ if(!I)api('/api/ssh/rinfo?host='+encodeURIComponent(hid),0,3e4).then(d=>{RI[hid]=d;rd()},()=>{});if(!R||!R.p&&Date.now()-R.at>2e4)rHist(hid).then(rd);
+ $('xnt').onclick=()=>sshConnect(hid);if($('xnc'))$('xnc').onclick=()=>newChat('~',hid);twice($('xrk'),'Tap again to remove it',async()=>{let r;try{r=await api('/api/ssh/forgetkey',{host:hid})}catch(e){r={}}sshHost(hid,1);
   toast(r.removed?'Old host key removed. The next connect shows the fingerprint to check.':r.removed===0?'This Mac had no key saved for this host.':'Couldn\'t remove it.')});
  if($('xik'))$('xik').onclick=async()=>{const b=$('xik');b.disabled=true;b.textContent='Installing…';try{await api('/api/ssh/installkey',{host:hid},6e4)}catch(e){b.disabled=false;b.textContent='Install key (sign in without a password)';return toast(e.reason||'Couldn\'t install the key.')}
   pwForget(hid);toast('Key installed. This host now signs in with the Mac\'s key.');await list().catch(()=>{});sshHost(hid,1)};// the saved password is no longer needed
  if(h.temp)return;$('xed').onclick=()=>sshAdd(h);if($('xfg'))$('xfg').onclick=()=>{pwForget(hid);toast('Password forgotten on this device');sshHost(hid,1)};
- twice($('xdl'),T.length?`Tap again to delete it and close ${T.length} terminal${T.length>1?'s':''}`:'Tap again to delete it',async()=>{for(const t of T)await api('/api/ssh/close',{pane:t.pane}).catch(()=>{});
-  try{await api('/api/ssh/hosts',{delete:hid})}catch(e){return toast(e.reason||'Couldn\'t delete it.')}pwForget(hid);hideSheet();toast('Host deleted');if(cur&&cur.ssh&&cur.host==hid)home();list().catch(()=>{})})}
+ const cl=[C.length&&C.length+' Claude chat'+(C.length>1?'s':''),T.length&&T.length+' terminal'+(T.length>1?'s':'')].filter(Boolean).join(' and ');
+ twice($('xdl'),cl?`Tap again to delete it and close ${cl}`:'Tap again to delete it',async()=>{for(const t of [...C,...T])await api('/api/ssh/close',{pane:t.pane}).catch(()=>{});
+  try{await api('/api/ssh/hosts',{delete:hid})}catch(e){return toast(e.reason||'Couldn\'t delete it.')}pwForget(hid);hideSheet();toast('Host deleted');if(cur&&cur.host==hid)home();list().catch(()=>{})})}
 // the terminal view's paperclip: each file goes through the Mac to the server's ~/.cache/session-deck/uploads and its path is typed at the prompt, not run
 function sshAttach(files){const p=cur.pane;for(const f of files){const name=f.name||'pasted image';if(f.size>1<<30){toast(name+' is over 1 GB. Move very large files with Syncthing instead.');continue}
  const x=new XMLHttpRequest();x.open('POST','api/upload?pane='+encodeURIComponent(p)+'&name='+encodeURIComponent(name));x.setRequestHeader('X-Deck-Token',TOK);

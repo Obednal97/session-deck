@@ -2353,6 +2353,30 @@ def rfolders(host, path="~"):
     if r.returncode: raise RuntimeError(ssh_err(r))
     return sorted(l for l in r.stdout.decode(errors="replace").splitlines() if l.startswith("/"))[:300]
 
+RHIST_SH = r"""C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; cd "$C/projects" 2>/dev/null || exit 0
+ls -t ./*/????????-????-????-????-????????????.jsonl 2>/dev/null | head -n %d | while IFS= read -r f; do printf '\036%%s\n' "$f"
+  head -c 120000 "$f" | grep -o '"cwd": *"[^"]*"' | head -n 1
+  for k in customTitle aiTitle; do grep -oE "\"$k\": *\"([^\"\\\\]|\\\\.)*\"" "$f" | tail -n 1; done
+  tail -c 65536 "$f" | grep -o '"timestamp": *"[^"]*"' | tail -n 1; done; exit 0"""
+
+def rhistory(host, limit=100):
+    """The server's newest transcripts ($C/projects/*/*.jsonl), newest first: [{session, cwd, title, mtime}] in one ssh_run. title: the last
+    customTitle, else the last aiTitle, else None; mtime: the last timestamp in the file's end. Raises RuntimeError with what to tell the page."""
+    r = ssh_run(host, RHIST_SH % max(1, min(int(limit), 500)), timeout=30)
+    if r.returncode: raise RuntimeError(ssh_err(r))
+    out = []
+    for x in r.stdout.decode(errors="replace").split("\x1e")[1:]:
+        f, *L = x.split("\n"); sid, d = f.rsplit("/", 1)[-1][:-6], {}
+        if not re.fullmatch(SID_RE, sid) or "tmp-claude" in f: continue
+        for l in L:
+            try: d.update(json.loads("{" + l + "}"))
+            except ValueError: pass
+        try: t = datetime.datetime.fromisoformat(str(d.get("timestamp")).replace("Z", "+00:00")).timestamp()
+        except ValueError: t = 0
+        s = lambda k: d.get(k) if isinstance(d.get(k), str) and d.get(k) else None
+        out.append({"session": sid, "cwd": s("cwd"), "title": s("customTitle") or s("aiTitle"), "mtime": t})
+    return out
+
 def rstart(hid, cwd, engine, resume=None, fork=False, perm=None, model=None, effort=None, name=None):
     """A new Claude chat on a server, in its own SSH connection session: (pane, None) or (None, error). A fresh chat or a fork gets its id
     here (--session-id), a resume keeps its own, so @deck_claude is known from the start. perm: the host's own when not given."""
@@ -2618,10 +2642,10 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/prefs": return self.send(200, prefs())
         if path == "/api/ssh/vault": return self.send(200, {"key": vault_key(self)})
         if path == "/api/ssh/hosts": return self.send(200, {"hosts": ssh_hosts(), "config": ssh_config_names()})
-        if path in ("/api/ssh/rinfo", "/api/ssh/rfolders"):  # for the new remote chat sheet
+        if path in ("/api/ssh/rinfo", "/api/ssh/rfolders", "/api/ssh/rhistory"):  # for the new remote chat sheet and the host page
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query); h = ssh_host((q.get("host") or [None])[0])
             if not h: return self.send(400, {"error": "That host wasn't found."})
-            try: return self.send(200, rinfo(h) if path == "/api/ssh/rinfo" else {"folders": rfolders(h, (q.get("path") or ["~"])[0])})
+            try: return self.send(200, rinfo(h) if path == "/api/ssh/rinfo" else {"history": rhistory(h)} if path == "/api/ssh/rhistory" else {"folders": rfolders(h, (q.get("path") or ["~"])[0])})
             except RuntimeError as e: return self.send(400, {"error": str(e)})
             except ValueError: return self.send(400, {"error": "That folder or host address isn't valid."})
             except subprocess.TimeoutExpired: return self.send(400, {"error": "The server took too long to answer."})

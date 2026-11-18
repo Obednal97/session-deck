@@ -170,6 +170,24 @@ class Mirror(unittest.TestCase):
         self.addCleanup(local.unlink)
         self.assertEqual(server.chat_file(self.sid, self.hid), local)  # a local transcript wins
 
+    def test_rhistory(self):
+        s2, s3 = str(uuid.uuid4()), str(uuid.uuid4()); p = self.home / ".claude/projects"
+        f2 = p / "-srv-app" / f"{s2}.jsonl"; f2.parent.mkdir(parents=True)
+        f2.write_text(line("user", "go", "/srv/app") + json.dumps({"type": "custom-title", "customTitle": 'Old "one"'}) + "\n" + json.dumps({"type": "ai-title", "aiTitle": "AI"}) + "\n"
+                      + json.dumps({"type": "custom-title", "customTitle": 'My "x" chat'}) + "\n" + json.dumps({"type": "assistant", "timestamp": "2026-11-18T11:30:00.500Z"}) + "\n")
+        f3 = p / "-srv-b" / f"{s3}.jsonl"; f3.parent.mkdir(parents=True); f3.write_text(line("user", "b", "/srv/b") + json.dumps({"type": "ai-title", "aiTitle": "Made by AI"}) + "\n")
+        (p / "-srv-b" / "notes.jsonl").write_text("{}\n")  # not a session id
+        now = time.time()
+        for i, f in enumerate((self.sf, f3, f2, p / "-srv-b/notes.jsonl")): os.utime(f, (now - 100 + i * 10,) * 2)
+        got = server.rhistory(self.h)
+        self.assertEqual([x["session"] for x in got], [s2, s3, self.sid])  # newest first
+        self.assertEqual(got[0], {"session": s2, "cwd": "/srv/app", "title": 'My "x" chat', "mtime": 1795001400.5})
+        self.assertEqual((got[1]["cwd"], got[1]["title"]), ("/srv/b", "Made by AI"))
+        self.assertEqual((got[2]["cwd"], got[2]["title"], got[2]["mtime"]), ("/root", None, 1794996000.0))
+        self.assertEqual([x["session"] for x in server.rhistory(self.h, 2)], [s2, s3])
+        down = Path(TMP) / "down"; down.touch(); os.environ["FAKE_SSH_DOWN"] = str(down); self.addCleanup(down.unlink)
+        with self.assertRaisesRegex(RuntimeError, "Open a terminal"): server.rhistory(self.h)
+
     def test_remote_out_chips(self):
         self.mir.parent.mkdir(parents=True, exist_ok=True)
         self.mir.write_text(line("assistant", "Saved it as report.pdf for you.") + line("assistant", "And a copy in ~/x.pdf too."))
@@ -494,6 +512,10 @@ class Chats(unittest.TestCase):
         self.assertEqual(server.rinfo(self.h), {"engines": ["claude", "local"], "tmux": True})  # cached for 5 minutes
         server._RINFO[self.hid] = (time.time() - 301, server._RINFO[self.hid][1])
         self.assertEqual(self.get(f"/api/ssh/rinfo?host={self.hid}"), (200, {"engines": ["local"], "tmux": False}))
+
+    def test_rhistory_route(self):
+        self.assertEqual(self.get(f"/api/ssh/rhistory?host={self.hid}"), (200, {"history": []}))  # no transcripts on the server yet
+        self.assertEqual(self.get("/api/ssh/rhistory?host=nope"), (400, {"error": "That host wasn't found."}))
 
     def test_rfolders_quoted(self):
         for d in ("b", "a", ".hidden", "a b; rm -rf ~/sub", "a b; rm -rf ~/sub/in"): (self.home / d).mkdir(parents=True, exist_ok=True)
