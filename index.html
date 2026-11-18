@@ -843,7 +843,7 @@ $('login').onclick=async e=>{const b=e.target.closest('button[data-l]');if(!b||!
  if(b.dataset.l=='Enter'){b.disabled=true;if(await tell('/api/key',{pane:cur.pane,key:'Enter'}))setTimeout(poll,700);return}
  const c=$('lcode').value.trim();if(!c)return toast('Paste the code first.');b.disabled=true;b.textContent='Checking…';
  try{await api('/api/login',{pane:cur.pane,code:c});$('lcode').value='';setTimeout(()=>{loginKey='';poll()},2500)}// redrawn even if Claude's screen hasn't moved on, so Sign in works again
- catch(x){toast(x.reason||'Couldn\'t send the code. Try again.');loginKey='';await poll();const f=$('lcode');if(f&&!f.value)f.value=c}};
+ catch(x){toast(x.reason||'Couldn\'t send the code. Try again.');b.disabled=false;b.textContent='Sign in';loginKey='';await poll();const f=$('lcode');if(f&&!f.value)f.value=c}};
 $('login').onkeydown=e=>{if(e.key=='Enter'&&e.target.id=='lcode'){e.preventDefault();$('login').querySelector('[data-l=code]').click()}};
 const shown=()=>({question:cur.menu.question,labels:cur.menu.options.map(o=>o.label)});
 let tt;function toast(m){const t=$('toast');t.textContent=m;t.hidden=false;clearTimeout(tt);tt=setTimeout(()=>t.hidden=true,4000)}
