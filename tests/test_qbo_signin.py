@@ -29,7 +29,7 @@ class QboProxy(unittest.TestCase):
         n = len(GOT)
         for b in ({}, [], "tap", {"tap": [0.5, 0.5], "text": "x"}, {"tap": [0.5]}, {"tap": [0.1, 0.2, 0.3]}, {"tap": [-0.1, 0.5]}, {"tap": [0.5, 1.01]},
                   {"tap": [True, False]}, {"tap": ["0.5", "0.5"]}, {"tap": [float("nan"), 0.5]}, {"tap": {"x": 0.5}}, {"text": ""}, {"text": "a" * 201},
-                  {"text": 5}, {"key": "Escape"}, {"key": "enter"}, {"key": ["Enter"]}, {"click": [0.5, 0.5]}):
+                  {"text": 5}, {"text": "a\nb"}, {"text": "\x00"}, {"text": "a\u200bb"}, {"text": "\ud800"}, {"key": "Escape"}, {"key": "enter"}, {"key": ["Enter"]}, {"click": [0.5, 0.5]}):
             h = Stub("/api/aiva/qbo-signin"); self.assertTrue(server.aiva_api(h, "/api/aiva/qbo-signin", b), b); self.assertEqual(h.out[0], 400, b)
         self.assertEqual(len(GOT), n)
 
@@ -60,7 +60,11 @@ class Http(unittest.TestCase):  # through the real handler: the deck's sign-in, 
         big = json.dumps({"text": "a" * 2000}).encode()
         self.assertEqual(self.req("POST", "/api/aiva/qbo-signin", big), 413)
         self.assertEqual(self.req("POST", "/api/aiva/qbo-signin", b"{}", length=-1), 400)
-        self.assertEqual(self.req("POST", "/api/aiva/qbo-signin", b"{}", length="2x"), 400); self.assertEqual(GOT, [])
+        self.assertEqual(self.req("POST", "/api/aiva/qbo-signin", b"{}", length="2x"), 400)
+        self.assertEqual(self.req("POST", "/api/aiva/qbo-signin", b"{not json"), 400)
+        self.assertEqual(self.req("POST", "/api/aiva/qbo-signin", chunk=b"f\r\n{\"key\":\"Enter\"}\r\n0\r\n\r\n"), 200)  # a chunked body is read whole
+        self.assertEqual(GOT[-1]["body"], b'{"key": "Enter"}'); GOT.clear()
+        self.assertEqual(self.req("POST", "/api/aiva/qbo-signin", b"\xff\xfe"), 400); self.assertEqual(GOT, [])
 
     def test_siri_bad_length_or_chunk_is_400_not_a_hang(self):
         for kw in ({"length": -5}, {"length": "abc"}, {"chunk": b"-5\r\nabc\r\n0\r\n\r\n"}, {"chunk": b"zz\r\nabc\r\n0\r\n\r\n"}, {"chunk": b"1" * 50 + b"\r\n"}):
@@ -92,7 +96,7 @@ class N{constructor(t){this.tagName=t.toUpperCase();this.kids=[];this.attrs={};t
  getBoundingClientRect(){return{left:10,top:20,width:200,height:100}}}
 const T=[],calls=[],toasts=[];let Q=[];
 globalThis.document={hidden:false,createElement:t=>new N(t),addEventListener(){}};
-const ROOT=new N('div');ROOT.hidden=true;const $=()=>ROOT,toast=m=>toasts.push(m);
+const ROOT=new N('div'),LOCK=new N('div');ROOT.hidden=LOCK.hidden=true;const $=id=>id=='lock'?LOCK:ROOT,toast=m=>toasts.push(m);
 globalThis.setTimeout=(f,d)=>{T.push(d);return T.length};globalThis.clearTimeout=()=>{};
 const api=async(p,b)=>{calls.push(b||'GET');const r=Q.shift();if(r instanceof Error)throw r;return r};
 const flush=()=>new Promise(r=>setImmediate(r));
@@ -116,8 +120,10 @@ class ViewInNode(unittest.TestCase):
           Q=[{active:true,frame:'<bad>'}];rcPoll(RC.n);await flush();const c=[RC.img.src,T[T.length-1]];
           Q=[{active:false,reason:'QuickBooks is signed in'}];T.length=0;rcPoll(RC.n);await flush();const d=[T.length,RC.live.hidden,RC.idle.hidden,RC.why.textContent,RC.img.src];
           Q=[{active:true,frame:'QUJD'}];document.hidden=true;rcPoll(RC.n);await flush();const e=Q.length;document.hidden=false;
-          rcClose();Q=[{active:true}];rcPoll(RC.n);await flush();return[a,b,c,d,e,Q.length,ROOT.hidden]""")
-        a, b, c, d, e, left, hidden = out
+          RC.img.src='x';LOCK.hidden=false;rcPoll(RC.n);await flush();const l=[Q.length,RC.img.src];LOCK.hidden=true;
+          rcClose();Q=[{active:true}];rcPoll(RC.n);await flush();return[a,b,c,d,e,l,Q.length,ROOT.hidden]""")
+        a, b, c, d, e, l, left, hidden = out
+        self.assertEqual(l, [1, None])  # the lock screen showing: no fetch, and the picture is cleared
         self.assertEqual(a, ["data:image/jpeg;base64,QUJD", [700], False, True])
         self.assertEqual(b, [[1400, 2800], "Aiva didn't answer. Trying again…"])
         self.assertEqual(c, ["data:image/jpeg;base64,QUJD", 700])  # a malformed frame keeps the last picture

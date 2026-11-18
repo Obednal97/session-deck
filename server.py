@@ -1813,12 +1813,13 @@ def aiva_api(h, path, body=None):
     return aiva_forward(h, ap, data, strong)
 
 QBO_MAX = 1024
+import unicodedata
 def qbo_input(b):
-    """The robot check's one input: a tap at fractions (0 to 1) of the frame, 1 to 200 characters of text, or one of three keys; None for anything else."""
+    """The robot check's one input: a tap at fractions (0 to 1) of the frame, 1 to 200 characters of text (no control, format or surrogate characters), or one of three keys; None for anything else."""
     if not isinstance(b, dict) or len(b) != 1: return None
     (k, v), = b.items()
     if k == "tap" and isinstance(v, list) and len(v) == 2 and all(type(n) in (int, float) and 0 <= n <= 1 for n in v): return {"tap": [float(n) for n in v]}
-    if k == "text" and isinstance(v, str) and 1 <= len(v) <= 200 or k == "key" and v in ("Enter", "Backspace", "Tab"): return {k: v}
+    if k == "text" and isinstance(v, str) and 1 <= len(v) <= 200 and not any(unicodedata.category(c) in ("Cc", "Cf", "Cs") for c in v) or k == "key" and v in ("Enter", "Backspace", "Tab"): return {k: v}
     return None
 
 def read_body(h, cap):
@@ -1827,12 +1828,12 @@ def read_body(h, cap):
         n = h.headers.get("Content-Length") or "0"
         if not re.fullmatch(r"\d{1,12}", n, re.A): return 400
         return 413 if int(n) > cap else h.rfile.read(int(n))
-    data = b""
+    data = bytearray()
     while True:
         line = h.rfile.readline(40)
         if not re.fullmatch(rb"[0-9a-fA-F]{1,8}(;[^\r\n]*)?\r?\n", line): return 400
         n = int(line.split(b";")[0].strip(), 16)
-        if not n: return data
+        if not n: return bytes(data)
         if len(data) + n > cap: return 413
         data += h.rfile.read(n); h.rfile.readline()
 
@@ -2868,7 +2869,8 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith("/api/upload?"): return self.upload()
         raw = read_body(self, QBO_MAX if self.path.split("?")[0] == "/api/aiva/qbo-signin" else 1 << 24)
         if isinstance(raw, int): return self.send(raw, {"error": "That request is too big." if raw == 413 else "bad"})
-        body = json.loads(raw or b"{}")
+        try: body = json.loads(raw or b"{}")
+        except ValueError: return self.send(400, {"error": "bad"})
         if self.path == "/api/rename":
             name = re.sub(r"\s+", " ", str(body.get("name", ""))).strip()[:80]
             sid = str(body.get("session", "")); f = find_file(sid)

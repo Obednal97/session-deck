@@ -981,7 +981,7 @@ let started=false;
 function lock(s){const L=$('lock');if(!L.hidden&&!s)return;L.hidden=false;hideSheet();closeMenu();const ok=!!window.PublicKeyCredential,has=!s||s.passkeys>0;
  $('lkm').textContent=!ok?'Face ID needs the secure https:// address of this Mac (tailscale serve with HTTPS).':has?'Locked. Unlock to carry on.':'First time on this device: enter your setup code (or the deck token) to set up Face ID.';
  $('lku').hidden=!ok||!has;$('lke').hidden=!ok||has;$('lks').hidden=!ok||!has;$('lkn').value=devName()}
-const unlocked=()=>{$('lock').hidden=true;$('lkt').value='';if(!started){started=true;start()}else colWake()};
+const unlocked=()=>{$('lock').hidden=true;$('lkt').value='';if(!started){started=true;start()}else colWake();if(RC.el&&!RC.el.hidden)rcPoll(++RC.n)};
 $('lku').onclick=async()=>{try{await unlock();unlocked()}catch(e){$('lkm').textContent=why(e)}};
 $('lks').onclick=()=>{$('lke').hidden=false;$('lks').hidden=true;$('lkm').textContent='Paste the deck token once to add a passkey on this device.'};
 $('lkr').onclick=async()=>{try{await enrol($('lkt').value.trim(),$('lkn').value.trim());unlocked()}catch(e){$('lkm').textContent=why(e)}};
@@ -1448,7 +1448,7 @@ function rcBuild(){if(RC.el)return;const L=RC.el=$('rc'),hd=rcEl('div','rch'),x=
  L.append(hd,rcEl('p',null,'Aiva never answers the robot check: you do. After it, Aiva finishes the sign-in itself.'),RC.live,RC.idle)}
 function rcOpen(){rcBuild();RC.el.hidden=false;RC.errs=0;rcPoll(++RC.n)}
 function rcClose(){if(RC.el)RC.el.hidden=true;RC.n++;clearTimeout(RC.t)}
-async function rcPoll(n){clearTimeout(RC.t);if(n!==RC.n||!RC.el||RC.el.hidden||document.hidden)return;let d;
+async function rcPoll(n){clearTimeout(RC.t);if(n!==RC.n||!RC.el||RC.el.hidden||document.hidden)return;if(!$('lock').hidden)return RC.img.removeAttribute('src');let d;// locked: no picture until unlocked
  try{d=await api('/api/aiva/qbo-signin');RC.errs=0}catch(e){if(n!==RC.n)return;RC.live.hidden=false;RC.idle.hidden=true;RC.msg.textContent=e.reason||'Aiva didn\'t answer. Trying again…';RC.t=setTimeout(()=>rcPoll(n),rcDelay(++RC.errs));return}
  if(n!==RC.n)return;RC.live.hidden=!d.active;RC.idle.hidden=!!d.active;
  if(!d.active){RC.why.textContent=d.reason||'';RC.img.removeAttribute('src');return}// stopped: Check again, or coming back to the page, looks once more
