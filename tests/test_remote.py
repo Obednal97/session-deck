@@ -502,9 +502,9 @@ class Chats(unittest.TestCase):
         self.assertEqual(st, 200)
         s, o = self.made(d["pane"]); u = o["claude"]; rt = f"deck-{u}"
         login = 'exec "${SHELL:-/bin/sh}" -lc ' + shlex.quote(f"cd -- /root/x && exec claude --permission-mode default --session-id {u}")
-        self.assertEqual(o["rcmd"], f"tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off")
+        self.assertEqual(o["rcmd"], f"tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off \\; set-option -t {rt} prefix None \\; set-option -t {rt} prefix2 None")
         self.assertEqual((o["rkind"], o["rtmux"], o["rcwd"]), ("tmux", rt, "/root/x"))
-        self.assertEqual(until(self.tmux_calls), [["-u", "new-session", "-A", "-s", rt, "-c", "/root/x", login, ";", "set-option", "-t", rt, "status", "off"]])  # as the server's tmux gets it; -u: UTF-8 whatever the server's locale, or Claude's box comes out as ACS lines and "_"
+        self.assertEqual(until(self.tmux_calls), [["-u", "new-session", "-A", "-s", rt, "-c", "/root/x", login, ";", "set-option", "-t", rt, "status", "off", ";", "set-option", "-t", rt, "prefix", "None", ";", "set-option", "-t", rt, "prefix2", "None"]])  # as the server's tmux gets it; -u: UTF-8 whatever the server's locale, or Claude's box comes out as ACS lines and "_"
         self.assertEqual(self.opt(s, "ssh"), self.hid)
 
     def test_rinfo(self):
@@ -551,7 +551,7 @@ class Chats(unittest.TestCase):
             T("set-option", "-t", f"={s}:", "@deck_claude", sid); got.clear(); n = len(self.tmux_calls())
             self.assertEqual(self.post("/api/ssh/reconnect", {"pane": pane}), (200, {"ok": True}))
             login = 'exec "${SHELL:-/bin/sh}" -lc ' + shlex.quote(f"cd -- /root/x && exec claude --permission-mode default --resume {sid}")
-            want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(sid)}tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off"
+            want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(sid)}tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off \\; set-option -t {rt} prefix None \\; set-option -t {rt} prefix2 None"
             self.assertEqual(got, [server.ssh_argv(self.h, [want], tty=True)])  # attached if it's there, else resumed: never --session-id again
             self.assertNotIn("--session-id", want)
             self.assertTrue(until(lambda: len(self.tmux_calls()) == n + 2)); self.assertEqual(self.tmux_calls()[-2][0], "has-session")
@@ -606,7 +606,7 @@ class Chats(unittest.TestCase):
         new = str(uuid.uuid4()); T("set-option", "-t", f"={a}:", "@deck_claude", new)  # a /clear before the drop
         server.reattach()
         login = 'exec "${SHELL:-/bin/sh}" -lc ' + shlex.quote(f"cd -- /root/x && exec claude --permission-mode default --resume {new}")
-        rt = oa["rtmux"]; want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(new)}tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off"
+        rt = oa["rtmux"]; want = f"tmux has-session -t '={rt}' 2>/dev/null || {self.rg(new)}tmux -u new-session -A -s {rt} -c /root/x {shlex.quote(login)} \\; set-option -t {rt} status off \\; set-option -t {rt} prefix None \\; set-option -t {rt} prefix2 None"
         self.assertEqual(got, [server.ssh_argv(self.h, [want], batch=True, tty=True)])  # only the key host's tmux chat; never one that could ask for a password
         self.assertIn("BatchMode=yes", got[0]); self.assertEqual(got[0][got[0].index("--") - 1], "-t")
         self.assertTrue(until(lambda: T("display", "-p", "-t", f"={a}:", "#{pane_dead}") == "0"))
@@ -728,6 +728,16 @@ class Chats(unittest.TestCase):
         self.assertEqual(self.post("/api/ssh/get", {"host": "nope", "path": "~/out.pdf"}), (400, {"error": "That terminal or host has gone."}))
         self.assertEqual(self.post("/api/ssh/get", {"host": self.hid, "path": "a\nb"}), (400, {"error": "That path or address isn't valid."}))
 
+
+    # the final review's fixes
+    def test_no_tmux_prefix(self):  # the key bar's Ctrl-B is Claude's: the server's tmux has no prefix, so it never swallows the next key
+        rt, u = f"deck-{uuid.uuid4()}", str(uuid.uuid4())
+        cmd = server.rcmd("/root/x", ["claude", "--permission-mode", "default", "--resume", u], rt)
+        w = shlex.split(cmd); i = w.index("new-session")
+        self.assertEqual(w[i + 7:], [";", "set-option", "-t", rt, "status", "off", ";", "set-option", "-t", rt, "prefix", "None", ";", "set-option", "-t", rt, "prefix2", "None"])
+        self.assertTrue(w[0] == "tmux" and "has-session" in w)  # attached (-A) or new, the options follow either way
+        real = server.tm; server.tm = lambda key, *a, **k: cmd + "\n" if "#{@deck_rcmd}" in a else real(key, *a, **k); self.addCleanup(setattr, server, "tm", real)
+        self.assertEqual(server.rresume({"pane": "decktest.1", "claude": u, "rkind": "tmux", "rtmux": rt, "rcwd": "/root/x"}), cmd)  # read back for a reconnect
 
 class StartArgs(unittest.TestCase):
     """claude_args is start()'s own checks and flags, factored out: a local chat's argv is exactly what it was."""
