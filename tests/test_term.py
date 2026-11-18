@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import server
 # another test module may have imported server first, with its own settings: never let these tests reach the real tmux servers or ssh
 server.TMUX_SOCKS, server.SSH_BIN, server.SSH_CM, server.SSH_HOSTS = ["decktest"], os.environ["DECK_SSH_BIN"], Path(os.environ["DECK_SSH_CM"]), Path(os.environ["DECK_SSH_HOSTS"])
+server.sockets = lambda: ["decktest"]  # remote chats write tmux options on SSH terminals: only ever this test server's
 
 def T(*a): return subprocess.run(["tmux", "-L", "decktest", *a], capture_output=True, text=True).stdout.strip()
 

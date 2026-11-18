@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import server
 # another test module may have imported server first, with its own settings: never let these tests reach the real tmux servers or ssh
 server.TMUX_SOCKS, server.SSH_BIN, server.SSH_CM, server.SSH_HOSTS = ["decktest"], os.environ["DECK_SSH_BIN"], Path(os.environ["DECK_SSH_CM"]), Path(os.environ["DECK_SSH_HOSTS"])
+server.sockets = lambda: ["decktest"]  # remote chats write tmux options on SSH terminals: only ever this test server's
 
 def guard():  # a real check, not assert (python -O drops those): never run against the real tmux servers or ssh
     if server.TMUX_SOCKS != ["decktest"] or not server.SSH_BIN.endswith(("/fake_ssh.sh", "/fake_ssh_run.sh")): raise RuntimeError("tests would reach the real tmux or ssh")
@@ -268,7 +269,7 @@ class Conns(unittest.TestCase):
     def test_sessions_payload(self):
         c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=30)
         c.request("GET", "/api/sessions", headers={"X-Deck-Token": server.TOK}); d = json.loads(c.getresponse().read())
-        self.assertEqual(set(d["ssh"]), {"hosts", "terms"}); self.assertIn(self.h["id"], [h["id"] for h in d["ssh"]["hosts"]])
+        self.assertEqual(set(d["ssh"]), {"hosts", "terms", "chats"}); self.assertIn(self.h["id"], [h["id"] for h in d["ssh"]["hosts"]])
 
 class Remote(unittest.TestCase):
     """Attach, Get file, Install key and forget a host key, with fake_ssh_run.sh as ssh: the "server" is this Mac with HOME at a temp folder."""

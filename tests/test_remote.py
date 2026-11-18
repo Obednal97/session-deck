@@ -1,5 +1,5 @@
 """Remote chats: a server's transcript mirrored under RMIR, with fake_ssh_run.sh as ssh: the "server" is this Mac with HOME at a temp folder."""
-import json, os, subprocess, sys, tempfile, unittest, uuid
+import http.client, json, os, subprocess, sys, tempfile, threading, time, unittest, uuid
 from pathlib import Path
 
 TMP = tempfile.mkdtemp()
@@ -187,6 +187,194 @@ class Mirror(unittest.TestCase):
         self.assertTrue(server.RMIR.exists())
         server.ssh_host_delete(self.hid)
         self.assertFalse((server.RMIR / self.hid).exists())
+
+def until(fn, secs=5):
+    end = time.time() + secs
+    while time.time() < end:
+        v = fn()
+        if v: return v
+        time.sleep(0.1)
+    return fn()
+
+def T(*a): return subprocess.run(["tmux", "-L", "decktest", *a], capture_output=True, text=True).stdout.strip()
+
+
+class Chats(unittest.TestCase):
+    """Remote chats: SSH terminals (sessions on decktest marked as Stage 1 and Task 3 mark them) matched to Claude's sessions json on the fake server."""
+    @classmethod
+    def setUpClass(cls):
+        cls.old = {k: getattr(server, k) for k in (*PINS, "sockets", "input_box")}, os.environ.get("CLAUDE_CONFIG_DIR")
+        for k, v in PINS.items(): setattr(server, k, v)
+        guard()
+        server.sockets = lambda: ["decktest"]  # tmux options are written here: never on the real servers' sessions
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        T("kill-server")
+        cls.srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.H); cls.srv.daemon_threads = True
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown(); cls.srv.server_close()
+        T("kill-server")
+        for k, v in cls.old[0].items(): setattr(server, k, v)
+        if cls.old[1] is not None: os.environ["CLAUDE_CONFIG_DIR"] = cls.old[1]
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp()); os.environ["FAKE_SSH_HOME"] = str(self.home)
+        (self.home / ".claude/sessions").mkdir(parents=True)
+        server.ssh_hosts_write([]); server._SYNC.clear(); server._RSCAN.clear(); server._live[0] = 0
+        self.h, _ = server.ssh_host_save({"addr": "pi@10.0.0.5", "auth": "key", "name": "Pi"}); self.hid = self.h["id"]
+        server.input_box = lambda key, wait=0: None
+        self.n = 0
+
+    def tearDown(self):
+        T("kill-server")
+        server.input_box = self.old[0]["input_box"]
+
+    def term(self, **opts):  # an SSH connection session on the Mac, as ssh_open makes it, with the remote chat's options
+        self.n += 1; s = f"ssh-{self.hid}-{self.n}"
+        T("new-session", "-d", "-s", s, "-x", "120", "-y", "40", "-n", "Pi", "cat", ";", "set-option", "-t", f"={s}:", "@deck_ssh", self.hid,
+          ";", "set-option", "-w", "-t", f"={s}:", "remain-on-exit", "on", *[x for k, v in opts.items() for x in (";", "set-option", "-t", f"={s}:", f"@deck_{k}", v)])
+        return s, "decktest." + T("display", "-p", "-t", f"={s}:", "#{pane_id}")[1:]
+
+    def opt(self, s, k): return T("show-options", "-v", "-t", f"={s}:", f"@deck_{k}")
+
+    def created(self, s): return int(T("display", "-p", "-t", f"={s}:", "#{session_created}"))
+
+    def claude(self, sid, cwd="/root/x", started=None, status="idle"):  # a live Claude on the server: a real pid, and its sessions json
+        p = subprocess.Popen(["sleep", "600"]); self.addCleanup(lambda: (p.kill(), p.wait()))
+        self.write(p.pid, sid, cwd, started if started is not None else time.time(), status)
+        return p
+
+    def write(self, pid, sid, cwd, started, status):
+        (self.home / f".claude/sessions/{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": sid, "cwd": cwd, "startedAt": int(started * 1000), "status": status, "kind": "interactive"}))
+
+    def scan(self):  # a fresh scan, waited for (matching runs on every good scan); then the list as /api/sessions sees it
+        server._RSCAN.clear(); server.rscan(self.h); return server.remote_chats()
+
+    def get(self, path):
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=15)
+        c.request("GET", path, headers={"X-Deck-Token": server.TOK}); r = c.getresponse(); return r.status, json.loads(r.read())
+
+    def post(self, path, body):
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=15)
+        c.request("POST", path, json.dumps(body), {"X-Deck-Token": server.TOK, "Content-Type": "application/json"})
+        r = c.getresponse(); return r.status, json.loads(r.read())
+
+    def test_deck_chat_listed(self):
+        sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="plain")
+        self.claude(sid, status="busy")
+        c = next(x for x in self.scan() if x["pane"] == pane)
+        self.assertEqual((c["session"], c["state"], c["remote"], c["host"], c["rkind"], c["dropped"], c["cwd"]), (sid, "busy", True, self.hid, "plain", False, "/root/x"))
+        for k in ("pane", "where", "name", "cwd", "engine", "plan", "pinned", "state", "session", "title", "mtime", "menu", "working"): self.assertIn(k, c)
+        server._live[0] = 0
+        self.assertNotIn(pane, {x["pane"] for x in server.live_sessions()})
+        self.assertIn(pane, {x["pane"] for x in server.chats()})
+        self.assertTrue(server.valid_pane(pane))
+        _, d = self.get("/api/sessions")
+        self.assertEqual([x["pane"] for x in d["ssh"]["chats"]], [pane]); self.assertIn("attn", d["ssh"]["chats"][0])
+        self.assertNotIn(pane, {t["pane"] for t in d["ssh"]["terms"]})
+        self.assertNotIn(pane, {x["pane"] for x in d["live"]})
+
+    def test_clear_follows_pid(self):
+        sid, new = str(uuid.uuid4()), str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="tmux")
+        p = self.claude(sid); self.scan()
+        self.assertEqual(self.opt(s, "rpid"), str(p.pid))
+        self.write(p.pid, new, "/root/x", time.time(), "idle")  # /clear: the same Claude, a new session id
+        self.assertEqual(next(x for x in self.scan() if x["pane"] == pane)["session"], new)
+        self.assertEqual(self.opt(s, "claude"), new)
+
+    def test_two_chats_same_folder(self):
+        for order in (0, 1):
+            T("kill-server")
+            for j in (self.home / ".claude/sessions").iterdir(): j.unlink()
+            (a, pa), (b, pb) = self.term(rcwd="/root/x", rkind="plain"), self.term(rcwd="/root/x", rkind="plain")
+            real = server.ssh_terms  # b opened 3 s after a
+            server.ssh_terms = lambda: [{**t, "created": t["created"] + 3 * (t["session"] == b)} for t in real()]
+            self.addCleanup(setattr, server, "ssh_terms", real)
+            ca = self.created(a); sa, sb = str(uuid.uuid4()), str(uuid.uuid4())
+            for sid, at in ([(sa, ca + 1), (sb, ca + 4)], [(sb, ca + 4), (sa, ca + 1)])[order]: self.claude(sid, started=at)
+            got = {x["pane"]: x["session"] for x in self.scan()}
+            self.assertEqual(got, {pa: sa, pb: sb}, order)
+            self.assertEqual((self.opt(a, "claude"), self.opt(b, "claude")), (sa, sb))
+            server.ssh_terms = real
+
+    def test_hand_typed(self):
+        s, pane = self.term(); c = self.created(s)
+        self.claude(str(uuid.uuid4()), started=c - 60)  # started before the terminal opened: never this terminal's
+        self.assertEqual(self.scan(), [])  # no input box on screen
+        server.input_box = lambda key, wait=0: "" if key == pane else None
+        self.assertEqual(self.scan(), [])  # Claude's box shows, but the only Claude started before the terminal
+        sid = str(uuid.uuid4()); p = self.claude(sid, started=c + 2)
+        ch = self.scan()
+        self.assertEqual([(x["pane"], x["session"], x["rkind"]) for x in ch], [(pane, sid, "hand")])
+        self.assertEqual((self.opt(s, "rkind"), self.opt(s, "rpid")), ("hand", str(p.pid)))
+        p.kill(); p.wait(); server.input_box = lambda key, wait=0: None
+        self.assertEqual(self.scan(), [])
+        self.assertEqual([self.opt(s, k) for k in ("claude", "rpid", "rkind")], ["", "", ""])
+        self.assertIn(pane, {t["pane"] for t in server.ssh_state()["terms"]})
+
+    def test_no_master_fast(self):
+        sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="tmux")
+        p = self.claude(sid, status="busy"); self.scan()
+        down = Path(TMP) / "down2"; down.touch(); os.environ["FAKE_SSH_DOWN"] = str(down); self.addCleanup(down.unlink)
+        real, done, calls = server.ssh_run, threading.Event(), []
+        def slow(*a, **k):  # no master: exit 255, here after a slow server's few seconds
+            calls.append(1)
+            try: time.sleep(2.5); return real(*a, **k)
+            finally: done.set()
+        server.ssh_run = slow; self.addCleanup(setattr, server, "ssh_run", real)
+        server._RSCAN[self.hid][0] = 0  # the cache is stale: the next look asks the server again
+        t0 = time.time(); ch = server.chats()
+        self.assertLess(time.time() - t0, 2)
+        self.assertEqual(next(x for x in ch if x["pane"] == pane)["state"], "busy")
+        time.sleep(0.5); server.chats(); self.assertEqual(len(calls), 1)  # one ask at a time per host, however long it takes
+        self.assertTrue(done.wait(10)); time.sleep(0.2)
+        self.assertEqual(next(x for x in server.remote_chats() if x["pane"] == pane)["state"], "busy")  # the last good scan, under 60 s old
+        self.assertEqual(self.opt(s, "rpid"), str(p.pid))  # a failed scan matches nothing and clears nothing
+        server._RSCAN[self.hid][2] -= 61
+        self.assertIsNone(next(x for x in server.remote_chats() if x["pane"] == pane)["state"])
+
+    def test_drop_no_push(self):
+        sent, real = [], (server.push_all, server.push_subs)
+        server.push_all = lambda msg, skip=(): sent.append(msg) or []; server.push_subs = lambda: [{}]
+        self.addCleanup(lambda: (setattr(server, "push_all", real[0]), setattr(server, "push_subs", real[1]), server.WATCH.clear()))
+        sf = self.home / ".claude/projects/-root-x"; sf.mkdir(parents=True)
+        for status, drop in (("busy", "tmux"), ("waiting", "tmux"), ("busy", "plain"), ("busy", None)):  # plain: Claude ends with the connection
+            T("kill-server"); server.WATCH.clear(); sent.clear()
+            sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="tmux")
+            (sf / f"{sid}.jsonl").write_text(line("user", "go", "/root/x") + line("assistant", "All done here.", "/root/x"))
+            p = self.claude(sid, status=status); self.scan()
+            server.watch_once(); server.WATCH[pane]["busy"] = time.time() - 30  # busy for 30 s
+            if drop: os.kill(int(T("display", "-p", "-t", f"={s}:", "#{pane_pid}")), 9); until(lambda: T("display", "-p", "-t", f"={s}:", "#{pane_dead}") == "1")
+            else: self.write(p.pid, sid, "/root/x", time.time(), "idle")
+            if drop == "plain": p.kill(); p.wait()
+            c = next(x for x in self.scan() if x["pane"] == pane)
+            self.assertEqual((c["dropped"], c["state"]), (bool(drop), None if drop == "plain" else "idle" if not drop else status))
+            server.watch_once()
+            if drop:
+                self.assertIsNone(server.attn(c), status)
+                time.sleep(0.5); self.assertEqual(sent, [], status)
+            else:  # the same chat, still connected, finishing: its reply is the news
+                self.assertTrue(until(lambda: sent)); self.assertEqual(sent[0]["body"], "All done here.")
+
+    def test_routes(self):
+        sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="plain")
+        self.claude(sid)
+        sf = self.home / ".claude/projects/-root-x" / f"{sid}.jsonl"; sf.parent.mkdir(parents=True)
+        sf.write_text(line("user", "hi", "/root/x") + line("assistant", "hello", "/root/x"))
+        self.scan()
+        self.assertEqual(self.get(f"/api/session/{sid}")[0], 404)  # no host and no mirror: nothing to read
+        st, d = self.get(f"/api/session/{sid}?host={self.hid}")
+        self.assertEqual((st, [i["text"] for i in d["items"]]), (200, ["hi", "hello"]))
+        mir = server.RMIR / self.hid / f"{sid}.jsonl"; before = mir.read_bytes()
+        st, d = self.get(f"/api/info/{sid}?pane={pane}")
+        self.assertEqual(st, 200)
+        T("kill-session", "-t", f"={s}")  # no live pane: the title goes on the server's transcript, never the mirror
+        for body in ({"session": sid, "name": "Server one", "claude": True, "host": self.hid}, {"session": sid, "name": "Server two", "claude": True}):
+            self.assertEqual(self.post("/api/rename", body), (200, {"done": ["claude"]}))
+            self.assertEqual(mir.read_bytes(), before)
+            self.assertEqual(json.loads(sf.read_text().splitlines()[-1]), {"type": "custom-title", "customTitle": body["name"], "sessionId": sid})
+        self.assertEqual(server.title_of(sf), "Server two")
 
 
 if __name__ == "__main__": unittest.main()

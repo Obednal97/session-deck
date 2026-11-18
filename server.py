@@ -1117,7 +1117,7 @@ def files(cwd, q, limit=30):
     return sorted(hit, key=lambda p: (not base(p).startswith(ql), ql not in base(p), len(p)))[:limit]
 
 def valid_pane(p):
-    return p in {s["pane"] for s in live_sessions()}
+    return p in {s["pane"] for s in chats()}
 
 def chat_cwd(key):
     """Folder of a live pane or a saved chat. Git only ever runs in one of these, never in a path the client names."""
@@ -1263,18 +1263,19 @@ def push_all(msg, skip=()):
     return res
 
 def attn(s):
+    if s.get("dropped"): return None  # a remote chat whose connection has ended: what its pane shows is stale
     if s["state"] == "waiting" or s["menu"]: return "needs"
     return "done" if s["pane"] not in VIEWING and WATCH.get(s["pane"], {}).get("fin", 0) > SEEN.get(s["pane"], 0) else None  # open in the terminal: seen
 
-def last_reply(sid):
-    f = sid and find_file(sid)
+def last_reply(sid, hid=None):
+    f = sid and chat_file(sid, hid)  # a remote chat's synced first
     for it in reversed(messages(f, 30) if f else []):
         if it["role"] == "assistant" and it["kind"] == "text":
             t = re.sub(r"\s+", " ", re.sub(r"[#*_`>|]+", "", it["text"])).strip()
             return t if len(t) <= 140 else t[:139] + "…"
 
 def watch_once():
-    now, live = time.time(), live_sessions()
+    now, live = time.time(), [s for s in chats() if not s.get("dropped")]  # a dropped remote chat: no news until it is back (then it's a first sight)
     for s in live:
         p, st = s["pane"], s["state"]
         busy = st in ("busy", "waiting") if st else s["working"]
@@ -1287,17 +1288,21 @@ def watch_once():
             msg = {"kind": "needs", "body": "Needs you: " + (q if len(q) <= 128 else q[:127] + "…")}
         elif w["busy"] and not busy and a != "needs":
             w["fin"] = now
-            if now - w["busy"] >= 20: msg = {"kind": "done", "body": last_reply(s["session"]) or "Finished."}
+            if now - w["busy"] >= 20: msg = {"kind": "done", "body": None}
         if busy and not w["busy"]: w["fin"] = 0  # a new turn: the old reply is no longer the news
         w["need"], w["busy"] = a == "needs", (w["busy"] or now) if busy else None
         if not msg: continue
         viewers = {d for (vp, d), t in VIEW.items() if vp == p and now - t < 8}  # only the device looking at it is spared
-        dup = now - w["sent"].get(msg["body"], 0) < 60
-        print(f"push {msg['kind']} {p} {s['title'] or s['name']!r}: {msg['body'][:80]!r}" + (" (skipped: repeat)" if dup else ""), flush=True)
-        if dup: continue
-        w["sent"] = {k: v for k, v in w["sent"].items() if now - v < 60} | {msg["body"]: now}
         n = sum(attn(x) is not None for x in live)
-        if push_subs(): print("  ->", [(x.get("name") or "?", c) for x, c in push_all({"title": s["title"] or s["name"], "body": msg["body"], "pane": p, "n": n}, viewers)], flush=True)
+        def send(s=s, p=p, w=w, msg=msg, viewers=viewers, n=n):
+            if msg["body"] is None: msg["body"] = last_reply(s["session"], s.get("host")) or "Finished."
+            dup = now - w["sent"].get(msg["body"], 0) < 60
+            print(f"push {msg['kind']} {p} {s['title'] or s['name']!r}: {msg['body'][:80]!r}" + (" (skipped: repeat)" if dup else ""), flush=True)
+            if dup: return
+            w["sent"] = {k: v for k, v in w["sent"].items() if now - v < 60} | {msg["body"]: now}
+            if push_subs(): print("  ->", [(x.get("name") or "?", c) for x, c in push_all({"title": s["title"] or s["name"], "body": msg["body"], "pane": p, "n": n}, viewers)], flush=True)
+        if s.get("remote") and msg["body"] is None: threading.Thread(target=send, daemon=True).start()  # the reply comes over ssh: never hold the watcher
+        else: send()
     for p in [p for p in WATCH if p not in {s["pane"] for s in live}]: del WATCH[p]
 
 def end_chat(pane):
@@ -2030,10 +2035,12 @@ def pw_feed(pane, pw, host, wait=60):
 def ssh_terms():
     out = []
     for sock in sockets():
-        for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{@deck_ssh}\t#{pane_id}\t#{session_name}\t#{pane_dead}\t#{session_created}\t#{@deck_ssh_host}\t#{window_name}").splitlines():
-            x = l.split("\t", 6)
-            if len(x) == 7 and x[0] and x[1].startswith("%"):
-                out.append({"pane": f"{sock}.{x[1][1:]}", "session": x[2], "host": x[0], "dead": x[3] == "1", "created": int(x[4]) if x[4].isdigit() else 0, "rec": x[5], "title": x[6]})
+        for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{@deck_ssh}\t#{pane_id}\t#{session_name}\t#{pane_dead}\t#{session_created}\t#{@deck_ssh_host}\t"
+                     "#{@deck_claude}\t#{@deck_rcwd}\t#{@deck_rpid}\t#{@deck_rkind}\t#{window_name}").splitlines():
+            x = l.split("\t", 10)
+            if len(x) == 11 and x[0] and x[1].startswith("%"):  # claude, rcwd, rpid, rkind: a remote chat's (see remote_chats)
+                out.append({"pane": f"{sock}.{x[1][1:]}", "session": x[2], "host": x[0], "dead": x[3] == "1", "created": int(x[4]) if x[4].isdigit() else 0, "rec": x[5],
+                            "claude": x[6], "rcwd": x[7], "rpid": x[8], "rkind": x[9], "title": x[10]})
     return out
 
 def valid_term(p):
@@ -2192,6 +2199,86 @@ def chat_file(sid, hid=None):
     if f and not remote_of(f): return f
     h = ssh_host(hid or (f and remote_of(f)))
     return ssh_sync(h, sid) if h else f
+
+# SSH: remote chats. A remote chat is an SSH terminal whose server runs Claude: matched to the server's $C/sessions/<pid>.json, the
+# match kept in the Mac session's tmux options (so a deck restart keeps it). Typing, questions and status read the Mac's pane as for a local chat.
+_RSCAN, _rscan_lock = {}, threading.Lock()  # host id -> [when the last ask ended (inf while one runs), the last good list, when it was got]
+RSCAN_SH = r"""C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+for f in "$C"/sessions/*.json; do p=${f##*/}; p=${p%.json}; case $p in ""|*[!0-9]*) continue;; esac
+  kill -0 "$p" 2>/dev/null && { cat "$f"; printf '\n\036\n'; }; done; exit 0"""
+
+def rscan(host, wait=True):
+    """The server's live Claude sessions ($C/sessions/<pid>.json whose pid answers kill -0): [{pid, sessionId, cwd, startedAt, status, kind}].
+    Asked 3 s after the last ask ended at the soonest, one at a time per host; a failed ask keeps the last good list for up to 60 s. Without wait it never waits on the server:
+    it answers from the cache and asks in the background. Every good answer matches the host's terminals again (rmatch)."""
+    with _rscan_lock:
+        c = _RSCAN.setdefault(host["id"], [0, [], 0]); go = time.time() - c[0] >= 3
+        if go: c[0] = float("inf")
+    if go and wait: _rscan(host, c)
+    elif go: threading.Thread(target=_rscan, args=(host, c), daemon=True).start()
+    return c[1] if time.time() - c[2] <= 60 else []
+
+def _rscan(host, c):
+    try: r = ssh_run(host, RSCAN_SH, timeout=15)
+    except (subprocess.TimeoutExpired, ValueError, OSError): r = None
+    finally: c[0] = time.time()
+    if not r or r.returncode: return
+    out = []
+    for x in re.split(r"(?m)^\x1e$", r.stdout.decode(errors="replace")):
+        try: d = json.loads(x)
+        except ValueError: continue
+        if isinstance(d, dict) and type(d.get("pid")) is int:
+            sid, at = d.get("sessionId"), d.get("startedAt")
+            out.append({"pid": d["pid"], "sessionId": sid if isinstance(sid, str) and re.fullmatch(SID_RE, sid) else None, "cwd": str(d.get("cwd") or ""),
+                        "startedAt": at if type(at) in (int, float) else 0, "status": d.get("status") if isinstance(d.get("status"), str) else None, "kind": d.get("kind")})
+    c[1:] = [out, time.time()]
+    try: rmatch(host["id"], out)
+    except Exception as e: print("rmatch:", e, flush=True)
+
+def rmatch(hid, items):
+    """Matches the host's terminals to its live Claude sessions, oldest terminal first, each json to one terminal at most:
+    1. a terminal with @deck_rpid keeps that pid's session (@deck_claude follows a /clear), or loses it when the pid has gone (a hand-typed
+       chat then becomes a terminal again); 2. a deck chat takes the session with its @deck_claude id, or with none yet, the unclaimed one
+       started in its folder (@deck_rcwd) nearest the terminal's start; 3. a terminal showing Claude's input box takes the newest unclaimed
+       one started since it opened (Claude typed by hand: the screen doesn't show the folder)."""
+    ts, by, mine = sorted((t for t in ssh_terms() if t["host"] == hid), key=lambda t: t["created"]), {x["pid"]: x for x in items}, set()
+    def put(t, **kv):  # tmux options on the Mac session, "" unsets
+        a = [x for k, v in kv.items() for x in (";", "set-option", *(["-u"] if v == "" else []), "-t", f"={t['session']}:", f"@deck_{k}", *([str(v)] if v != "" else []))]
+        tm(t["pane"], *a[1:]); t.update({k: str(v) for k, v in kv.items()})
+    for t in ts:
+        if not t["rpid"]: continue
+        x = by.get(int(t["rpid"])) if t["rpid"].isdigit() else None
+        if not x: put(t, rpid="", **({"claude": "", "rkind": ""} if t["rkind"] == "hand" else {})); continue
+        mine.add(x["pid"])
+        if x["sessionId"] and x["sessionId"] != t["claude"]: put(t, claude=x["sessionId"])
+    free = lambda: [x for x in items if x["pid"] not in mine and x["sessionId"] and x["sessionId"] not in {t["claude"] for t in ts}]
+    for t in ts:
+        x = not t["rpid"] and t["claude"] and next((x for x in items if x["sessionId"] == t["claude"] and x["pid"] not in mine), None)
+        if x: mine.add(x["pid"]); put(t, rpid=x["pid"])
+    for t in ts:
+        if t["rpid"] or t["claude"] or t["dead"]: continue
+        if t["rcwd"]: x = min((x for x in free() if x["cwd"] == t["rcwd"] and x["startedAt"] / 1000 >= t["created"] - 10), key=lambda x: abs(x["startedAt"] / 1000 - t["created"]), default=None)
+        else: x = max((x for x in free() if x["startedAt"] / 1000 >= t["created"] - 10), key=lambda x: x["startedAt"], default=None)
+        if x and (t["rcwd"] or input_box(t["pane"]) is not None):
+            mine.add(x["pid"]); put(t, rpid=x["pid"], claude=x["sessionId"], **({} if t["rcwd"] else {"rkind": "hand"}))
+
+def remote_chats():
+    """One item per remote chat, with a live_sessions() item's keys plus host, rkind, dropped (its connection has ended) and remote.
+    Never waits on a server: the scan comes from rscan's cache, so the first look after a start may have no state."""
+    out, scans = [], {}
+    for t in ssh_terms():
+        if t["host"] not in scans: h = ssh_host(t["host"]); scans[t["host"]] = rscan(h, wait=False) if h else None
+        if scans[t["host"]] is None or not re.fullmatch(SID_RE, t["claude"]): continue
+        L = scans[t["host"]]; x = next((x for x in L if str(x["pid"]) == t["rpid"]), None) or next((x for x in L if x["sessionId"] == t["claude"]), None)
+        f = RMIR / t["host"] / f"{t['claude']}.jsonl"; f = f if f.is_file() else None
+        out.append({"pane": t["pane"], "where": t["session"], "name": t["title"], "cwd": (x or {}).get("cwd") or t["rcwd"], "engine": "claude", "plan": None, "pinned": False,
+                    "state": x and x["status"], "session": t["claude"], "title": (f and cached(f, title_of)) or t["title"], "mtime": f.stat().st_mtime if f else 0,
+                    **pane_screen(t["pane"]), "host": t["host"], "rkind": t["rkind"] or None, "dropped": t["dead"], "remote": True})
+    return out
+
+def chats():
+    """Every chat the deck can drive: the Mac's own, then remote ones."""
+    return live_sessions() + remote_chats()
 
 def cbor(b, i=0):
     """Minimal CBOR decoder (ints, bytes, text, arrays, maps, bools): enough for attestationObject and COSE keys."""
@@ -2393,7 +2480,8 @@ class H(BaseHTTPRequestHandler):
             v = vapid(); return self.send(200, {"key": b64u(v[1]) if v else None})
         if path == "/api/sessions":
             ps_ = proc_summary(); live = [{**s, "attn": attn(s), "procs": ps_.get(s["pane"])} for s in live_sessions()]
-            return self.send(200, {"live": live, "history": history(skip={s["session"] for s in live}), "ssh": ssh_state()})
+            ssh, rc = ssh_state(), [{**s, "attn": attn(s)} for s in remote_chats()]; ps = {s["pane"] for s in rc}  # a remote chat shows as a chat, not as its terminal
+            return self.send(200, {"live": live, "history": history(skip={s["session"] for s in live}), "ssh": {**ssh, "terms": [t for t in ssh["terms"] if t["pane"] not in ps], "chats": rc}})
         if path == "/api/search":
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("q", [""])[0].strip()
             return self.send(200, {"results": search(q) if len(q) >= 3 else []})
@@ -2406,33 +2494,35 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/git":
             c = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("cwd", [""])[0]
             return self.send(200, {"git": os.path.isdir(c) and is_git(c)})
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query); hq = (qs.get("host") or [None])[0]  # a remote chat's host, for the routes that take a session id
         m = re.fullmatch(r"/api/agent/([0-9a-f-]{36})/([0-9a-z]+)", path)
         if m:
-            f = find_file(m.group(1)); a = f and f.parent / f.stem / "subagents" / f"agent-{m.group(2)}.jsonl"
+            f = chat_file(m.group(1), hq); a = f and f.parent / f.stem / "subagents" / f"agent-{m.group(2)}.jsonl"
             return self.send(200, {"items": messages(a, 200, side=True)}) if a and a.exists() else self.send(404, {"error": "none"})
         m = re.fullmatch(r"/api/img/([0-9a-f-]{36})(?:/([0-9a-z]+))?/(\d+)/(\d+)/(-?\d+)", path)
         if m:
-            f = find_file(m.group(1))
+            f = chat_file(m.group(1), hq)
             if f and m.group(2): f = f.parent / f.stem / "subagents" / f"agent-{m.group(2)}.jsonl"
             try: ct, data = image(f, int(m.group(3)), int(m.group(4)), int(m.group(5)))
             except Exception: return self.send(404, {"error": "img"})
             return self.send(200, data, ct)
         m = re.fullmatch(r"/api/session/([0-9a-f-]{36})", path)
         if m:
-            f = find_file(m.group(1))
+            f = chat_file(m.group(1), hq)
             n = int((urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("n") or ["60"])[0])
             return self.send(200, {"items": with_sent(m.group(1), messages(f, min(n, 2000)), f)}) if f else self.send(404, {"error": "none"})
         m = re.fullmatch(r"/api/info/([0-9a-f-]{36})", path)
         if m:
-            f = find_file(m.group(1))
+            q = qs.get("pane", [""])[0]
+            f = chat_file(m.group(1), hq or next((t["host"] for t in ssh_terms() if t["pane"] == q), None))  # a remote chat's pane names its host
             if not f: return self.send(404, {"error": "none"})
-            d = cached(f, info); q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("pane", [""])[0]
+            d = cached(f, info)
             d = {**d, "agents": agents(f)}
             if re.fullmatch(PANE_RE, q): d = {**d, "running": pane_elapsed(q), "pane": q}
             return self.send(200, d)
         m = re.fullmatch(r"/api/diff/([0-9a-f-]{36})(?:/([0-9a-z]+))?/([\w-]{6,100})", path)
         if m:
-            f = find_file(m.group(1))
+            f = chat_file(m.group(1), hq)
             if f and m.group(2): f = f.parent / f.stem / "subagents" / f"agent-{m.group(2)}.jsonl"
             return self.send(200, {"diff": full_tool_diff(f, m.group(3)) if f and f.exists() else None})
         m = re.fullmatch(r"/api/changes/([\w.-]+)", path)
@@ -2444,7 +2534,7 @@ class H(BaseHTTPRequestHandler):
         if m and valid_pane(m.group(1)):
             SEEN[m.group(1)] = time.time(); q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             if q.get("f") == ["1"] and DEV_RE.fullmatch((q.get("d") or [""])[0]): VIEW[(m.group(1), q["d"][0])] = time.time()
-            s = next((s for s in live_sessions() if s["pane"] == m.group(1)), {})
+            s = next((s for s in chats() if s["pane"] == m.group(1)), {})
             return self.send(200, {**pane_screen(m.group(1)), "device": device(), "accounts": accounts(), "plan": s.get("plan"), "pinned": s.get("pinned")})
         if path == "/api/accounts": return self.send(200, {"accounts": accounts(), "models": account_models()})  # rclaude's plans, for the Account choice
         m = re.fullmatch(r"/api/procs/(" + PANE_RE + ")", path)
@@ -2551,20 +2641,26 @@ class H(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         if self.path == "/api/rename":
             name = re.sub(r"\s+", " ", str(body.get("name", ""))).strip()[:80]
-            f = find_file(str(body.get("session", "")))
+            sid = str(body.get("session", "")); f = find_file(sid)
             pane = body.get("pane") or ""
-            live = re.fullmatch(PANE_RE, pane) and valid_pane(pane)
+            s = re.fullmatch(PANE_RE, pane) and next((x for x in chats() if x["pane"] == pane), None)
+            live = bool(s) and not s.get("dropped")
+            h = None if f and not remote_of(f) or not re.fullmatch(SID_RE, sid) else ssh_host((s or {}).get("host") or body.get("host") or (f and remote_of(f)))  # a remote chat's title goes on the server, never the mirror
             if not name: return self.send(400, {"error": "name"})
             done = []
-            if body.get("claude") and (f or live):
+            if body.get("claude") and (f and not remote_of(f) or live or h):
+                line = json.dumps({"type": "custom-title", "customTitle": name, "sessionId": sid}, separators=(",", ":")) + "\n"
                 if live:
                     tm(pane, "set-buffer", "-b", "deck", "--", "/rename " + name); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
-                    time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter")
+                    time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter"); done.append("claude")
+                elif h:
+                    try: r = ssh_run(h, f'C="${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}"; for f in "$C"/projects/*/{shlex.quote(sid)}.jsonl; do [ -f "$f" ] && break; done; [ -f "$f" ] && cat >> "$f"', line.encode(), 30)
+                    except (subprocess.TimeoutExpired, ValueError): r = None
+                    if r and not r.returncode: done.append("claude")
                 else:
-                    with open(f, "a", encoding="utf8") as fh:
-                        fh.write(json.dumps({"type": "custom-title", "customTitle": name, "sessionId": f.stem}, separators=(",", ":")) + "\n")
-                done.append("claude")
-            if body.get("tmux") and live:
+                    with open(f, "a", encoding="utf8") as fh: fh.write(line)
+                    done.append("claude")
+            if body.get("tmux") and s:
                 tm(pane, "rename-window", "-t", "{P}", name); done.append("tmux")
             _live[0] = 0
             return self.send(200, {"done": done})
@@ -2574,7 +2670,11 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {"pane": p}) if p else self.send(400, {"error": "bad"})
         if self.path == "/api/end":  # /exit, or with kill the pane itself; only ever a pane that is running Claude right now
             pane = str(body.get("pane", "")); _live[0] = 0
-            if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(200, {"gone": True})
+            s = re.fullmatch(PANE_RE, pane) and next((x for x in chats() if x["pane"] == pane), None)
+            if not s: return self.send(200, {"gone": True})
+            if body.get("kill") and s.get("rkind") == "tmux" and (h := ssh_host(s["host"])):  # Claude in the server's own tmux would outlive the connection
+                try: ssh_run(h, "tmux kill-session -t " + shlex.quote("=deck-" + s["session"]), timeout=15)
+                except (subprocess.TimeoutExpired, ValueError): pass
             if body.get("kill"): tm(pane, "kill-pane", "-t", "{P}")
             else: end_chat(pane)
             _live[0] = 0; return self.send(200, {"ok": True})  # straight away: the pane may already be gone
@@ -2674,9 +2774,9 @@ class H(BaseHTTPRequestHandler):
             imgs = [f for f in files if f.suffix[1:] in IMG]
             if len(imgs) < len(files):  # Claude opens other files itself when it sees the path
                 text = (text.rstrip() + "\n\n" + "\n".join(f"Attached: {f} ({NAMES.get(str(f), f.name)}, {human(f.stat().st_size)})" for f in files if f not in imgs)).strip()
-            ag = None
+            ag, c = None, next((x for x in chats() if x["pane"] == pane), {})
             if body.get("agent"):  # a subagent of this chat: its own transcript, its own input in the terminal
-                f = re.fullmatch(r"[0-9a-f-]{36}", str(body.get("session", ""))) and find_file(body["session"])
+                f = re.fullmatch(r"[0-9a-f-]{36}", str(body.get("session", ""))) and chat_file(body["session"], c.get("host"))
                 ag = next((a for a in agents(f) if a["id"] == body["agent"]), None) if f else None
                 if not ag: return self.send(404, {"error": "That subagent wasn't found."})
             err = view_agent(pane, ag)
@@ -2685,7 +2785,7 @@ class H(BaseHTTPRequestHandler):
             err = deliver(pane, text, imgs)
             if ag: view_agent(pane); _live[0] = 0  # back to the main agent, where the terminal normally sits
             if err: _live[0] = 0; return self.send(409, {"error": err})
-            sid = next((x.get("session") for x in live_sessions() if x["pane"] == pane), None)
+            sid = c.get("session")
             if sid and not ag and text.strip() and not text.startswith("!"): SENT.setdefault(sid, []).append((text.strip(), t0))
             r = {"ok": True, "text": text}
             if body.get("id"): SENT_IDS[str(body["id"])[:40]] = r; [SENT_IDS.pop(k) for k in list(SENT_IDS)[:-50]]
