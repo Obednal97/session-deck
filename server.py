@@ -646,6 +646,7 @@ def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=Non
 def find_file(session):
     if not re.fullmatch(r"[0-9a-f-]{36}", session): return None
     for f in PROJ.glob(f"*/{session}.jsonl"): return f
+    for f in RMIR.glob(f"*/{session}.jsonl"): return f  # a remote chat's mirror
 
 def agent_map(f, side=False):  # subagent transcripts (nested ones too) all sit flat in <session>/subagents
     m = {}
@@ -723,13 +724,15 @@ OUT_EXT = set(OUT_SHOW) | {"xlsx", "xls", "docx", "doc", "pptx", "ppt", "heic", 
 _OX = r"\.(?:%s)" % "|".join(sorted(OUT_EXT))
 OUT_RE = re.compile(r"`([^`\n]+%s)`|\]\(<?([^)\n]+?%s)>?\)|(?<![\w/.~:@-])((?:~/|\.{0,2}/)?(?:[\w.@+-]+/)*[\w.@+-]+%s)(?!\w)" % (_OX, _OX, _OX), re.I)
 
-def out_paths(text, cwd):
-    """Paths in a reply that look like a file made for the user, relative ones against the chat's folder. Whether they exist is checked when shown."""
+def out_paths(text, cwd, remote=None):
+    """Paths in a reply that look like a file made for the user, relative ones against the chat's folder. Whether they exist is checked when shown.
+    A remote chat's ~/ is the server's home, so it stays as it is."""
     out = []
     for m in OUT_RE.finditer(text):
         p = m.group(1) or urllib.parse.unquote(m.group(2) or "") or m.group(3)
         for p in {p: 0, p.split()[-1]: 0}:  # `open report.pdf`: the whole span, then its last word
-            p = os.path.normpath(os.path.join(cwd or "/", os.path.expanduser(re.sub(r"^file://", "", p.strip()))))
+            p = re.sub(r"^file://", "", p.strip())
+            p = os.path.normpath(p if remote and p.startswith("~/") else os.path.join(cwd or "/", p if remote else os.path.expanduser(p)))
             if p not in out: out.append(p)
     return out[:16]
 
@@ -761,7 +764,7 @@ def user_item(tx, ts):  # a message from the user, or a background task's "finis
 _msgs, _msgs_lock = {}, threading.Lock()
 def messages(f, limit=60, side=False):
     """Chat items for a transcript. The parse is kept per file and later calls only parse appended lines."""
-    now = time.time()
+    now, remote = time.time(), remote_of(f)
     with _msgs_lock:
         for k in [k for k, s in _msgs.items() if now - s["used"] > 600]: del _msgs[k]
         st = _msgs.setdefault((str(f), side), {"lock": threading.Lock()}); st["used"] = now
@@ -776,7 +779,7 @@ def messages(f, limit=60, side=False):
                     buf += blk; cut = buf.rfind(b"\n") + 1  # a half-written last line waits for the next call
                     if not cut: continue
                     lines = buf[:cut].decode("utf8", "ignore").splitlines()
-                    try: parse_lines(lines, st["n"], st["items"], st["delivered"], side)
+                    try: parse_lines(lines, st["n"], st["items"], st["delivered"], side, remote)
                     except Exception: st.pop("ino", None); raise  # half-applied: rebuild next time
                     st["off"] += cut; st["n"] += len(lines); buf = buf[cut:]
         agents, delivered, items, out = agent_map(f, side), st["delivered"], st["items"], []
@@ -788,11 +791,11 @@ def messages(f, limit=60, side=False):
             elif it["kind"] == "tool" and it["id"] in agents:
                 it = {**it, "agent": agents[it["id"]][0], "summary": agents[it["id"]][1] or it["summary"]}
             else: it = dict(it)
-            if "files" in it: it["files"] = out_files(it["files"])
+            if "files" in it: it["files"] = [{"name": os.path.basename(p), "rpath": p, "host": remote} for p in it["files"]] if remote else out_files(it["files"])  # nothing on the Mac to stat
             out.append(it)
         return out[::-1][-limit:]
 
-def parse_lines(lines, n0, items, delivered, side):
+def parse_lines(lines, n0, items, delivered, side, remote=None):
     for l in lines:
         if '"type":"user"' in l and '"promptId"' in l:
             try:
@@ -854,7 +857,7 @@ def parse_lines(lines, n0, items, delivered, side):
                     if mt: items.append(user_item(mt.group(1).strip(), o.get("timestamp"))); continue  # typed to a busy subagent: Claude Code wraps it
                     if tx.lstrip().startswith("<") or o.get("isMeta"): continue
                 items.append({"role": t, "kind": "text", "text": tx[:6000 if t == "user" else 200_000], "ts": o.get("timestamp")})  # with_sent relies on the user cut; a reply is shown whole
-                fs = t == "assistant" and out_paths(tx, o.get("cwd"))
+                fs = t == "assistant" and out_paths(tx, o.get("cwd"), remote)
                 if fs: items[-1]["files"] = fs
             elif k == "tool_use":
                 inp = b.get("input", {})
@@ -1427,6 +1430,8 @@ def tidy_uploads():
             total -= f.stat().st_size; f.unlink(missing_ok=True); NAMES.pop(str(f), None)
     for d in [*UPL.glob("from-ssh/*"), *UPL.glob("*")]:  # Get file's folders first, so from-ssh can go too
         if d.is_dir() and d.name != time.strftime("%Y-%m-%d") and not any(d.iterdir()): d.rmdir()
+    for f in RMIR.rglob("*.json*") if RMIR.exists() else ():  # remote transcripts' mirrors untouched for 30 days
+        if f.is_file() and time.time() - f.stat().st_mtime > 30 * 86400: f.unlink(missing_ok=True)
 
 def tidy_loop():
     while True:
@@ -1942,6 +1947,7 @@ def ssh_host_save(b):
 
 def ssh_host_delete(hid):
     with _ssh_lock: ssh_hosts_write([h for h in ssh_hosts() if h.get("id") != hid])
+    if isinstance(hid, str) and re.fullmatch(r"\w{1,32}", hid): shutil.rmtree(RMIR / hid, ignore_errors=True)
 
 # SSH: connections. Each is `ssh` in its own tmux session ssh-<host id>-<n>, marked @deck_ssh, listed from tmux; a host's terminals
 # share one master connection. A saved password is typed once into OpenSSH's own prompt, so host-key questions stay in front of the user.
@@ -2126,6 +2132,65 @@ def ssh_forget_key(host):
         g = ssh_g(host); h, p = g.get("hostname", h), g.get("port")
     if not KNOWN_HOSTS.exists(): return 0
     return run("ssh-keygen", "-R", f"[{h}]:{p}" if p and str(p) != "22" else h, "-f", str(KNOWN_HOSTS)).count(" found: ")  # known_hosts names a non-22 port's host [h]:p
+
+# SSH: remote transcripts. A remote chat's transcript and its subagent files are mirrored into RMIR/<host id>/, laid out as in
+# ~/.claude/projects/<dir>/, by fetching only the bytes the mirror lacks; every reader (messages, info, agents, image) then runs on the mirror.
+RMIR = HOME / "Library/Caches/session-deck/remote"
+_SYNC, _sync_lock = {}, threading.Lock()  # (host id, session id) -> when its last sync ended (inf while one runs)
+SYNC_SH = """C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; have=$(cat)
+for f in "$C"/projects/*/%s.jsonl; do [ -f "$f" ] && break; done
+[ -f "$f" ] || exit 0
+for p in "$f" "${f%%.jsonl}"/subagents/agent-*; do
+  n=${p#"${f%%/*}"/}; case $n in *[!0-9a-z./-]*) continue;; esac
+  [ -f "$p" ] || continue
+  to=$(($(wc -c < "$p"))); from=$(printf '%%s\\n' "$have" | while read -r a b; do [ "$a" = "$n" ] && echo "$b" && break; done)
+  from=$((${from:-0})); case $n in *.meta.json) [ "$from" != "$to" ] && from=0;; esac
+  [ "$from" -gt "$to" ] && from=0
+  [ "$p" != "$f" ] && [ "$from" = "$to" ] && continue
+  echo "$n $from $to"; tail -c +$((from+1)) "$p" | head -c $((to-from)); echo
+done"""  # a header "<name> <from> <to>", then the bytes from..to (to measured first, so a growing file can't send more) and a newline that shows the frame is whole
+
+def remote_of(f):
+    """The host id of a file in the mirror, else None."""
+    try: r = Path(f).relative_to(RMIR).parts
+    except ValueError: return None
+    return r[0] if len(r) > 1 else None
+
+def ssh_sync(host, sid):
+    """Brings RMIR/<hid>/<sid>.jsonl and its subagent files up to date in one ssh_run: the mirror's path, or None if the server has no such
+    transcript. At most once per 1.5 s per chat; a failed run keeps the mirror as it is. A file the server has shortened (or a changed
+    .meta.json) comes whole; a mirror out of step with its append is dropped, so it comes whole next time."""
+    if not (isinstance(sid, str) and re.fullmatch(r"[0-9a-f-]{36}", sid)): return None
+    k, d = (host["id"], sid), RMIR / host["id"]; f = d / f"{sid}.jsonl"
+    with _sync_lock:
+        if time.time() - _SYNC.get(k, 0) < 1.5: return f if f.exists() else None
+        _SYNC[k] = float("inf")
+    try:
+        have = "".join(f"{p.relative_to(d)} {p.stat().st_size}\n" for p in [f, *(d / sid / "subagents").glob("agent-*")] if p.is_file())
+        try: r = ssh_run(host, SYNC_SH % shlex.quote(sid), have.encode(), 30)
+        except subprocess.TimeoutExpired: r = None
+        if not r or r.returncode: return f if f.exists() else None
+        out, i, ok = r.stdout, 0, False; RMIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+        while (j := out.find(b"\n", i)) >= 0:
+            try: n, a, b = out[i:j].decode().split(" "); a, b = int(a), int(b)
+            except ValueError: break
+            ok = ok or n == f.name; body, i = out[j + 1:j + 1 + b - a], j + 2 + b - a
+            if not 0 <= a <= b or len(body) != b - a or out[i - 1:i] != b"\n": break  # cut short (the file shrank as it was read): stop here
+            if not re.fullmatch(rf"{sid}\.jsonl|{sid}/subagents/agent-[0-9a-z]+\.(?:jsonl|meta\.json)", n): continue
+            p = d / n; p.parent.mkdir(parents=True, exist_ok=True)
+            if a == 0: t = p.with_name(p.name + ".tmp"); t.write_bytes(body); os.replace(t, p)  # a new file, so messages() starts its parse again
+            elif p.exists() and p.stat().st_size == a:
+                with open(p, "ab") as fh: fh.write(body)
+            else: p.unlink(missing_ok=True)
+        return f if ok and f.exists() else None
+    finally: _SYNC[k] = time.time()
+
+def chat_file(sid, hid=None):
+    """A chat's transcript: the Mac's own if there is one, else (with a host id, or a mirror that names one) the server's, synced."""
+    f = find_file(sid) if isinstance(sid, str) else None
+    if f and not remote_of(f): return f
+    h = ssh_host(hid or (f and remote_of(f)))
+    return ssh_sync(h, sid) if h else f
 
 def cbor(b, i=0):
     """Minimal CBOR decoder (ints, bytes, text, arrays, maps, bools): enough for attestationObject and COSE keys."""
