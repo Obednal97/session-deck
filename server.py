@@ -90,7 +90,8 @@ def ws_write(sock, op, data):
 
 def view_target(pane):
     """(tmux session to attach, the one made for this view or None). An SSH terminal's own session; for a chat, a new session grouped
-    with the chat's, showing the chat's window, so the Mac's own clients in that session stay on the window they were on."""
+    with the chat's, showing the chat's window, so the Mac's own clients in that session stay on the window they were on. When that
+    window goes (/exit, End chat), tmux would move the view to another chat's window: its hook ends the view instead."""
     t = next((t for t in ssh_terms() if t["pane"] == pane), None)
     if t: return t["session"], None
     sock, n = pane.rsplit(".", 1)
@@ -98,9 +99,17 @@ def view_target(pane):
                  if l.startswith(f"%{n}\t") and not l.split("\t")[1].startswith("deck-view-")), (None, None))
     if not s: return None, None
     made = f"deck-view-{secrets.token_hex(4)}"
-    ok = tm(pane, "new-session", "-d", "-t", f"={s}", "-s", made, ";", "set-option", "-t", f"={made}:", "status", "off", ";", "select-window", "-t", f"={made}:{w}", ok=True)
+    ok = tm(pane, "new-session", "-d", "-t", f"={s}", "-s", made, ";", "set-option", "-t", f"={made}:", "status", "off", ";", "select-window", "-t", f"={made}:{w}",
+            ";", "set-hook", "-t", f"={made}:", "session-window-changed", f"kill-session -t ={made}", ok=True)
     if not ok: tm(pane, "kill-session", "-t", f"={made}")
     return (made, made) if ok else (None, None)
+
+def view_tidy():
+    """At start: viewer sessions no client is attached to are left from a deck that stopped mid-view."""
+    for sock in [s for s in TMUX_SOCKS if s in sockets()]:
+        for l in run("tmux", "-L", sock, "list-sessions", "-F", "#{session_attached}\t#{session_name}").splitlines():
+            n, _, name = l.partition("\t")
+            if n == "0" and name.startswith("deck-view-"): run("tmux", "-L", sock, "kill-session", "-t", f"={name}")
 
 def winsz(fd, cols, rows):
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", max(5, min(200, int(rows))), max(20, min(400, int(cols))), 0, 0))
@@ -119,10 +128,10 @@ def term_bridge(h, pane, cols, rows):
         try: p = subprocess.Popen(["tmux", "-u", "-L", pane.rsplit(".", 1)[0], "attach-session", "-t", f"={target}"], stdin=s, stdout=s, stderr=s, start_new_session=True, env=env)
         finally: os.close(s)
         def out():
-            last = time.time()
+            last, pl = time.time(), select.poll(); pl.register(m, select.POLLIN)  # not select.select: it can't take an fd over 1023
             try:
                 while not done.is_set():
-                    r = select.select([m], [], [], max(0, last + 25 - time.time()))[0]
+                    r = pl.poll(max(0, last + 25 - time.time()) * 1000)
                     if time.time() - last >= 25: ws_write(c, 9, b""); last = time.time()
                     if r:
                         b = os.read(m, 1 << 16)
@@ -146,10 +155,12 @@ def term_bridge(h, pane, cols, rows):
         done.set()
         if p: p.kill(); p.wait()
         if m is not None and not t: os.close(m)
-        if made: tm(pane, "kill-session", "-t", f"={made}")
-        with _view_lock:
+        with _view_lock:  # before the kill, which can time out
             SEEN[pane] = time.time(); VIEWING[pane] -= 1  # watched to the end: what finished meanwhile has been seen
             if not VIEWING[pane]: del VIEWING[pane]
+        if made:
+            try: tm(pane, "kill-session", "-t", f"={made}")
+            except subprocess.TimeoutExpired: pass
 
 ROOMY = (120, 50)
 def roomy():
@@ -2650,6 +2661,6 @@ if __name__ == "__main__":
     print(f"Session Deck on {', '.join(str(x.server_address) for x in srvs)}  (token: {SECRET_FILE})", flush=True)
     threading.Thread(target=watcher, daemon=True).start()
     threading.Thread(target=tidy_loop, daemon=True).start()
-    threading.Thread(target=term_reaper, daemon=True).start(); threading.Thread(target=idler, daemon=True).start(); threading.Thread(target=run_watch, daemon=True).start()
+    view_tidy(); threading.Thread(target=term_reaper, daemon=True).start(); threading.Thread(target=idler, daemon=True).start(); threading.Thread(target=run_watch, daemon=True).start()
     for x in srvs[1:]: threading.Thread(target=x.serve_forever, daemon=True).start()
     srvs[0].serve_forever()

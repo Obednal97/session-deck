@@ -1,5 +1,5 @@
 """Live terminal: WebSocket framing, the pty bridge to a tmux client, viewer sessions and clean-up, in a throwaway tmux server (decktest)."""
-import base64, io, json, os, socket, struct, subprocess, sys, tempfile, threading, time, unittest
+import base64, io, json, os, resource, socket, struct, subprocess, sys, tempfile, threading, time, unittest
 from pathlib import Path
 from unittest import mock
 
@@ -62,7 +62,7 @@ class Frames(unittest.TestCase):
 class Bridge(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        assert server.TMUX_SOCKS == ["decktest"]
+        if server.TMUX_SOCKS != ["decktest"]: raise RuntimeError("tests would reach the real tmux servers")  # not assert: python -O drops those
         T("kill-server"); server._socks.pop("decktest", None)
         T("new-session", "-d", "-s", "ssh-zz-1", "-x", "80", "-y", "24", "cat", ";", "set-option", "-t", "=ssh-zz-1:", "@deck_ssh", "zz", ";", "set-option", "-t", "=ssh-zz-1:", "status", "off")
         cls.pane = "decktest." + T("display", "-p", "-t", "=ssh-zz-1:", "#{pane_id}")[1:]
@@ -145,6 +145,57 @@ class Bridge(unittest.TestCase):
             self.assertEqual(until(lambda: rframe(f)[0] == 8), True)  # the deck answers with its own close (maybe after output already on its way)
             self.assertTrue(until(lambda: "deck-view-" not in T("list-sessions", "-F", "#{session_name}") and chat not in server.VIEWING, 3))
         self.assertEqual(T("display", "-p", "-t", "=work:", "#{window_index}"), "0")
+
+    def test_view_ends_with_its_window(self):  # the chat's window closes (/exit, End chat): the view ends, never showing another chat
+        T("new-session", "-d", "-s", "work", "cat", ";", "new-window", "-d", "-t", "=work:1", "cat")
+        self.addCleanup(T, "kill-session", "-t", "=work")
+        chat = "decktest." + T("display", "-p", "-t", "=work:1", "#{pane_id}")[1:]
+        with mock.patch.object(server, "valid_pane", lambda p: p == chat):
+            s, f, st = self.ws(chat)
+            self.assertIn(" 101 ", st)
+            self.assertTrue(until(lambda: chat in server.VIEWING and "deck-view-" in T("list-sessions", "-F", "#{session_name}")))
+            T("kill-window", "-t", "=work:1")
+            def closed():
+                try: return rframe(f)[0] == 8
+                except (OSError, ValueError): return True  # the socket went
+            self.assertTrue(until(closed))
+            self.assertTrue(until(lambda: "deck-view-" not in T("list-sessions", "-F", "#{session_name}") and chat not in server.VIEWING and not attaches(), 3))
+        self.assertEqual(T("list-sessions", "-F", "#{session_name}"), "ssh-zz-1\nwork")
+
+    def test_count_survives_kill_timeout(self):  # a kill-session that times out mustn't leave the chat counted as watched
+        T("new-session", "-d", "-s", "work", "cat")
+        self.addCleanup(T, "kill-session", "-t", "=work")
+        chat = "decktest." + T("display", "-p", "-t", "=work:0", "#{pane_id}")[1:]
+        tm = server.tm
+        def slow(key, *a, **k):
+            if a[:1] == ("kill-session",): tm(key, *a, **k); raise subprocess.TimeoutExpired("tmux", 8)
+            return tm(key, *a, **k)
+        with mock.patch.object(server, "valid_pane", lambda p: p == chat), mock.patch.object(server, "tm", slow):
+            s, f, _ = self.ws(chat)
+            self.assertTrue(until(lambda: chat in server.VIEWING))
+            f.close(); s.close()
+            self.assertTrue(until(lambda: chat not in server.VIEWING, 3), server.VIEWING)
+
+    def test_high_fd(self):  # select.select can't take an fd over 1023; the bridge polls
+        lim = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if lim[1] != resource.RLIM_INFINITY and lim[1] < 1200: self.skipTest("fd limit too low")
+        resource.setrlimit(resource.RLIMIT_NOFILE, (max(lim[0], 1200), lim[1])); self.addCleanup(resource.setrlimit, resource.RLIMIT_NOFILE, lim)
+        n = os.open(os.devnull, os.O_RDONLY); fill = [os.dup(n) for _ in range(1100)]; os.close(n)
+        self.addCleanup(lambda: [os.close(x) for x in fill])
+        s, f, st = self.ws(self.pane)
+        self.assertIn(" 101 ", st)
+        s.sendall(frame(2, b"highfd\r")); self.assertIn(b"highfd", self.recv(f, b"highfd"))
+
+    def test_view_tidy(self):  # at start, viewer sessions left by a stopped deck go; attached ones and other sessions stay
+        for n in ("deck-view-left0001", "deck-view-used0001", "deck-viewer", "mine"): T("new-session", "-d", "-s", n, "cat")
+        self.addCleanup(lambda: [T("kill-session", "-t", "=" + n) for n in ("deck-view-left0001", "deck-view-used0001", "deck-viewer", "mine")])
+        m, sl = os.openpty()
+        c = subprocess.Popen(["tmux", "-L", "decktest", "attach-session", "-t", "=deck-view-used0001"], stdin=sl, stdout=sl, stderr=sl, start_new_session=True,
+                             env={k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")} | {"TERM": "xterm"})
+        os.close(sl); self.addCleanup(lambda: (c.kill(), c.wait(), os.close(m)))
+        self.assertTrue(until(lambda: T("display", "-p", "-t", "=deck-view-used0001:", "#{session_attached}") == "1"))
+        server.view_tidy()
+        self.assertEqual(sorted(T("list-sessions", "-F", "#{session_name}").split()), ["deck-view-used0001", "deck-viewer", "mine", "ssh-zz-1"])
 
     def test_view_counts_as_seen(self):  # the terminal view stands in for the chat's status poll: a reply that finishes while watched isn't news
         T("new-session", "-d", "-s", "work", "cat")
