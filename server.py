@@ -1850,7 +1850,7 @@ def ssh_host_delete(hid):
 SSH_BIN = os.environ.get("DECK_SSH_BIN", "ssh")
 SSH_CM = Path(os.environ.get("DECK_SSH_CM") or f"/private/tmp/deck-ssh-{os.getuid()}")  # short: Unix socket paths stop at 104 bytes
 SSH_TEMP = {}  # throwaway hosts (connect without saving) by id, in memory only, until their last terminal goes
-PW_PROMPT = re.compile(r"(?:'s password|[Pp]assword):$")
+PW_PROMPT = re.compile(r"'s password:$|^\(\S+\) [Pp]assword:$")  # OpenSSH's own prompts only, not su, sudo, passwd or mysql -p
 _term_lock, _pw_lock, FEED = threading.RLock(), threading.Lock(), {}  # FEED: pane -> its newest feeder; an older one (before a reconnect) stops
 
 def ssh_argv(host, cmd=(), batch=False):
@@ -1866,6 +1866,13 @@ def ssh_argv(host, cmd=(), batch=False):
             *(["-o", "BatchMode=yes"] if batch else []), *(["-o", "PreferredAuthentications=publickey"] if host.get("auth") == "key" else []),
             *(["-p", str(p)] if p else []), *(["-l", u] if u else []), "--", h, *cmd]
 
+def ssh_master(host):
+    """Whether the host's shared master is up. A terminal then opens through it with no password prompt, so the deck must type nothing:
+    the next "password:" on screen would be a remote program's."""
+    a = ssh_argv(host); i = a.index("--"); a[i:i] = ["-O", "check"]
+    try: return subprocess.run(a, capture_output=True, timeout=8).returncode == 0
+    except subprocess.TimeoutExpired: return True  # unsure: don't type
+
 def ssh_host(hid):
     return SSH_TEMP.get(hid) or next((h for h in ssh_hosts() if h.get("id") == hid), None) if isinstance(hid, str) and re.fullmatch(r"\w{1,32}", hid) else None
 
@@ -1873,7 +1880,7 @@ def ssh_open(hid, password=None):
     """A new terminal on a host (saved or throwaway): its pane key, or None. Raises ValueError for a tampered host."""
     h = ssh_host(hid)
     if not h: return None
-    argv = ssh_argv(h)
+    argv, feed = ssh_argv(h), password and not ssh_master(h)  # checked before this terminal can become the master itself
     sock = next((s for s in TMUX_SOCKS if s in sockets()), TMUX_SOCKS[-1])  # as start() picks it
     with _term_lock:
         names = set(run("tmux", "-L", sock, "list-sessions", "-F", "#{session_name}").split())
@@ -1884,7 +1891,7 @@ def ssh_open(hid, password=None):
     _live[0] = 0; _socks.pop(sock, None)  # this may have started the tmux server
     if not r.strip().startswith("%"): return None
     pane = f"{sock}.{r.strip()[1:]}"
-    if password: threading.Thread(target=pw_feed, args=(pane, password), daemon=True).start()
+    if feed: threading.Thread(target=pw_feed, args=(pane, password), daemon=True).start()
     return pane
 
 def pw_feed(pane, pw, wait=60):
@@ -2362,8 +2369,9 @@ class H(BaseHTTPRequestHandler):
                 if self.path == "/api/ssh/close": tm(pane, "kill-session", "-t", "{P}"); return self.send(200, {"ok": True})
                 h = ssh_host(term["host"])
                 if not h: return self.send(400, {"error": "That host isn't saved any more."})
+                feed = pw and not ssh_master(h)
                 if not tm(pane, "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h), ok=True): return self.send(400, {"error": "Couldn't reconnect."})
-                if pw: threading.Thread(target=pw_feed, args=(pane, pw), daemon=True).start()
+                if feed: threading.Thread(target=pw_feed, args=(pane, pw), daemon=True).start()
                 return self.send(200, {"ok": True})
             except ValueError: return self.send(400, {"error": "That host's address isn't valid."})
             except OSError as e: return self.send(500, {"error": f"Couldn't start ssh: {e}"})

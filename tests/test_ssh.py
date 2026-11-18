@@ -5,7 +5,7 @@ from pathlib import Path
 TMP = tempfile.mkdtemp()
 os.environ.update(DECK_SECRETS=TMP, DECK_STORE=f"{TMP}/passkeys.json", DECK_PREFS=f"{TMP}/prefs.json", DECK_RP_ID="localhost", DECK_TS_USER="me@example.com",
                   DECK_SSH_HOSTS=f"{TMP}/ssh-hosts.json", DECK_TMUX_SOCKET="decktest", DECK_SHOW_TEST="1", DECK_SSH_CM=f"{TMP}/cm",
-                  DECK_SSH_BIN=str(Path(__file__).resolve().parent / "fake_ssh.sh"))
+                  DECK_SSH_BIN=str(Path(__file__).resolve().parent / "fake_ssh.sh"), FAKE_SSH_MASTER=f"{TMP}/master")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import server
 # another test module may have imported server first, with its own settings: never let these tests reach the real tmux servers or ssh
@@ -173,14 +173,28 @@ class Conns(unittest.TestCase):
         old.join(10); time.sleep(1)
         self.assertNotIn("first", self.screen(p))
 
-    def test_password_not_in_ps(self):
+    def test_prompt_forms(self):  # only OpenSSH's own password prompts
+        for ok in ("pi@10.0.0.5's password:", "(pi@10.0.0.5) Password:", "(pi@h) password:"): self.assertTrue(server.PW_PROMPT.search(ok), ok)
+        for no in ("Password:", "password:", "[sudo] password for pi:", "Enter password:", "New password:", "(a b) Password:"): self.assertFalse(server.PW_PROMPT.search(no), no)
+
+    def test_master_up_no_typing(self):  # through a live master there's no ssh prompt: a later "Password:" from su, sudo or mysql never gets it
+        m = Path(os.environ["FAKE_SSH_MASTER"]); m.touch(); self.addCleanup(m.unlink, missing_ok=True)
         p = server.ssh_open(self.h["id"], "s3cret")
+        self.assertTrue(until(lambda: "Password:" in self.screen(p)), self.screen(p))
+        self.assertEqual(self.post("/api/ssh/reconnect", {"pane": p, "password": "s3cret"}), (200, {"ok": True}))
+        self.assertTrue(until(lambda: "Password:" in self.screen(p)), self.screen(p))
+        time.sleep(1.5)
+        self.assertNotIn("s3cret", self.screen(p))
+
+    def test_password_not_in_ps(self):
+        pw = os.urandom(8).hex()  # unique, so no other process's command line can contain it by chance
+        p = server.ssh_open(self.h["id"], pw)
         seen = []
         def look():
             seen.append(subprocess.run(["ps", "-axo", "command="], capture_output=True, text=True).stdout)
-            return "AUTH s3cret" in self.screen(p)
-        self.assertTrue(until(look, 5))
-        self.assertTrue(seen and not any("s3cret" in x for x in seen))
+            return "AUTH " + pw in self.screen(p)
+        self.assertTrue(until(look, 5), self.screen(p))
+        self.assertTrue(seen and not any(pw in x for x in seen))
 
     def test_dead_and_reconnect(self):
         p = server.ssh_open(self.h["id"])
