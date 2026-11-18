@@ -1331,7 +1331,7 @@ async function sshAdd(h){closeMenu();let cfg=[],au=h?h.auth:'password';try{cfg=(
  $('xau').onclick=e=>{const b=e.target.closest('[data-au]');if(b)A(b.dataset.au)};$('xad').oninput=()=>{if(cfg.includes($('xad').value.trim()))A('config')};
  const V=()=>({name:$('xnm').value.trim(),addr:$('xad').value.trim(),auth:au,perm:$('xpm').value}),pw=()=>{const v=au=='password'?$('xpw').value:'';$('xpw').value='';return v},bs=[...sb.querySelectorAll('.go,.pick')];// a typed password leaves the field as soon as it is read
  const save=async p=>{bs.forEach(b=>b.disabled=true);try{const x=(await api('/api/ssh/hosts',{save:{...h&&{id:h.id},...V()}})).host,k=$('xrm').checked;
-   if(x.auth!='password'||p&&!k)pwForget(x.id);if(p&&k)await pwSet(x.id,p);await list().catch(()=>{});return x}catch(e){$('xpw').value=p;toast(e.reason||'Couldn\'t save that.')}finally{bs.forEach(b=>b.disabled=false)}};
+   if(x.auth!='password'||p&&!k)pwForget(x.id);if(p&&k)await pwSet(x.id,p);await list().catch(()=>{});return x}catch(e){toast(e.reason||'Couldn\'t save that.')}finally{bs.forEach(b=>b.disabled=false)}};
  $('xsv').onclick=async()=>{const x=await save(pw());if(x)sshHost(x.id)};$('xsc').onclick=async()=>{const p=pw(),x=await save(p);if(x)sshConnect(x.id,p)};
  if(h)$('xcn').onclick=()=>sshHost(h.id);else $('xso').onclick=()=>{const v=V();sshGo({temp:{addr:v.addr,auth:au}},{auth:au},pw())}}
 // a host's page: its terminals (Open, Close), New terminal, Edit, Forget saved password, Delete. Redrawn when its terminals change (sshUI)
