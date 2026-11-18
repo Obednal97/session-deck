@@ -798,6 +798,18 @@ class Chats(unittest.TestCase):
         server.input_box = lambda key, wait=0: ""
         self.assertEqual(self.post("/api/rename", {"pane": pane, "session": sid, "name": "x", "claude": True}), (200, {"done": ["claude"]})); self.assertIn("paste-buffer", typed)
 
+    def test_kind_filtered(self):  # an SDK or -p run on the server is never a chat's, by folder, by id or by hand
+        s, pane = self.term(rcwd="/root/x", rkind="plain"); sid = str(uuid.uuid4()); d, pd = self.term(claude=sid, rcwd="/root/y", rkind="plain")
+        h, ph = self.term(); server.input_box = lambda key, wait=0: "" if key == ph else None
+        for k, x in (("sdk", str(uuid.uuid4())), ("print", sid), ("sdk-cli", str(uuid.uuid4()))):
+            p = subprocess.Popen(["sleep", "600"]); self.addCleanup(lambda p=p: (p.kill(), p.wait()))
+            (self.home / f".claude/sessions/{p.pid}.json").write_text(json.dumps({"pid": p.pid, "sessionId": x, "cwd": "/root/x", "startedAt": int(time.time() * 1000), "status": "busy", "kind": k}))
+        self.assertEqual([x["state"] for x in self.scan()], [None])  # the deck chat is listed, with no Claude of its own
+        self.assertEqual(server.rscan(self.h), [])
+        self.assertEqual([self.opt(x, "rpid") for x in (s, d, h)], ["", "", ""]); self.assertEqual((self.opt(s, "claude"), self.opt(h, "claude")), ("", ""))
+        server.rmatch(self.hid, [{"pid": 1, "sessionId": sid, "cwd": "/root/x", "startedAt": 0, "status": "idle", "kind": "sdk"}])
+        self.assertEqual(self.opt(d, "rpid"), "")
+
 class StartArgs(unittest.TestCase):
     """claude_args is start()'s own checks and flags, factored out: a local chat's argv is exactly what it was."""
     def test_claude_args_same(self):

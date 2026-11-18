@@ -2263,7 +2263,7 @@ def _rscan(host, c):
     for x in re.split(r"(?m)^\x1e$", r.stdout.decode(errors="replace")):
         try: d = json.loads(x)
         except ValueError: continue
-        if isinstance(d, dict) and type(d.get("pid")) is int:
+        if isinstance(d, dict) and type(d.get("pid")) is int and d.get("kind") in (None, "interactive"):  # not an SDK or -p run: no terminal shows those
             sid, at = d.get("sessionId"), d.get("startedAt")
             out.append({"pid": d["pid"], "sessionId": sid if isinstance(sid, str) and re.fullmatch(SID_RE, sid) else None, "cwd": str(d.get("cwd") or ""),
                         "startedAt": at if type(at) in (int, float) else 0, "status": d.get("status") if isinstance(d.get("status"), str) else None, "kind": d.get("kind")})
@@ -2279,6 +2279,7 @@ def rmatch(hid, items):
        started in its folder (@deck_rcwd) nearest the terminal's start; 3. then a terminal showing Claude's input box (Claude typed by hand:
        the screen doesn't show the folder) takes an unclaimed one started since it opened and no later than its box first showed, but
        only when that is unambiguous: no other such terminal fits that json, and it is the only one showing a box or the json is the only fit."""
+    items = [x for x in items if x.get("kind") in (None, "interactive")]
     terms = ssh_terms(); ts, by, mine = sorted((t for t in terms if t["host"] == hid), key=lambda t: t["created"]), {x["pid"]: x for x in items}, set()
     for p in [p for p in _RBOX if p not in {t["pane"] for t in terms}]: del _RBOX[p]
     def put(t, **kv):  # tmux options on the Mac session, "" unsets
