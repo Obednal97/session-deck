@@ -318,11 +318,11 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .pgf{align-self:center;color:var(--c);font-size:13.5px;padding:10px;text-decoration:none}.pgf:hover{text-decoration:underline}
 @media(min-width:700px){.pg .sec{top:-20px}}
 .a>.who{display:block;font-size:12px;font-weight:600;color:var(--m);margin-bottom:2px}.chat>.pga{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.chat>.avn{align-self:flex-start;margin-top:-4px}.chat>.pgo{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.pgo{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pgo>small{grid-column:1/-1;color:var(--m);font-size:12.5px}.pgo .pick{text-align:center}
-.a :is(h4,h5){font-size:15px;margin:.8em 0 .3em}.a h3{font-size:16px}.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.a :is(h4,h5){font-size:15px;margin:.8em 0 .3em}.a h3{font-size:16px}.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}.a table.sr{overflow:hidden}/* not a scroller like .a table: Chrome gives a scroller a Tab stop */
 /* Aiva's rich parts: a table scrolls in its own box, cards and charts fit the column; colours are the theme's */
 .avl small{color:var(--m);font-size:.85em}.avnote{color:var(--m);font-size:12.5px}.a :is(.avtb,.avc,.avch){margin:.6em 0}
 .avtb{border:1px solid var(--l);border-radius:10px;background:var(--s);overflow:hidden}.avtt{font-weight:600;padding:7px 10px 3px}.avtb>.avnote{margin:0;padding:5px 10px 7px;border-top:1px solid var(--l)}
-.avt{max-width:100%;overflow-x:auto}.a .avt table{display:table;border:0;min-width:100%}
+.avt{max-width:100%;overflow-x:auto}.avt:focus-visible{outline-offset:-2px}.a .avt table{display:table;border:0;min-width:100%}
 .a .avt :is(th,td){border:0;border-top:1px solid var(--l);vertical-align:top}.a .avt thead th{color:var(--m);font-size:12px;font-weight:600;border-top:0}.avt .r{text-align:right;font-variant-numeric:tabular-nums}.a .avt :is(th,td).w{overflow-wrap:anywhere;min-width:20em}
 .avc{border:1px solid var(--l);border-radius:12px;background:var(--s);padding:10px 12px;display:flex;flex-direction:column;gap:4px;max-width:440px}.avck{font:600 10.5px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--c)}.avct{font-size:15px}.avcs{color:var(--m);font-size:13px}
 .avc dl{margin:4px 0 0;display:grid;grid-template-columns:fit-content(45%) minmax(0,1fr);gap:3px 12px;font-size:13.5px}.avc dl>div{display:contents}.avc dt{color:var(--m)}.avc dd{margin:0;overflow-wrap:anywhere}
@@ -716,7 +716,7 @@ $('main').addEventListener('scroll',jumpUI,{passive:true});$('jump').onclick=()=
 function copyText(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).catch(()=>{const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;top:0;opacity:0';document.body.append(a);a.select();a.setSelectionRange(0,t.length);document.execCommand('copy');a.remove()}).then(()=>toast('Copied'))}
 // tap a message for Copy (and Edit and resend on your own); code blocks get their own Copy
 $('main').addEventListener('click',e=>{const c=e.target.closest('.cpy');if(c)return copyText(c.previousSibling.textContent);
- const a=e.target.closest('[data-act]');if(a){const el=a.closest('.chat>*'),t=((el._x||{}).text||'').trim();a.parentNode.remove();if(a.dataset.act=='copy')return copyText(t);$('ta').value=t;grow();sendBtn();slashUI();return $('ta').focus()}
+ const a=e.target.closest('[data-act]');if(a){const el=a.closest('.chat>*'),x=el._x||{},t=(el.avParts&&el.avParts.length?avPlain(x.text||'',el.avParts):x.text||'').trim();a.parentNode.remove();if(a.dataset.act=='copy')return copyText(t);$('ta').value=t;grow();sendBtn();slashUI();return $('ta').focus()}
  const el=e.target.closest('.chat>.a,.chat>.u');if(!el||e.target.closest('a,button')||!getSelection().isCollapsed)return;
  const o=el.querySelector(':scope>.acts');$('main').querySelectorAll('.acts').forEach(x=>x.remove());if(o)return;
  el.insertAdjacentHTML('beforeend','<div class=acts><button data-act=copy>Copy</button>'+(el.matches('.u')&&!cur.ro?'<button data-act=edit>Edit and resend</button>':'')+'</div>')});
@@ -1250,33 +1250,33 @@ setTimeout(navDots,4e3);setInterval(navDots,6e4);
 /* Aiva's messages, drawn from DOM nodes only (a test fails if anything between these markers parses HTML). The lead text gets a small
    formatting subset; parts (table, card, chart) are checked again here although Aiva cleans them, and a part that doesn't fit its shape is skipped.
    Strings in parts are always shown as they are. Links are rebuilt with new URL() and kept only for https; each shows its host. */
-const ae=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e},
- as_=(v,n)=>{if(typeof v!='string')throw 0;return v.length>n?v.slice(0,n-1)+'…':v},aso=(v,n)=>v==null?'':as_(v,n),
- anum=v=>{if(typeof v!='number'||!Number.isFinite(v)||Math.abs(v)>1e12)throw 0;return v},
+const avEl=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e},
+ as_=(v,n)=>{if(typeof v!='string')throw 0;if(v.length<=n)return v;const c=[...v];return c.length>n?c.slice(0,n-1).join('')+'…':v},aso=(v,n)=>v==null?'':as_(v,n),// counted in characters, never splitting one
+ anum=(v,cap)=>{if(typeof v!='number'||!Number.isFinite(v)||cap&&Math.abs(v)>cap)throw 0;return v},// any finite number; charts cap at 1e12, as Aiva does
  aurl=h=>{if(typeof h!='string'||h.length>500||!/^https:\/\/[^\/]/i.test(h)||/[\s\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\\]/.test(h))return null;let u;try{u=new URL(h)}catch(e){return null}
   return u.protocol=='https:'&&u.hostname&&!u.username&&!u.password?u:null};
 // a label that names another site than its link shows the link's host instead (as Aiva does); every other label gets the host beside it
-const bad=()=>{throw 0},AHOST=/(?:[a-z][\w+.-]*:)?\/\/([^\s\/?#]+)|\b(www\.[^\s\/?#]+)/gi;
-function alink(u,t){const a=ae('a','avl');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';t=String(t).trim();
- if(t!=u.href&&[...t.matchAll(AHOST)].some(m=>(m[1]||m[2]).split('@').pop().split(':')[0].toLowerCase()!=u.hostname))t=u.host;
- a.textContent=t||u.host;if(t&&t!=u.href&&t!=u.host)a.append(ae('small',0,' '+u.host));return a}
+const avBad=()=>{throw 0},AHOST=/(?:[a-z][\w+.-]*:)?\/\/([^\s\/?#]+)|\b(www\.[^\s\/?#]+)/gi;
+function alink(u,t){const a=avEl('a','avl');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';t=String(t).trim();let same=false;try{same=new URL(t).href==u.href}catch(e){}
+ if(!same&&[...t.matchAll(AHOST)].some(m=>(m[1]||m[2]).split('@').pop().split(':')[0].toLowerCase()!=u.hostname))t=u.host;
+ a.textContent=t||u.host;if(t&&!same&&t!=u.host)a.append(avEl('small',0,' '+u.host));return a}
 // lead text: # to ### headings, - * and 1. lists, blank-line paragraphs, single newlines as breaks, ``` code, **bold**, *italic* _italic_, `code`, [label](https://…) and bare https:// links
-const AIN=/`([^`\n]+)`|\*\*(?=\S)([^\n]*?\S)\*\*|\*(?=[^\s*])([^*\n]*?[^\s*])\*|\[([^\]\n]{1,300})\]\(([^()\s]{1,600})\)|(https:\/\/[^\s<>"'`]+)|(^|[^\w])_(?=[^\s_])([^_\n]*?[^\s_])_(?!\w)/g;
+const AIN=/`([^`\n]+)`|\*\*(?=\S)([^\n]*?\S)\*\*|\*(?=[^\s*])([^*\n]*?[^\s*])\*|\[([^\]\n]{1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,600})\)|(https:\/\/[^\s<>"'`]+)|(^|[^\w])_(?=[^\s_])([^_\n]*?[^\s_])_(?!\w)/g;
 function ain(s,d){const o=[],re=new RegExp(AIN.source,'g');let i=0,m;
  while(m=re.exec(s)){const st=m.index+(m[7]||'').length;if(st>i)o.push(s.slice(i,st));
-  if(m[1]!=null)o.push(ae('code',0,m[1]));
-  else if(m[2]!=null||m[3]!=null||m[8]!=null){const v=m[2]!=null?m[2]:m[3]!=null?m[3]:m[8],b=ae(m[2]!=null?'strong':'em');b.append(...(d<3?ain(v,d+1):[v]));o.push(b)}
+  if(m[1]!=null)o.push(avEl('code',0,m[1]));
+  else if(m[2]!=null||m[3]!=null||m[8]!=null){const v=m[2]!=null?m[2]:m[3]!=null?m[3]:m[8],b=avEl(m[2]!=null?'strong':'em');b.append(...(d<3?ain(v,d+1):[v]));o.push(b)}
   else if(m[4]!=null){const u=aurl(m[5]);o.push(u?alink(u,m[4]):m[4])}
   else{const v=m[6].replace(/[.,;:!?)\]'"]+$/,''),u=aurl(v);o.push(u?alink(u,v):v);re.lastIndex=m.index+v.length}// trailing punctuation stays text
   i=re.lastIndex}
  if(i<s.length)o.push(s.slice(i));return o}
 function atxt(t){const L=t.replace(/\r\n?/g,'\n').split('\n'),o=[];let p=null,l=null,m;
  for(let i=0;i<L.length;i++){const s=L[i];
-  if(/^\s*```/.test(s)){p=l=null;const c=[];while(++i<L.length&&!/^\s*```\s*$/.test(L[i]))c.push(L[i]);const pre=ae('pre');pre.append(ae('code',0,c.join('\n')));o.push(pre);continue}
+  if(/^\s*```/.test(s)){p=l=null;const c=[];while(++i<L.length&&!/^\s*```\s*$/.test(L[i]))c.push(L[i]);const pre=avEl('pre');pre.append(avEl('code',0,c.join('\n')));o.push(pre);continue}
   if(!s.trim()){p=l=null;continue}
-  if(m=s.match(/^(#{1,3})\s+(.+)$/)){p=l=null;const h=ae('h'+(m[1].length+2));h.append(...ain(m[2],0));o.push(h);continue}
-  if(m=s.match(/^\s*(?:([-*])|(\d{1,9})\.)\s+(.*)$/)){const ty=m[1]?'UL':'OL';p=null;if(!l||l.tagName!=ty){l=ae(ty);if(m[2]&&+m[2]!=1)l.start=+m[2];o.push(l)}const li=ae('li');li.append(...ain(m[3],0));l.append(li);continue}
-  l=null;if(p)p.append(ae('br'));else o.push(p=ae('p'));p.append(...ain(s,0))}
+  if(m=s.match(/^(#{1,3})\s+(.+)$/)){p=l=null;const h=avEl('h'+(m[1].length+2));h.append(...ain(m[2],0));o.push(h);continue}
+  if(m=s.match(/^\s*(?:([-*])|(\d{1,9})\.)\s+(.*)$/)){const ty=m[1]?'UL':'OL';p=null;if(!l||l.tagName!=ty){l=avEl(ty);if(m[2]&&+m[2]!=1)l.start=+m[2];o.push(l)}const li=avEl('li');li.append(...ain(m[3],0));l.append(li);continue}
+  l=null;if(p)p.append(avEl('br'));else o.push(p=avEl('p'));p.append(...ain(s,0))}
  return o}
 // numbers: £ for GBP (charts take pounds), % or a short unit after; axis ticks shortened (12k, 1.5m)
 const afmt=(v,u)=>{const a=Math.abs(v),s=v<0?'-':'',g=u=='GBP'&&a%1?{minimumFractionDigits:2,maximumFractionDigits:2}:{maximumFractionDigits:2},n=a.toLocaleString('en-GB',g);
@@ -1285,53 +1285,60 @@ const anfmt=v=>v.toLocaleString('en-GB',{maximumFractionDigits:6});// a number i
 const ashort=(v,u,m)=>{const[d,x]=m>=1e9?[1e9,'bn']:m>=1e6?[1e6,'m']:m>=1e4?[1e3,'k']:[1,''];if(!x)return afmt(v,u=='GBP'||u=='%'?u:'');const n=+(Math.abs(v)/d).toFixed(1)+x,s=v<0?'-':'';return u=='GBP'?s+'£'+n:u=='%'?s+n+'%':s+n};// one scale (k, m, bn) for the whole axis
 function atable(p){const cols=(Array.isArray(p.columns)&&p.columns.length&&p.columns.length<=6?p.columns:0).map(c=>as_(c,40)),n=cols.length,R=p.rows;if(!Array.isArray(R)||!R.length)throw 0;
  const rows=R.slice(0,30).map(r=>{if(!Array.isArray(r))throw 0;r=r.slice(0,n);while(r.length<n)r.push('');return r.map(c=>typeof c=='string'?{t:as_(c,160)}:typeof c=='number'?{t:anfmt(anum(c)),n:1}:
-  c&&typeof c=='object'&&!Array.isArray(c)?{t:as_(c.text,160),u:aurl(c.href)}:bad())}),A=Array.isArray(p.align)?p.align:[];
+  c&&typeof c=='object'&&!Array.isArray(c)?{t:as_(c.text,160),u:aurl(c.href)}:avBad())}),A=Array.isArray(p.align)?p.align:[];
  const al=cols.map((_,i)=>A[i]=='left'||A[i]=='right'?A[i]:rows.some(r=>r[i].n)&&rows.every(r=>r[i].n||!r[i].t)?'right':'left'),ti=aso(p.title,80),cap=ti||'Table: '+cols.join(', ');
- const w=ae('div','avt'),t=ae('table'),hr=ae('tr'),tb=ae('tbody'),th=ae('thead');w.tabIndex=0;w.setAttribute('role','region');w.setAttribute('aria-label',cap);
- t.append(ae('caption','sr',cap),th,tb);th.append(hr);cols.forEach((c,i)=>{const h=ae('th',al[i]=='right'?'r':0,c);h.scope='col';hr.append(h)});
- for(const r of rows){const tr=ae('tr');r.forEach((c,i)=>{const d=ae('td',al[i]=='right'?'r':0);if(c.u)d.append(alink(c.u,c.t));else d.textContent=c.t;tr.append(d)});tb.append(tr)}
- w.append(t);const f=ae('div','avtb'),no=aso(p.note,160)||(R.length>30?'and '+(R.length-30)+' more':'');if(ti){const h=ae('div','avtt',ti);h.setAttribute('aria-hidden','true');f.append(h)}// the title stays put while the table scrolls under it
- f.append(w);if(no)f.append(ae('p','avnote',no));return f}
+ const w=avEl('div','avt'),t=avEl('table'),hr=avEl('tr'),tb=avEl('tbody'),th=avEl('thead');w.tabIndex=0;w.setAttribute('role','region');w.setAttribute('aria-label',cap);
+ t.append(avEl('caption','sr',cap),th,tb);th.append(hr);cols.forEach((c,i)=>{const h=avEl('th',al[i]=='right'?'r':0,c);h.scope='col';hr.append(h)});
+ for(const r of rows){const tr=avEl('tr');r.forEach((c,i)=>{const d=avEl('td',al[i]=='right'?'r':0);if(c.u)d.append(alink(c.u,c.t));else d.textContent=c.t;tr.append(d)});tb.append(tr)}
+ w.append(t);const f=avEl('div','avtb'),no=aso(p.note,160)||(R.length>30?'and '+(R.length-30)+' more':'');if(ti){const h=avEl('div','avtt',ti);h.setAttribute('aria-hidden','true');f.append(h)}// the title stays put while the table scrolls under it
+ f.append(w);if(no)f.append(avEl('p','avnote',no));return f}
 const AKIND={trip:'Trip',receipt:'Receipt',person:'Person'};
-function acard(p){const ti=as_(p.title,80),k=typeof p.kind=='string'&&Object.hasOwn(AKIND,p.kind)?p.kind:'generic',w=ae('div','avc avc-'+k);w.setAttribute('role','group');w.setAttribute('aria-label',ti);
- if(k!='generic')w.append(ae('small','avck',AKIND[k]));w.append(ae('b','avct',ti));if(p.subtitle!=null)w.append(ae('small','avcs',as_(p.subtitle,120)));
+function acard(p){const ti=as_(p.title,80),k=typeof p.kind=='string'&&Object.hasOwn(AKIND,p.kind)?p.kind:'generic',w=avEl('div','avc avc-'+k);w.setAttribute('role','group');w.setAttribute('aria-label',ti);
+ if(k!='generic')w.append(avEl('small','avck',AKIND[k]));w.append(avEl('b','avct',ti));if(p.subtitle!=null)w.append(avEl('small','avcs',as_(p.subtitle,120)));
  const L=(v,n)=>{if(v==null)return[];if(!Array.isArray(v))throw 0;return v.slice(0,n).map(x=>{if(!x||typeof x!='object')throw 0;return x})};
- const F=L(p.fields,10);if(F.length){const dl=ae('dl');for(const f of F){const d=ae('div');d.append(ae('dt',0,as_(f.label,30)),ae('dd',typeof f.value=='number'?'r':0,typeof f.value=='number'?anfmt(anum(f.value)):as_(f.value,160)));dl.append(d)}w.append(dl)}
- if(p.body!=null)w.append(ae('p','avcb',as_(p.body,600)));
- const K=L(p.links,3).map(x=>{const lb=as_(x.label,40),u=aurl(x.href);return u&&alink(u,lb)}).filter(Boolean);if(K.length){const d=ae('div','avcl');d.append(...K);w.append(d)}
- const B=L(p.actions,4).map(x=>{const b=ae('button','pick avsay',as_(x.label,24));b.type='button';b._say=as_(x.say,200);b.disabled=!!AV.pend;return b}).filter(b=>b.textContent&&b._say.trim());// tap: sent as if typed
- if(B.length){const d=ae('div','avca');d.append(...B);w.append(d)}return w}
+ const F=L(p.fields,10);if(F.length){const dl=avEl('dl');for(const f of F){const d=avEl('div');d.append(avEl('dt',0,as_(f.label,30)),avEl('dd',typeof f.value=='number'?'r':0,typeof f.value=='number'?anfmt(anum(f.value)):as_(f.value,160)));dl.append(d)}w.append(dl)}
+ if(p.body!=null)w.append(avEl('p','avcb',as_(p.body,600)));
+ const K=L(p.links,3).map(x=>{const lb=as_(x.label,40),u=aurl(x.href);return u&&alink(u,lb)}).filter(Boolean);if(K.length){const d=avEl('div','avcl');d.append(...K);w.append(d)}
+ const B=L(p.actions,4).map(x=>{const b=avEl('button','pick avsay',as_(x.label,24));b.type='button';b._say=as_(x.say,200);b.disabled=!!AV.pend;return b}).filter(b=>b.textContent&&b._say.trim());// tap: sent as if typed
+ if(B.length){const d=avEl('div','avca');d.append(...B);w.append(d)}return w}
 // charts: inline SVG from numbers only, scaled to the column; bars start at zero; series colours --c --o --g; an aria-label and a hidden table carry the values
-const NS='http://www.w3.org/2000/svg',sv=(t,a,c,x)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(c)e.setAttribute('class',c);if(x!=null)e.textContent=x;return e};
+const avNS='http://www.w3.org/2000/svg',avSv=(t,a,c,x)=>{const e=document.createElementNS(avNS,t);for(const k in a)e.setAttribute(k,a[k]);if(c)e.setAttribute('class',c);if(x!=null)e.textContent=x;return e};
 const aticks=(lo,hi)=>{if(lo==hi){lo-=Math.abs(lo)/2||1;hi+=Math.abs(hi)/2||1}const r=(hi-lo)/4,q=10**Math.floor(Math.log10(r)),st=[1,2,2.5,5,10].map(x=>x*q).find(x=>x>=r*.999),i0=Math.floor(lo/st);
- if(!(st>0)||!Number.isFinite(i0*st))bad();const T=[];for(let i=i0;T.length<12;i++){const v=+(i*st).toPrecision(12);T.push(v);if(v>=hi)break}return T};// multiples of a 1, 2, 2.5 or 5 step
+ if(!(st>0)||!Number.isFinite(i0*st))avBad();const T=[];for(let i=i0;T.length<12;i++){const v=+(i*st).toPrecision(12);T.push(v);if(v>=hi)break}if(T.length<2||!(T[T.length-1]>T[0]))avBad();return T};// multiples of a 1, 2, 2.5 or 5 step
 function achart(p){const K=p.kind;if(K!='bar'&&K!='line'&&K!='spark')throw 0;const ti=as_(p.title,80),S=p.series,u=aso(p.unit,8);
  if(!Array.isArray(S)||!S.length||S.length>(K=='spark'?1:3))throw 0;
- const ss=S.map(s=>{if(!s||typeof s!='object'||!Array.isArray(s.values))throw 0;return{n:aso(s.name,30),v:s.values.map(anum)}}),n=ss[0].v.length;let L=p.labels;
+ const ss=S.map(s=>{if(!s||typeof s!='object'||!Array.isArray(s.values))throw 0;return{n:aso(s.name,30),v:s.values.map(v=>anum(v,1e12))}}),n=ss[0].v.length;let L=p.labels;
  if(K=='spark'){if(n<2||n>60)throw 0;L=Array.isArray(L)&&L.length==n?L.map(l=>as_(l,16)):null}
  else{if(!Array.isArray(L)||L.length<2||L.length>40||ss.some(s=>s.v.length!=L.length))throw 0;L=L.map(l=>as_(l,16))}
  const say=v=>{const P=v.map((x,i)=>(L?L[i]+' ':'')+afmt(x,u));if(P.length<=12)return P.join(', ');const lo=v.indexOf(Math.min(...v)),hi=v.indexOf(Math.max(...v));return`first ${P[0]}, last ${P[P.length-1]}, lowest ${P[lo]}, highest ${P[hi]}`};
- const f=ae('figure','avch'),fc=ae('figcaption',0,ti),W=320,H=K=='spark'?40:170,g=sv('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':ti+': '+ss.map(s=>(ss.length>1?s.n+': ':'')+say(s.v)).join('; ')});
- f.append(fc);if(u&&u!='GBP'&&u!='%')fc.append(ae('small',0,' · '+u));if(K=='spark')fc.append(ae('span','avlast',afmt(ss[0].v[n-1],u)));
- if(ss.length>1){const lg=ae('div','avlg');ss.forEach((s,i)=>{const x=ae('span','s'+i);x.append(ae('i'),s.n||'Series '+(i+1));lg.append(x)});f.append(lg)}
+ const f=avEl('figure','avch'),fc=avEl('figcaption',0,ti),W=320,H=K=='spark'?40:170,g=avSv('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':ti+': '+ss.map(s=>(ss.length>1?s.n+': ':'')+say(s.v)).join('; ')});
+ f.append(fc);if(u&&u!='GBP'&&u!='%')fc.append(avEl('small',0,' · '+u));if(K=='spark')fc.append(avEl('span','avlast',afmt(ss[0].v[n-1],u)));
+ if(ss.length>1){const lg=avEl('div','avlg');ss.forEach((s,i)=>{const x=avEl('span','s'+i);x.append(avEl('i'),s.n||'Series '+(i+1));lg.append(x)});f.append(lg)}
  const all=ss.flatMap(s=>s.v);let lo=Math.min(...all),hi=Math.max(...all);
  if(K=='spark'){if(lo==hi){lo-=1;hi+=1}const y=v=>3+(hi-v)/(hi-lo)*(H-6),x=i=>3+i*(W-6)/(n-1),pt=ss[0].v.map((v,i)=>x(i).toFixed(1)+','+y(v).toFixed(1));
-  g.append(sv('polyline',{points:pt.join(' ')},'s0'),sv('circle',{cx:x(n-1).toFixed(1),cy:y(ss[0].v[n-1]).toFixed(1),r:3},'s0'))}
+  g.append(avSv('polyline',{points:pt.join(' ')},'s0'),avSv('circle',{cx:x(n-1).toFixed(1),cy:y(ss[0].v[n-1]).toFixed(1),r:3},'s0'))}
  else{if(K=='bar'){lo=Math.min(0,lo);hi=Math.max(0,hi)}const T=aticks(lo,hi),b=T[0],t=T[T.length-1],tm=Math.max(...T.map(Math.abs)),tl=T.map(v=>ashort(v,u,tm)),l=Math.min(64,Math.max(24,6+6*Math.max(...tl.map(x=>x.length)))),r=8,top=8,pw=W-l-r,ph=H-top-20;
-  const y=v=>top+(t-v)/(t-b)*ph;T.forEach((v,i)=>{g.append(sv('line',{x1:l,x2:W-r,y1:y(v).toFixed(1),y2:y(v).toFixed(1)},v==0&&K=='bar'?'zl':'gr'),sv('text',{x:l-4,y:(y(v)+3.5).toFixed(1),'text-anchor':'end'},'ax',tl[i]))});
+  const y=v=>top+(t-v)/(t-b)*ph;T.forEach((v,i)=>{g.append(avSv('line',{x1:l,x2:W-r,y1:y(v).toFixed(1),y2:y(v).toFixed(1)},v==0&&K=='bar'?'zl':'gr'),avSv('text',{x:l-4,y:(y(v)+3.5).toFixed(1),'text-anchor':'end'},'ax',tl[i]))});
   const gw=pw/n,cx=i=>K=='bar'?l+(i+.5)*gw:l+(n>1?i*pw/(n-1):pw/2);
-  if(K=='bar'){const bw=gw*.72/ss.length,y0=y(0);ss.forEach((s,j)=>s.v.forEach((v,i)=>{const yv=y(v);g.append(sv('rect',{x:(l+i*gw+gw*.14+j*bw).toFixed(1),y:Math.min(yv,y0).toFixed(1),width:Math.max(bw-1,1).toFixed(1),height:Math.abs(yv-y0).toFixed(1)},'s'+j))}))}
-  else ss.forEach((s,j)=>{g.append(sv('polyline',{points:s.v.map((v,i)=>cx(i).toFixed(1)+','+y(v).toFixed(1)).join(' ')},'s'+j));if(n<=12)s.v.forEach((v,i)=>g.append(sv('circle',{cx:cx(i).toFixed(1),cy:y(v).toFixed(1),r:2.5},'s'+j)))});
+  if(K=='bar'){const bw=gw*.72/ss.length,y0=y(0);ss.forEach((s,j)=>s.v.forEach((v,i)=>{const yv=y(v);g.append(avSv('rect',{x:(l+i*gw+gw*.14+j*bw).toFixed(1),y:Math.min(yv,y0).toFixed(1),width:Math.max(bw-1,1).toFixed(1),height:Math.abs(yv-y0).toFixed(1)},'s'+j))}))}
+  else ss.forEach((s,j)=>{g.append(avSv('polyline',{points:s.v.map((v,i)=>cx(i).toFixed(1)+','+y(v).toFixed(1)).join(' ')},'s'+j));if(n<=12)s.v.forEach((v,i)=>g.append(avSv('circle',{cx:cx(i).toFixed(1),cy:y(v).toFixed(1),r:2.5},'s'+j)))});
   const k=Math.ceil(n/Math.max(1,Math.floor(pw/44))),cw=K=='bar'?gw*k:pw/Math.max(1,(n-1)/k);
-  for(let i=0;i<n;i+=k){const c=Math.max(2,Math.floor(cw/6)),tx=L[i].length>c?L[i].slice(0,c-1)+'…':L[i],a=K=='line'&&i==0?'start':K=='line'&&i+k>=n&&i==n-1?'end':'middle';g.append(sv('text',{x:cx(i).toFixed(1),y:H-5,'text-anchor':a},'ax',tx))}}
- f.append(g);const st=ae('table','sr'),hr=ae('tr'),tb=ae('tbody');st.append(ae('caption',0,ti),hr,tb);[L?'Label':'Point',...ss.map((s,i)=>s.n||'Series '+(i+1))].forEach(x=>{const h=ae('th',0,x);h.scope='col';hr.append(h)});
- for(let i=0;i<n;i++){const tr=ae('tr'),h=ae('th',0,L?L[i]:String(i+1));h.scope='row';tr.append(h,...ss.map(s=>ae('td',0,afmt(s.v[i],u))));tb.append(tr)}f.append(st);
- const no=aso(p.note,160);if(no)f.append(ae('p','avnote',no));return f}
+  for(let i=0;i<n;i+=k){const c=Math.max(2,Math.floor(cw/6)),ch=[...L[i]],tx=ch.length>c?ch.slice(0,c-1).join('')+'…':L[i],a=K=='line'&&i==0?'start':K=='line'&&i+k>=n&&i==n-1?'end':'middle';g.append(avSv('text',{x:cx(i).toFixed(1),y:H-5,'text-anchor':a},'ax',tx))}}
+ f.append(g);const st=avEl('table','sr'),hr=avEl('tr'),tb=avEl('tbody');st.append(avEl('caption',0,ti),hr,tb);[L?'Label':'Point',...ss.map((s,i)=>s.n||'Series '+(i+1))].forEach(x=>{const h=avEl('th',0,x);h.scope='col';hr.append(h)});
+ for(let i=0;i<n;i++){const tr=avEl('tr'),h=avEl('th',0,L?L[i]:String(i+1));h.scope='row';tr.append(h,...ss.map(s=>avEl('td',0,afmt(s.v[i],u))));tb.append(tr)}f.append(st);
+ const no=aso(p.note,160);if(no)f.append(avEl('p','avnote',no));return f}
 // one Aiva message: never throws, and a part that fails is skipped without touching the rest
-function avRich(t,P,who){const d=ae('div','a');if(who)d.append(ae('small','who',who));t=typeof t=='string'?t:'';
- try{d.append(...atxt(t))}catch(e){d.append(ae('p',0,t))}
- if(Array.isArray(P))for(const p of P.slice(0,6))try{const f=!p||typeof p!='object'?0:p.type=='table'?atable:p.type=='card'?acard:p.type=='chart'?achart:0;if(f)d.append(f(p))}catch(e){}
+function avRich(t,P,who){const d=avEl('div','a');if(who)d.append(avEl('small','who',who));t=typeof t=='string'?t:'';d.avParts=[];// the parts drawn, for Copy
+ try{d.append(...atxt(t))}catch(e){d.append(avEl('p',0,t))}
+ if(Array.isArray(P))for(const p of P.slice(0,6))try{const f=!p||typeof p!='object'?0:p.type=='table'?atable:p.type=='card'?acard:p.type=='chart'?achart:0;if(f){d.append(f(p));d.avParts.push(p)}}catch(e){}
  return d}
+// Copy on an Aiva message: its text, then each part drawn, as plain lines the way Aiva's own fallback reads them (rows as "a | b", fields as "label: value")
+function avPlain(t,P){const o=[t],c=v=>v&&typeof v=='object'?v.text+(aurl(v.href)?' ('+v.href+')':''):typeof v=='number'?anfmt(v):v;
+ for(const p of P){if(p.type=='table')o.push(p.title,p.columns.join(' | '),...p.rows.map(r=>r.slice(0,p.columns.length).map(c).join(' | ')));
+  else if(p.type=='card')o.push(p.title,p.subtitle,...(p.fields||[]).map(f=>f.label+': '+c(f.value)),p.body,...(p.links||[]).filter(l=>aurl(l.href)).map(l=>l.label+': '+l.href));
+  else o.push(...p.series.map(s=>p.title+(p.series.length>1&&s.name?' ('+s.name+')':'')+': '+s.values.map((v,i)=>(p.labels?p.labels[i]+' ':'')+afmt(v,p.unit||'')).join(', ')));
+  o.push(p.note)}
+ return o.filter(v=>typeof v=='string'&&v).join('\n')}
 // aiva-rich:end
 /* Aiva, a local assistant, through /api/aiva/*: a section at the top of the chat list (its latest message, approvals waiting) opens one long-lived chat,
    shown like a session chat with the same box. Polls every 3 s while that's open, else every 30 s. #aiva in the address opens it (a push's link).
@@ -1342,17 +1349,19 @@ function avSec(){if(AV.on==null)return'';const l=AV.m.findLast(x=>x.role!='ollie
  return`<section><div class=sec>Aiva<span>${n||''}</span></div><div class=card><button class="crow${cur&&cur.aiva?' cur':''}" data-aiva=1>${tile('Aiva')}<span><b>${esc(!AV.on?'Aiva isn\'t running':l?l.text:'No messages yet')}</b><small>${!AV.on?'Messages show once it\'s back':l?avAgo(l.ts)||'Open the chat':'Open the chat'}</small></span>${n?`<em class="ap a2">${n} to approve</em>`:''}</button></div></section>`}
 // a message is a block for paint(): "Aiva · Persona:" becomes a label over the reply, an approval's buttons sit under it
 // an offer's four answers sit under its message while it's open; Always and Never make a standing rule, so they ask first. Answered ones say what you said
-const avOffer=id=>{const o=id&&AV.of[id];if(!o||o.status=='gone')return'';if(o.status!='open')return`<div class="note avn">${o.status=='expired'?'Expired':'You said '+esc(o.status)}</div>`;
- if(AV.cf&&AV.cf.id==id)return`<div class=pgo data-of="${esc(id)}"><small>${AV.cf.a=='always'?'Always do this from now on':'Never do this from now on'}? That sets a standing rule.</small><button class=go data-a="${esc(AV.cf.a)}" data-y=1>Confirm</button><button class=pick data-n=1>Cancel</button></div>`;
- return`<div class=pgo data-of="${esc(id)}"><button class=go data-a=yes>Yes</button><button class=pick data-a=no>No</button><button class=pick data-a=always>Always</button><button class="pick red" data-a=never>Never</button></div>`};
-// Aiva's own messages are drawn by avRich (DOM nodes, no HTML from the message); the key is the message's id and a hash of its text and parts. Ollie's keep ub()
+const avBtn=(c,x,d)=>{const b=avEl('button',c,x);Object.assign(b.dataset,d);return b},avRow=(c,d,...k)=>{const e=avEl('div',c);Object.assign(e.dataset,d);e.append(...k);return e};
+const avOffer=id=>{const o=id&&AV.of[id];if(!o||o.status=='gone')return[];if(o.status!='open')return[avEl('div','note avn',o.status=='expired'?'Expired':'You said '+o.status)];
+ if(AV.cf&&AV.cf.id==id)return[avRow('pgo',{of:id},avEl('small',0,(AV.cf.a=='always'?'Always':'Never')+' do this from now on? That sets a standing rule.'),avBtn('go','Confirm',{a:AV.cf.a,y:1}),avBtn('pick','Cancel',{n:1}))];
+ return[avRow('pgo',{of:id},avBtn('go','Yes',{a:'yes'}),avBtn('pick','No',{a:'no'}),avBtn('pick','Always',{a:'always'}),avBtn('pick red','Never',{a:'never'}))]};
+// Aiva's own messages are drawn by avRich, and their offer and approval rows by avOffer and avRow (DOM nodes only); the key is the message's id, a hash of its text and parts,
+// and the state of those rows. Ollie's keep ub()
 const avFnv=s=>{let h=2166136261;for(let i=0;i<s.length;i++)h=Math.imul(h^s.charCodeAt(i),16777619);return(h>>>0).toString(36)};
-const avNodes=s=>{const t=document.createElement('template');t.innerHTML=s;return[...t.content.childNodes]};// the deck's own markup (offer and approval buttons)
-const avItem=x=>{const p=x.approval_id&&AV.ap.find(a=>a.id==x.approval_id),w=x.role!='ollie'&&(x.text||'').match(/^(Aiva(?: · [^:\n]{1,60})?):\s*/),
-  tl=avOffer(x.offer_id)+(!p?'':+p.tier>=3&&!TS?'<div class="note avn">Needs a passkey sign-in</div>':`<div class=pga data-ap="${esc(p.id)}"><button class=go data-d=approve>Approve</button><button class="pick red" data-d=reject>Reject</button></div>`);
- if(x.role=='ollie')return{x,h:`<div class=u>${ub(x.text)}</div>`+tl};
- const k=x._k||(x._k='\u0001'+x.id+':'+avFnv(JSON.stringify([x.role,x.text,x.parts])));
- return{x,h:k+tl,mk:()=>{let a;try{a=avRich(w?x.text.slice(w[0].length):x.text,x.parts,w&&w[1])}catch(e){a=document.createElement('div');a.className='a';a.textContent=x.text||''}return[a,...avNodes(tl)]}}};
+const avItem=x=>{if(x.role=='ollie')return{x,h:`<div class=u>${ub(x.text)}</div>`};// only Aiva's messages carry offers and approvals
+ const p=x.approval_id&&AV.ap.find(a=>a.id==x.approval_id),lock=p&&+p.tier>=3&&!TS,o=x.offer_id&&AV.of[x.offer_id],w=(x.text||'').match(/^(Aiva(?: · [^:\n]{1,60})?):\s*/),
+  k=x._k||(x._k='\u0001'+x.id+':'+avFnv(JSON.stringify([x.role,x.text,x.parts])));
+ return{x,h:k+JSON.stringify([o&&o.status,AV.cf&&AV.cf.id==x.offer_id&&AV.cf.a,p&&p.id,lock]),mk:()=>{let a;try{a=avRich(w?x.text.slice(w[0].length):x.text,x.parts,w&&w[1])}catch(e){a=document.createElement('div');a.className='a';a.textContent=x.text||''}
+  if(x.approval_id&&!p)a.querySelectorAll('.avca').forEach(n=>n.remove());// its approval is decided: buttons tied to it would answer nothing
+  return[a,...avOffer(x.offer_id),...!p?[]:[lock?avEl('div','note avn','Needs a passkey sign-in'):avRow('pga',{ap:p.id},avBtn('go','Approve',{d:'approve'}),avBtn('pick red','Reject',{d:'reject'}))]]}}};
 function avPaint(){const m=$('main');if(AV.on==null&&!AV.down&&!AV.m.length)return;// still loading
  const B=AV.m.map(avItem);if(AV.pend)B.push({h:`<div class="u q s">${ub(AV.pend)}</div>`});if(!B.length)B.push({h:'<div class=h>No messages yet. Say hello.</div>'});
  if(AV.down||AV.on===false)B.push({h:'<div class=note>Aiva isn\'t running</div>'});
@@ -1383,7 +1392,8 @@ function locSend(force){if(COL||!locOn()||!navigator.geolocation||document.hidde
   e=>{if(e&&e.code==1&&!locWarned){locWarned=1;toast('Location is blocked for this page, so Aiva can\'t see where you are.')}},{maximumAge:6e4,timeout:2e4})}
 setInterval(()=>locSend(0),3e4);document.addEventListener('visibilitychange',()=>locSend(0));
 async function avSend(t,say){const v=t.trim(),me=cur;if(!v||AV.pend)return;AV.pend=v;sending=1;if(!say){$('ta').value='';grow()}sendBtn();AV.end=1;draw();
- try{await api('/api/aiva/messages',{text:v,device:avDevice()});AV.pend='';await avLoad()}catch(e){AV.pend='';if(cur===me&&!$('ta').value){$('ta').value=v;grow()}toast(e.reason||(cur===me?'Not sent. Your message is back in the box.':'Not sent to Aiva.'))}
+ try{await api('/api/aiva/messages',{text:v,device:avDevice()});AV.pend='';await avLoad()}catch(e){AV.pend='';const back=cur===me&&!$('ta').value;if(back){$('ta').value=v;grow()}
+  toast(back?e.reason||'Not sent. Your message is back in the box.':(e.reason?e.reason+' ':'')+'Not sent: '+(v.length>80?v.slice(0,79)+'…':v))}
  sending=0;sendBtn();if(cur===me){AV.end=1;draw()}}
 async function avDecide(p,d){const bs=p.querySelectorAll('button');bs.forEach(x=>x.disabled=true);
  try{await api('/api/aiva/approvals/'+encodeURIComponent(p.dataset.ap),{decision:d});toast(d=='approve'?'Approved':'Rejected')}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}

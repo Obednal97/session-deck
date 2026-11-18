@@ -1,5 +1,5 @@
 """Aiva's rich chat: the page draws Aiva's messages without parsing HTML, and the proxy passes `parts` through untouched."""
-import json, os, re, socketserver, sys, tempfile, threading, unittest
+import json, os, re, shutil, socketserver, subprocess, sys, tempfile, threading, unittest
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -31,9 +31,72 @@ class RichBlock(unittest.TestCase):
         item = s[s.index("const avItem="):s.index("function avPaint(")]
         self.assertIn("avRich(", item); self.assertNotIn("md(", item); self.assertIn("ub(x.text)", item)
 
+    def test_offer_and_approval_rows_are_dom_nodes(self):
+        s = (ROOT / "index.html").read_text()
+        rows = s[s.index("const avBtn="):s.index("function avPaint(")]
+        self.assertNotIn("avNodes", s)
+        for f in ("innerHTML", "template", "<div class=pg", "esc("): self.assertNotIn(f, rows)
+
+    def test_table_box_focus_ring_is_drawn_inside_it(self):  # its parent clips anything outside the box
+        s = (ROOT / "index.html").read_text()
+        self.assertIn(".avt:focus-visible{outline-offset:-2px}", s)
+        self.assertIn(".a table.sr{overflow:hidden}", s)  # a chart's hidden table is no scroller, so it takes no Tab stop
+
+
+# The renderer's helpers, run in node from the block itself with a tiny stand-in for the DOM
+FAKE_DOM = r"""
+class N{constructor(t){this.tagName=t.toUpperCase();this.kids=[];this.dataset={};this.attrs={};this.textContent=''}
+ append(...k){this.kids.push(...k)}setAttribute(k,v){this.attrs[k]=String(v)}querySelectorAll(){return[]}
+ get text(){return this.textContent+this.kids.map(c=>typeof c=='string'?c:c.text).join('')}}
+globalThis.document={createElement:t=>new N(t),createElementNS:(ns,t)=>new N(t)};globalThis.AV={pend:''};
+const tryit=f=>{try{f();return 'ok'}catch(e){return 'threw'}};
+"""
+
+@unittest.skipUnless(shutil.which("node"), "needs node")
+class RichHelpersInNode(unittest.TestCase):
+    def run_js(self, code):
+        r = subprocess.run(["node"], input=FAKE_DOM + rich_block() + "\nconsole.log(JSON.stringify((()=>{" + code + "})()))",
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
     def test_links_https_only(self):  # the deck rebuilds links itself and keeps only https
-        blk = rich_block()
-        self.assertIn("new URL(h)", blk); self.assertIn("u.protocol=='https:'", blk); self.assertIn("noopener noreferrer", blk)
+        got = self.run_js(r"""return ['https://a.example/x?y=1','http://a.example','javascript:alert(1)','data:text/html,x','https://u:p@a.example',
+          'https://a.example/a b','https://a.example/\u202e','https://a.example/\ufeff','https:///nohost','https://a.example/'+'x'.repeat(500),'https://a.example\\x']
+          .map(h=>{const u=aurl(h);return u?u.href:null})""")
+        self.assertEqual(got, ["https://a.example/x?y=1"] + [None] * 10)
+        a = self.run_js("const a=alink(aurl('https://a.example/p'),'Booking');return [a.target,a.rel,a.href,a.text]")
+        self.assertEqual(a, ["_blank", "noopener noreferrer", "https://a.example/p", "Booking a.example"])
+
+    def test_markdown_links(self):
+        got = self.run_js(r"""const f=s=>ain(s,0).map(x=>typeof x=='string'?x:[x.tagName,x.href||'',x.text]);
+          return [f('[label](javascript:alert(1))'),f('[wiki](https://w.example/A_(b))'),f('see https://example.com.'),f('[https://paypal.com](https://evil.example/)')]""")
+        self.assertEqual(got[0], ["label"])  # brackets in the href: the label only, never the markdown
+        self.assertEqual(got[1], [["A", "https://w.example/A_(b)", "wiki w.example"]])
+        self.assertEqual(got[2], ["see ", ["A", "https://example.com/", "https://example.com"], "."])  # its host isn't shown twice
+        self.assertEqual(got[3], [["A", "https://evil.example/", "evil.example"]])  # a label naming another site shows the real host
+
+    def test_trimming_never_splits_a_character(self):
+        got = self.run_js(r"""const e='\u{1F600}'.repeat(81),r=as_(e,80);
+          return [[...r].length,/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(r),as_('\u{1F600}'.repeat(80),80)==='\u{1F600}'.repeat(80)]""")
+        self.assertEqual(got, [80, False, True])
+
+    def test_numbers_and_axes(self):
+        got = self.run_js(r"""return [tryit(()=>aticks(1,1+1e-15)),tryit(()=>aticks(5e11,5e11+0.001)),aticks(-430,2100),
+          tryit(()=>atable({columns:['EAN'],rows:[[9780141036144]]})),tryit(()=>acard({title:'t',fields:[{label:'n',value:-2e15}]})),
+          tryit(()=>achart({type:'chart',kind:'bar',title:'t',labels:['a','b'],series:[{values:[1,1e13]}]})),tryit(()=>atable({columns:['a'],rows:[[NaN]]}))]""")
+        self.assertEqual(got[:2], ["threw", "threw"])  # a near-flat axis skips the chart rather than drawing NaN
+        self.assertEqual(got[2], [-1000, 0, 1000, 2000, 3000])
+        self.assertEqual(got[3:], ["ok", "ok", "threw", "threw"])  # cells and fields take any finite number; charts cap at 1e12
+
+    def test_copy_text_is_the_lead_and_the_parts_drawn(self):
+        got = self.run_js(r"""return avPlain('Aiva · Accounting: Receipts (2)',[{type:'table',title:'Receipts',columns:['#','Vendor','Amount'],
+          rows:[[1,{text:'Acme',href:'https://acme.example/'},'£12.34'],[2,{text:'Bad',href:'javascript:x'},'unknown']],note:'and 1 more.'},
+          {type:'card',title:'Trip',fields:[{label:'Seat',value:'12A'}],body:'Window',links:[{label:'Book',href:'https://b.example/'}]},
+          {type:'chart',kind:'bar',title:'Spend',labels:['Jan','Feb'],series:[{values:[12.5,-3]}],unit:'GBP'}])""")
+        self.assertEqual(got.split("\n"), [
+            "Aiva · Accounting: Receipts (2)", "Receipts", "# | Vendor | Amount", "1 | Acme (https://acme.example/) | £12.34",
+            "2 | Bad | unknown", "and 1 more.", "Trip", "Seat: 12A", "Window", "Book: https://b.example/", "Spend: Jan £12.50, Feb -£3"])
 
 
 PARTS = [{"type": "table", "title": "<img src=x onerror=alert(1)>", "columns": ["a", "b"], "rows": [["</table><script>x</script>", 1.5], [{"text": "x", "href": "javascript:alert(1)"}, -2]]},
