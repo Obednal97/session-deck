@@ -2687,6 +2687,6 @@ if __name__ == "__main__":
     print(f"Session Deck on {', '.join(str(x.server_address) for x in srvs)}  (token: {SECRET_FILE})", flush=True)
     threading.Thread(target=watcher, daemon=True).start()
     threading.Thread(target=tidy_loop, daemon=True).start()
-    view_tidy(); threading.Thread(target=term_reaper, daemon=True).start(); threading.Thread(target=idler, daemon=True).start(); threading.Thread(target=run_watch, daemon=True).start()
+    threading.Thread(target=view_tidy, daemon=True).start(); threading.Thread(target=term_reaper, daemon=True).start(); threading.Thread(target=idler, daemon=True).start(); threading.Thread(target=run_watch, daemon=True).start()
     for x in srvs[1:]: threading.Thread(target=x.serve_forever, daemon=True).start()
     srvs[0].serve_forever()
