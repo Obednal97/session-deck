@@ -50,7 +50,7 @@ questions, permission prompts, diffs, subagents, notifications), not just a term
 - It works through `tailscale serve` and through `router.py` (several people), which pipes raw bytes both ways.
 - Several people: each person's deck runs as their own macOS account, so SSH runs as them with their own `~/.ssh`. The
   host list is per account, like pins.
-- the owner's existing `~/.ssh/config` entries (for example `nas-jump`, `media` with `ProxyJump`) must keep working; `ssh`
+- The owner's existing `~/.ssh/config` entries (for example `nas-jump`, `media` with `ProxyJump`) must keep working; `ssh`
   reads that file as normal.
 - Same security as the rest of the deck: every SSH endpoint needs the signed-in Face ID session (or the local token).
 
