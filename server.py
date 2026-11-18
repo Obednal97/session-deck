@@ -2141,7 +2141,8 @@ SYNC_SH = """C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; have=$(cat)
 for f in "$C"/projects/*/%s.jsonl; do [ -f "$f" ] && break; done
 [ -f "$f" ] || exit 0
 for p in "$f" "${f%%.jsonl}"/subagents/agent-*; do
-  n=${p#"${f%%/*}"/}; case $n in *[!0-9a-z./-]*) continue;; esac
+  n=${p#"${f%%/*}"/}; b=${p##*/agent-}; i=${b%%.meta.json}; [ "$i" = "$b" ] && i=${b%%.jsonl}
+  [ "$p" = "$f" ] || case $i in ""|"$b"|*[!0-9a-z]*) continue;; esac  # only agent-<[0-9a-z]+>.jsonl|.meta.json, as Python keeps: anything else would come whole every time
   [ -f "$p" ] || continue
   to=$(($(wc -c < "$p"))); from=$(printf '%%s\\n' "$have" | while read -r a b; do [ "$a" = "$n" ] && echo "$b" && break; done)
   from=$((${from:-0})); case $n in *.meta.json) [ "$from" != "$to" ] && from=0;; esac

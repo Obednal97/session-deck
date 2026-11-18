@@ -140,6 +140,12 @@ class Mirror(unittest.TestCase):
         self.assertIsNone(server.chat_file("not-a-uuid"))
         self.assertEqual(calls, [])
 
+    def test_unmirrored_names_not_sent(self):  # a file Python won't mirror must not be sent at all, or it comes whole on every sync
+        for n in ("agent-acompact-1a2b.jsonl", "agent-a1.jsonl.bak", "agent-.jsonl", "agent-x.y.jsonl"): (self.sub / n).write_text(line("user", "y" * 4000))
+        self.sync(); sizes = self.spy(); self.sync()
+        self.assertLess(sizes[-1], 200)
+        self.assertEqual(sorted(p.name for p in (self.mir.parent / self.sid / "subagents").iterdir()), ["agent-a1.jsonl", "agent-a1.meta.json"])
+
     def test_cut_short(self):  # a file that shrank while it was read sends fewer bytes than its header says: nothing of it is written
         self.sync(); before = self.mir.read_bytes()
         real = server.ssh_run
