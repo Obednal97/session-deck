@@ -2052,7 +2052,7 @@ def ssh_put(host, local, name):
 def ssh_get(host, path):
     """A server file no bigger than UP_MAX, copied to UPL/from-ssh/<hex8>/<its name>: that Path. Raises RuntimeError with the reason."""
     rp, base = rpath(path), re.sub(r"[\x00-\x1f\\]", "", os.path.basename(path.rstrip("/")))[:120]
-    r = ssh_run(host, f"wc -c < {rp}", timeout=30)
+    r = ssh_run(host, f"if [ -e {rp} ] && [ ! -f {rp} ]; then echo \"That isn't a file.\" >&2; exit 1; fi; wc -c < {rp}", timeout=30)  # never a folder, device or FIFO (wc would never end); a missing file gets the shell's own words
     if r.returncode: raise RuntimeError(ssh_err(r))
     try: n = int(r.stdout)
     except ValueError: raise RuntimeError("That isn't a file.")
@@ -2074,8 +2074,13 @@ def ssh_install_key(host):
         subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-q", "-f", str(SSH_KEY)], capture_output=True, timeout=30)
     try: pub = SSH_KEY.with_name(SSH_KEY.name + ".pub").read_bytes().strip()
     except OSError: return "The Mac's key couldn't be made."
-    r = ssh_run(host, """umask 077; mkdir -p ~/.ssh; k=$(cat); grep -qxF "$k" ~/.ssh/authorized_keys 2>/dev/null || printf '%s\\n' "$k" >> ~/.ssh/authorized_keys""", pub, 30)
+    r = ssh_run(host, """umask 077; mkdir -p ~/.ssh; k=$(cat); f=~/.ssh/authorized_keys; grep -qxF "$k" "$f" 2>/dev/null ||
+        { if [ -s "$f" ] && [ -n "$(tail -c 1 "$f")" ]; then echo >> "$f"; fi; printf '%s\\n' "$k" >> "$f"; }""", pub, 30)  # a last line with no newline mustn't swallow the key
     if r.returncode: return ssh_err(r)
+    a = ssh_argv({**host, "auth": "key"}, ["true"], batch=True); a[a.index(f"ControlPath={SSH_CM}/%C")] = "ControlPath=none"  # a fresh sign-in with only the key, not through the master
+    try: ok = subprocess.run(a, stdin=subprocess.DEVNULL, capture_output=True, timeout=30).returncode == 0
+    except subprocess.TimeoutExpired: ok = False
+    if not ok: return "The key was added but the server didn't accept it."
     with _ssh_lock: ssh_hosts_write([{**x, "auth": "key"} if x.get("id") == host["id"] else x for x in ssh_hosts()])
 
 def ssh_forget_key(host):

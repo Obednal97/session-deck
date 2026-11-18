@@ -236,7 +236,7 @@ class Remote(unittest.TestCase):
     def setUpClass(cls):
         cls.old = server.SSH_BIN, server.SSH_KEY, server.KNOWN_HOSTS, server.UPL
         server.UPL = Path(TMP) / "uploads"
-        cls.home = Path(tempfile.mkdtemp()); os.environ.update(FAKE_SSH_HOME=str(cls.home), FAKE_SSH_DOWN=f"{TMP}/down")
+        cls.home = Path(tempfile.mkdtemp()); os.environ.update(FAKE_SSH_HOME=str(cls.home), FAKE_SSH_DOWN=f"{TMP}/down", FAKE_SSH_NOKEY=f"{TMP}/nokey")
         server.SSH_BIN, server.SSH_KEY, server.KNOWN_HOSTS = str(Path(__file__).resolve().parent / "fake_ssh_run.sh"), Path(TMP) / "mackey" / "id_ed25519", Path(TMP) / "known_hosts"
         subprocess.run(["tmux", "-L", "decktest", "kill-server"], capture_output=True); server._socks.pop("decktest", None)
         cls.srv = server.ThreadingHTTPServer(("127.0.0.1", 0), server.H); cls.srv.daemon_threads = True
@@ -297,6 +297,26 @@ class Remote(unittest.TestCase):
         old, server.UP_MAX = server.UP_MAX, 2; self.addCleanup(setattr, server, "UP_MAX", old)
         code, d = self.post("/api/ssh/get", {"pane": self.pane, "path": "~/three"})
         self.assertEqual(code, 400); self.assertIn("over", d["error"])
+
+    def test_get_not_a_file(self):  # a folder, device or FIFO is refused at once: wc on a FIFO or /dev/zero would never end
+        (self.home / "dir").mkdir(exist_ok=True); fifo = self.home / "fifo"
+        if not fifo.exists(): os.mkfifo(fifo)
+        for p in ("~/dir", "~/fifo"):
+            t = time.time(); code, d = self.post("/api/ssh/get", {"pane": self.pane, "path": p})
+            self.assertEqual((code, d), (400, {"error": "That isn't a file."}), p); self.assertLess(time.time() - t, 5, p)
+
+    def test_installkey_after_unterminated_line(self):  # an existing last key with no newline stays whole, and repeats add no blank lines
+        ak = self.home / ".ssh/authorized_keys"; ak.parent.mkdir(exist_ok=True); ak.write_text("ssh-rsa AAAAold me@old")
+        self.addCleanup(ak.unlink, missing_ok=True)
+        for _ in range(2):
+            server.ssh_hosts_write([{**h, "auth": "password"} for h in server.ssh_hosts()])
+            self.assertEqual(self.post("/api/ssh/installkey", {"host": self.h["id"]}), (200, {"ok": True}))
+        self.assertEqual(ak.read_text(), "ssh-rsa AAAAold me@old\n" + Path(str(server.SSH_KEY) + ".pub").read_text().strip() + "\n")
+
+    def test_installkey_not_accepted(self):  # added, but the server won't take the key: the host keeps password sign-in
+        m = Path(os.environ["FAKE_SSH_NOKEY"]); m.touch(); self.addCleanup(m.unlink, missing_ok=True)
+        self.assertEqual(self.post("/api/ssh/installkey", {"host": self.h["id"]}), (400, {"error": "The key was added but the server didn't accept it."}))
+        self.assertEqual(server.ssh_hosts()[0]["auth"], "password")
 
     def test_installkey_idempotent(self):
         for _ in range(2):
