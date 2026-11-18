@@ -1792,7 +1792,7 @@ class AivaConn(http.client.HTTPConnection):
 def aiva_api(h, path, body=None):
     """/api/aiva/* for GET (body None) and POST, passed on to Aiva; False when the path is another route's."""
     data, strong = None, "0"
-    if body is None and path in ("/api/aiva/status", "/api/aiva/messages", "/api/aiva/approvals", "/api/aiva/offers"):
+    if body is None and path in ("/api/aiva/status", "/api/aiva/messages", "/api/aiva/approvals", "/api/aiva/offers", "/api/aiva/qbo-signin"):
         q = [(k, v) for k, v in urllib.parse.parse_qsl(urllib.parse.urlparse(h.path).query) if k in ("after", "tail")] if path == "/api/aiva/messages" else []
         if any(not re.fullmatch(r"\d{1,12}", v, re.A) for k, v in q): return h.send(400, {"error": "after and tail are whole numbers"}) or True
         if path == "/api/aiva/offers":
@@ -1805,8 +1805,36 @@ def aiva_api(h, path, body=None):
         b = {"text": str(body.get("text") or "").strip(), "device": body.get("device") if body.get("device") in ("phone", "laptop") else "unknown"} if ap == "/messages" else {"answer": body.get("answer"), "by": by} if ap.startswith("/offers/") else {"decision": body.get("decision"), "by": by}
         if not b.get("text") and b.get("decision") not in ("approve", "reject") and b.get("answer") not in ("yes", "no", "always", "never"): return h.send(400, {"error": "bad"}) or True
         data, strong = json.dumps(b).encode(), "1" if se else "0"
+    elif body is not None and path == "/api/aiva/qbo-signin":  # the robot check: one tap, text or key, checked here before Aiva sees it
+        b = qbo_input(body)
+        if b is None: return h.send(400, {"error": "Send one tap, up to 200 characters, or Enter, Backspace or Tab."}) or True
+        ap, data = "/qbo-signin", json.dumps(b).encode()
     else: return False
     return aiva_forward(h, ap, data, strong)
+
+QBO_MAX = 1024
+def qbo_input(b):
+    """The robot check's one input: a tap at fractions (0 to 1) of the frame, 1 to 200 characters of text, or one of three keys; None for anything else."""
+    if not isinstance(b, dict) or len(b) != 1: return None
+    (k, v), = b.items()
+    if k == "tap" and isinstance(v, list) and len(v) == 2 and all(type(n) in (int, float) and 0 <= n <= 1 for n in v): return {"tap": [float(n) for n in v]}
+    if k == "text" and isinstance(v, str) and 1 <= len(v) <= 200 or k == "key" and v in ("Enter", "Backspace", "Tab"): return {k: v}
+    return None
+
+def read_body(h, cap):
+    """The request body, chunked or with a Content-Length, up to cap bytes; the status to answer (400 malformed, 413 too big) instead when it isn't."""
+    if "chunked" not in h.headers.get("Transfer-Encoding", "").lower():
+        n = h.headers.get("Content-Length") or "0"
+        if not re.fullmatch(r"\d{1,12}", n, re.A): return 400
+        return 413 if int(n) > cap else h.rfile.read(int(n))
+    data = b""
+    while True:
+        line = h.rfile.readline(40)
+        if not re.fullmatch(rb"[0-9a-fA-F]{1,8}(;[^\r\n]*)?\r?\n", line): return 400
+        n = int(line.split(b";")[0].strip(), 16)
+        if not n: return data
+        if len(data) + n > cap: return 413
+        data += h.rfile.read(n); h.rfile.readline()
 
 def aiva_forward(h, ap, data, strong="0"):
     """Send to Aiva (POST when data is bytes, else GET), signed with the deck's key; the answer goes back to the caller as Aiva gave it."""
@@ -1844,22 +1872,8 @@ def aiva_location(h):
         strong = "0"
     elif h.authed(): strong = "1" if h.via_ts() and h.session() else "0"
     else: return h.send(401, {"error": "unauthorized"}, hdrs=LOC_CHALLENGE) or True
-    if "chunked" in h.headers.get("Transfer-Encoding", "").lower():
-        data = b""
-        try:
-            while True:
-                line = h.rfile.readline(40)
-                if not re.fullmatch(rb"[0-9a-fA-F]{1,8}(;[^\r\n]*)?\r?\n", line): return h.send(400, {"error": "bad"}) or True
-                n = int(line.split(b";")[0].strip(), 16)
-                if not n: break
-                if len(data) + n > LOC_MAX: return h.send(413, {"error": "too big"}) or True
-                data += h.rfile.read(n); h.rfile.readline()
-        except ValueError: return h.send(400, {"error": "bad"}) or True
-    else:
-        try: n = int(h.headers.get("Content-Length") or 0)
-        except ValueError: n = -1
-        if n < 0 or n > LOC_MAX: return h.send(413, {"error": "too big"}) or True
-        data = h.rfile.read(n)
+    data = read_body(h, LOC_MAX)
+    if isinstance(data, int): return h.send(data, {"error": "too big" if data == 413 else "bad"}) or True
     if not data: return h.send(400, {"error": "bad"}) or True
     return aiva_forward(h, "/location", data, strong)
 # Passkeys (WebAuthn, Face ID) for the Tailscale route; direct local requests keep the token.
@@ -2836,11 +2850,8 @@ class H(BaseHTTPRequestHandler):
         key = secrets.compare_digest(given.encode("utf8", "replace"), SEC["siri_key"].encode())
         if not (self.authed() or key and (self.login() if self.via_ts() else (self.headers.get("Host") or "").split(":")[0] in HOSTS)):
             limited(bad, 0, 600); return say(401, "Session Deck didn't accept the Siri key. Copy it again from Settings.")
-        if "chunked" in self.headers.get("Transfer-Encoding", "").lower():  # in case Shortcuts streams the body
-            raw = b""
-            while len(raw) < 20000 and (n := int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)):
-                raw += self.rfile.read(n); self.rfile.readline()
-        else: raw = self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 20000))
+        raw = read_body(self, 20000)  # chunked too, in case Shortcuts streams the body
+        if isinstance(raw, int): return say(raw, "That was too long for Siri." if raw == 413 else "Session Deck couldn't read that request.")
         raw = raw.decode("utf8", "replace")
         m = re.search(r"\r?\n\r?\n(.*?)\r?\n--", raw, re.S) if "multipart/" in self.headers.get("Content-Type", "") else None
         try: text = json.loads(raw).get("text", "")
@@ -2855,7 +2866,9 @@ class H(BaseHTTPRequestHandler):
         if self.path.split("?")[0] == "/api/aiva/location": return aiva_location(self)
         if not self.authed(): return self.send(401, {"error": "token"})
         if self.path.startswith("/api/upload?"): return self.upload()
-        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        raw = read_body(self, QBO_MAX if self.path.split("?")[0] == "/api/aiva/qbo-signin" else 1 << 24)
+        if isinstance(raw, int): return self.send(raw, {"error": "That request is too big." if raw == 413 else "bad"})
+        body = json.loads(raw or b"{}")
         if self.path == "/api/rename":
             name = re.sub(r"\s+", " ", str(body.get("name", ""))).strip()[:80]
             sid = str(body.get("session", "")); f = find_file(sid)

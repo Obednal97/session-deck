@@ -322,6 +322,11 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 @media(min-width:700px){.pg .sec{top:-20px}}
 .a>.who{display:block;font-size:12px;font-weight:600;color:var(--m);margin-bottom:2px}.chat>.pga{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.chat>.avn{align-self:flex-start;margin-top:-4px}.chat>.pgo{align-self:flex-start;width:min(100%,320px);margin-top:-4px}.pgo{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pgo>small{grid-column:1/-1;color:var(--m);font-size:12.5px}.pgo .pick{text-align:center}
 .a :is(h4,h5){font-size:15px;margin:.8em 0 .3em}.a h3{font-size:16px}.sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}.a table.sr{overflow:hidden}/* not a scroller like .a table: Chrome gives a scroller a Tab stop */
+/* the QuickBooks robot check (#qbo-signin): over the Aiva chat, under the lock; outline, not border, so a tap's fractions are of the picture itself */
+.rc{z-index:5;flex-direction:column;gap:10px;padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 16px);overflow-y:auto}.rc>*{width:100%;max-width:560px;margin:0 auto}
+.rch{display:flex;align-items:center;gap:10px}.rch h2{flex:1;font-size:17px}.rch .pick{width:auto;flex:none}.rc small{color:var(--m)}.rc p{margin:0}.rcw{display:flex;flex-direction:column;gap:10px}
+.rc img{display:block;width:100%;height:auto;border-radius:10px;outline:1px solid var(--l);cursor:crosshair;touch-action:manipulation}.rc img:not([src]){aspect-ratio:4/3;background:var(--r)}
+.rcr{display:flex;gap:8px}.rcr input{flex:1;min-width:0;background:var(--r);border:1px solid var(--l);color:var(--fg);border-radius:10px;padding:9px 12px;font:inherit;font-size:16px}.rcr .pick{flex:1;text-align:center;width:auto}.rcr .go{padding:9px 16px}.rc a.go{display:block;text-align:center;text-decoration:none}
 /* Aiva's rich parts: a table scrolls in its own box, cards and charts fit the column; colours are the theme's */
 .avl small{color:var(--m);font-size:.85em}.avnote{color:var(--m);font-size:12.5px}.a :is(.avtb,.avc,.avch){margin:.6em 0}
 .avtb{border:1px solid var(--l);border-radius:10px;background:var(--s);overflow:hidden}.avtt{font-weight:600;padding:7px 10px 3px}.avtb>.avnote{margin:0;padding:5px 10px 7px;border-top:1px solid var(--l)}
@@ -359,6 +364,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 <div class=menu id=menu hidden></div>
 <div class="menu login" id=login hidden></div>
 <div class=toast id=toast hidden></div>
+<div class="lock rc" id=rc hidden></div>
 <div class=lock id=lock hidden><div class=empty><h2>Session Deck</h2><p id=lkm></p><button class=go id=lku>Unlock with Face ID</button>
  <div class=enr id=lke><input id=lkt type=password placeholder="Setup code or deck token" autocomplete=off><input id=lkn type=text placeholder="Name for this passkey" autocomplete=off><button class=go id=lkr>Set up Face ID</button></div>
  <button class=pick id=lks style="text-align:center">Set up Face ID on this device</button></div></div>
@@ -1382,7 +1388,7 @@ function avPlain(t,P){const o=[t],c=v=>v&&typeof v=='object'?v.text+(aurl(v.href
 /* Aiva, a local assistant, through /api/aiva/*: a section at the top of the chat list (its latest message, approvals waiting) opens one long-lived chat,
    shown like a session chat with the same box. Polls every 3 s while that's open, else every 30 s. #aiva in the address opens it (a push's link).
    A tier 3 approval needs a passkey sign-in, so a local token sees a note instead */
-let AV={m:[],ap:[],of:{},cf:null,on:null,at:0,ot:0,mc:{},pend:'',end:0,down:0};// on: null until Aiva first answers (a Mac without it shows no section), then whether it's running
+let AV={m:[],ap:[],of:{},cf:null,on:null,at:0,ot:0,ob:0,mc:{},pend:'',end:0,down:0};// on: null until Aiva first answers (a Mac without it shows no section), then whether it's running
 const avAgo=t=>(t=typeof t=='number'?t:Date.parse(t)/1e3)?ago(t):'';
 function avSec(){if(AV.on==null)return'';const l=AV.m.findLast(x=>x.role!='ollie'),n=AV.ap.length;
  return`<section><div class=sec>Aiva<span>${n||''}</span></div><div class=card><button class="crow${cur&&cur.aiva?' cur':''}" data-aiva=1>${tile('Aiva')}<span><b>${esc(!AV.on?'Aiva isn\'t running':l?l.text:'No messages yet')}</b><small>${!AV.on?'Messages show once it\'s back':l?avAgo(l.ts)||'Open the chat':'Open the chat'}</small></span>${n?`<em class="ap a2">${n} to approve</em>`:''}</button></div></section>`}
@@ -1410,19 +1416,47 @@ function avDraw(){if(dOpen&&nav.v=='root')drawMenu();if(cur&&cur.aiva)draw()}
 // the first load takes the last 200; after that, what's new after the last id, in Aiva's pages of 100, fetching again at once while a page is full
 async function avMore(){const t=!AV.m.length,m=(await api('/api/aiva/messages?'+(t?'tail=200':'after='+AV.m[AV.m.length-1].id))).messages||[],ids=new Set(AV.m.map(x=>x.id));
  AV.m=AV.m.concat(m.filter(x=>!ids.has(x.id))).slice(-300);return!t&&m.length>=100}
-async function avOffers(){const ids=AV.m.map(x=>x.offer_id).filter(Boolean),mc=AV.mc;
- // an id never seen before is fetched at once; re-checks (open offers, ids missed once) wait 30 s
- if(!ids.some(i=>!AV.of[i]&&!mc[i])&&!(Date.now()-AV.ot>=3e4&&ids.some(i=>AV.of[i]?AV.of[i].status=='open':mc[i]<2)))return;
- AV.ot=Date.now();const l=(await api('/api/aiva/offers?status=all')).offers||[];
- for(const o of l)if(ids.includes(o.id)&&(AV.of[o.id]||{}).status!=o.status)AV.of[o.id]={status:o.status};
+async function avOffers(){const ids=AV.m.map(x=>x.offer_id).filter(Boolean),mc=AV.mc,now=Date.now();
+ // an id never seen before is fetched at once, or after a failed fetch 6, 12, 24 then 30 s later; re-checks (open offers, ids missed once) wait 30 s
+ if(!(now-AV.ot>=AV.ob&&ids.some(i=>!AV.of[i]&&!mc[i]))&&!(now-AV.ot>=3e4&&ids.some(i=>AV.of[i]?AV.of[i].status=='open':mc[i]<2)))return;
+ AV.ot=now;let l;try{l=(await api('/api/aiva/offers?status=all')).offers||[];AV.ob=0}catch(e){AV.ob=Math.min(3e4,AV.ob*2||6e3);throw e}
+ for(const o of l)if(ids.includes(o.id)){delete mc[o.id];if((AV.of[o.id]||{}).status!=o.status)AV.of[o.id]={status:o.status}}// back again: its misses start over
  for(const i of ids)if(!l.some(o=>o.id==i)&&(!AV.of[i]||AV.of[i].status=='open')){mc[i]=(mc[i]||0)+1;if(mc[i]>=2)AV.of[i]={status:'gone'}}}// gone only after two fetches without it
 async function avLoad(){AV.at=Date.now();let a;
  try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals')}catch(e){AV.down=e.st==503;if(AV.down&&AV.on!=null){AV.on=false;AV.ap=[]}return avDraw()}
  try{await avOffers()}catch(e){}// an older Aiva without offers, or a slow answer, must not stop the rest
  AV.on=true;AV.down=0;AV.ap=Array.isArray(a)?a:a.approvals||[];avDraw()}
 window.openAiva=()=>{if(COL&&parent.deck)return parent.openAiva();closeMenu();hideSheet();if(rOpen)closeRP();stack=[];AV.end=1;open_({aiva:1,title:'Aiva'})};
-function avHash(){if(COL||location.hash!='#aiva')return false;history.replaceState(null,'',location.pathname+location.search);openAiva();return true}
+function avHash(){const rc=location.hash=='#qbo-signin';if(COL||location.hash!='#aiva'&&!rc)return false;history.replaceState(null,'',location.pathname+location.search);openAiva();if(rc)rcOpen();return true}
 addEventListener('hashchange',()=>{if(started&&$('lock').hidden)avHash()});
+// qbo-signin:start
+// The QuickBooks robot check (#qbo-signin, the link in Aiva's push): Aiva's sign-in tab as a picture, fetched every 700 ms while this is open, on screen and active,
+// slower after errors; a tap goes to Aiva as fractions of the picture, text and three keys as they are. DOM nodes only, like Aiva's chat.
+const RC={el:null,n:0,t:0,errs:0};
+const rcEl=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const rcFrac=(x,y,r)=>[(x-r.left)/r.width,(y-r.top)/r.height].map(v=>Math.round(Math.min(1,Math.max(0,v))*1e4)/1e4);
+const rcDelay=n=>n?Math.min(1e4,700*2**n):700;
+function rcBuild(){if(RC.el)return;const L=RC.el=$('rc'),hd=rcEl('div','rch'),x=rcEl('button','pick','Back to Aiva');x.onclick=rcClose;hd.append(rcEl('h2',null,'QuickBooks robot check'),x);
+ RC.live=rcEl('div','rcw');RC.msg=rcEl('small');RC.img=rcEl('img');RC.img.alt='QuickBooks sign-in page';
+ RC.img.onclick=e=>{const r=RC.img.getBoundingClientRect();if(RC.img.src&&r.width&&r.height)rcSend({tap:rcFrac(e.clientX,e.clientY,r)})};
+ const f=rcEl('form','rcr');RC.in=rcEl('input');RC.in.maxLength=200;RC.in.placeholder='Type into the page';RC.in.autocomplete='off';RC.in.setAttribute('autocapitalize','off');
+ f.append(RC.in,rcEl('button','go','Send'));f.onsubmit=e=>{e.preventDefault();const v=RC.in.value;if(v){RC.in.value='';rcSend({text:v})}};
+ const k=rcEl('div','rcr');for(const n of['Enter','Backspace','Tab']){const b=rcEl('button','pick',n);b.onclick=()=>rcSend({key:n});k.append(b)}
+ RC.live.append(RC.msg,RC.img,f,k);
+ RC.idle=rcEl('div','rcw');RC.why=rcEl('p');const a=rcEl('a','go','Back to the Aiva chat'),c=rcEl('button','pick','Check again');a.href='#aiva';a.onclick=rcClose;c.onclick=()=>rcPoll(++RC.n);
+ RC.idle.append(rcEl('b',null,'Nothing to do'),RC.why,a,c);RC.idle.hidden=true;
+ L.append(hd,rcEl('p',null,'Aiva never answers the robot check: you do. After it, Aiva finishes the sign-in itself.'),RC.live,RC.idle)}
+function rcOpen(){rcBuild();RC.el.hidden=false;RC.errs=0;rcPoll(++RC.n)}
+function rcClose(){if(RC.el)RC.el.hidden=true;RC.n++;clearTimeout(RC.t)}
+async function rcPoll(n){clearTimeout(RC.t);if(n!==RC.n||!RC.el||RC.el.hidden||document.hidden)return;let d;
+ try{d=await api('/api/aiva/qbo-signin');RC.errs=0}catch(e){if(n!==RC.n)return;RC.live.hidden=false;RC.idle.hidden=true;RC.msg.textContent=e.reason||'Aiva didn\'t answer. Trying again…';RC.t=setTimeout(()=>rcPoll(n),rcDelay(++RC.errs));return}
+ if(n!==RC.n)return;RC.live.hidden=!d.active;RC.idle.hidden=!!d.active;
+ if(!d.active){RC.why.textContent=d.reason||'';RC.img.removeAttribute('src');return}// stopped: Check again, or coming back to the page, looks once more
+ RC.msg.textContent='';if(typeof d.frame=='string'&&/^[A-Za-z0-9+/]+=*$/.test(d.frame))RC.img.src='data:image/jpeg;base64,'+d.frame;
+ RC.t=setTimeout(()=>rcPoll(n),rcDelay(0))}
+async function rcSend(b){try{const r=await api('/api/aiva/qbo-signin',b);if(r&&r.ok===false)toast(r.reason||'That didn\'t reach the page.')}catch(e){toast(e.reason||'That didn\'t work.')}rcPoll(++RC.n)}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&RC.el&&!RC.el.hidden)rcPoll(++RC.n)});
+// qbo-signin:end
 const avDevice=()=>/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||(innerWidth<700&&(navigator.maxTouchPoints||0)>0)?'phone':'laptop';
 // Optional: while the deck is open and visible and the setting is on, Aiva gets a position at most every 5 minutes.
 const locSet=on=>{try{on?localStorage.setItem('avloc','1'):localStorage.removeItem('avloc')}catch(e){}};const locOn=()=>{try{return localStorage.getItem('avloc')=='1'}catch(e){return false}};let locAt=0,locWarned=0;

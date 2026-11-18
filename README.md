@@ -100,7 +100,7 @@ All optional, as environment variables:
 | `DECK_RP_ID` | the Mac's Tailscale name | the HTTPS name passkeys are bound to |
 | `DECK_PREFS` | `~/Library/Application Support/session-deck/prefs.json` | where pins and archived chats are kept |
 | `DECK_SECRETS` | `~/.secrets`, else `~/.config/session-deck` | where `session-deck.json` (token, cookie key, push key) is kept, created on first run |
-| `DECK_AIVA_SOCKET` / `DECK_AIVA_KEY` | `~/Library/Application Support/aiva/aiva.sock` / `~/.secrets/aiva/deck.key` | Aiva's API socket and the key the deck signs its messages and approvals with; the Aiva section shows once Aiva answers, and the deck's address with `#aiva` on the end (`/deck/#aiva`) opens its chat |
+| `DECK_AIVA_SOCKET` / `DECK_AIVA_KEY` | `~/Library/Application Support/aiva/aiva.sock` / `~/.secrets/aiva/deck.key` | Aiva's API socket and the key the deck signs its messages and approvals with; the Aiva section shows once Aiva answers, and the deck's address with `#aiva` on the end (`/deck/#aiva`) opens its chat; `#qbo-signin` opens the QuickBooks robot check over it (Aiva's sign-in tab as a picture you tap and type into, only while Aiva is waiting on it) |
 | `DECK_SSH_HOSTS` | `ssh-hosts.json` next to `DECK_PREFS` | where saved SSH hosts are kept |
 | `DECK_SSH_CM` | `/private/tmp/deck-ssh-<uid>` | the folder for SSH's shared connections (kept short: Unix socket paths stop at 104 bytes) |
 | `DECK_SSH_BIN` | `ssh` | the `ssh` program to run |
