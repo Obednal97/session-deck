@@ -396,7 +396,7 @@ def _live_sessions():
     out, claimed, fallback, lau = [], set(), [], None
     for l in panes:
         pid_, loc, wname, ppid = l.split("\t")
-        if not ppid.isdigit(): continue  # a pane that is still starting has no pid yet
+        if not ppid.isdigit() or loc.startswith(("ssh-", "deck-view-")): continue  # still starting (no pid yet), or an SSH terminal or a terminal viewer
         ds = descendants(table, int(ppid)) + [(int(ppid), table.get(int(ppid), (0, ''))[1])]
         claude = [(p, c) for p, c in ds if re.search(r"(^|/)claude( |$)", c) and "bg-pty" not in c and "daemon" not in c and "remote-control" not in c]
         if not claude:
@@ -1845,6 +1845,83 @@ def ssh_host_save(b):
 def ssh_host_delete(hid):
     with _ssh_lock: ssh_hosts_write([h for h in ssh_hosts() if h.get("id") != hid])
 
+# SSH: connections. Each is `ssh` in its own tmux session ssh-<host id>-<n>, marked @deck_ssh, listed from tmux; a host's terminals
+# share one master connection. A saved password is typed once into OpenSSH's own prompt, so host-key questions stay in front of the user.
+SSH_BIN = os.environ.get("DECK_SSH_BIN", "ssh")
+SSH_CM = Path(os.environ.get("DECK_SSH_CM") or f"/private/tmp/deck-ssh-{os.getuid()}")  # short: Unix socket paths stop at 104 bytes
+SSH_TEMP = {}  # throwaway hosts (connect without saving) by id, in memory only, until their last terminal goes
+PW_PROMPT = re.compile(r"(?:'s password|[Pp]assword):$")
+_term_lock, _pw_lock, FEED = threading.RLock(), threading.Lock(), {}  # FEED: pane -> its newest feeder; an older one (before a reconnect) stops
+
+def ssh_argv(host, cmd=(), batch=False):
+    """ssh's argv for a host dict. The hosts file is trusted only as far as its 0600 mode: an address parse_addr wouldn't give is refused."""
+    h, u, p = host.get("host"), host.get("user"), host.get("port")
+    try: ok = parse_addr((f"{u}@" if u is not None else "") + (f"[{h}]" if ":" in h else h) + (f":{p}" if p is not None else "")) == {"user": u, "host": h, "port": p}
+    except TypeError: ok = False
+    if not ok: raise ValueError("not a valid ssh address")
+    SSH_CM.mkdir(mode=0o700, exist_ok=True); st = SSH_CM.lstat()
+    if st.st_uid != os.getuid() or not stat.S_ISDIR(st.st_mode): raise PermissionError(f"{SSH_CM} isn't this account's own folder")
+    if st.st_mode & 0o077: os.chmod(SSH_CM, 0o700)
+    return [SSH_BIN, "-o", f"ControlPath={SSH_CM}/%C", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
+            *(["-o", "BatchMode=yes"] if batch else []), *(["-o", "PreferredAuthentications=publickey"] if host.get("auth") == "key" else []),
+            *(["-p", str(p)] if p else []), *(["-l", u] if u else []), "--", h, *cmd]
+
+def ssh_host(hid):
+    return SSH_TEMP.get(hid) or next((h for h in ssh_hosts() if h.get("id") == hid), None) if isinstance(hid, str) and re.fullmatch(r"\w{1,32}", hid) else None
+
+def ssh_open(hid, password=None):
+    """A new terminal on a host (saved or throwaway): its pane key, or None. Raises ValueError for a tampered host."""
+    h = ssh_host(hid)
+    if not h: return None
+    argv = ssh_argv(h)
+    sock = next((s for s in TMUX_SOCKS if s in sockets()), TMUX_SOCKS[-1])  # as start() picks it
+    with _term_lock:
+        names = set(run("tmux", "-L", sock, "list-sessions", "-F", "#{session_name}").split())
+        s = next(f"ssh-{hid}-{n}" for n in range(1, 10000) if f"ssh-{hid}-{n}" not in names)
+        # one tmux call, so the session is marked and kept on exit before an ssh that fails at once can end it
+        r = run("tmux", "-L", sock, "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", s, "-x", "120", "-y", "40", "-n", h.get("name") or h["host"], *argv,
+                ";", "set-option", "-t", f"={s}:", "@deck_ssh", hid, ";", "set-option", "-t", f"={s}:", "status", "off", ";", "set-option", "-w", "-t", f"={s}:", "remain-on-exit", "on")
+    _live[0] = 0; _socks.pop(sock, None)  # this may have started the tmux server
+    if not r.strip().startswith("%"): return None
+    pane = f"{sock}.{r.strip()[1:]}"
+    if password: threading.Thread(target=pw_feed, args=(pane, password), daemon=True).start()
+    return pane
+
+def pw_feed(pane, pw, wait=60):
+    """Types the password once, when OpenSSH's prompt is the screen's last line; never again (a wrong password, a later "password:").
+    It reaches tmux on stdin, never argv, and the buffer is deleted on every path."""
+    me = FEED[pane] = object(); end = time.time() + wait
+    while time.time() < end and FEED.get(pane) is me:
+        lines = [l for l in tm(pane, "capture-pane", "-p", "-t", "{P}").splitlines() if l.strip()]
+        if lines and PW_PROMPT.search(lines[-1].rstrip()):
+            with _pw_lock:  # one buffer name per tmux server: two connects at once mustn't swap passwords
+                try:
+                    if FEED.get(pane) is me and subprocess.run(["tmux", "-L", pane.rsplit(".", 1)[0], "load-buffer", "-b", "deckpw", "-"], input=pw, text=True, capture_output=True, timeout=8).returncode == 0 \
+                            and tm(pane, "paste-buffer", "-d", "-b", "deckpw", "-t", "{P}", ok=True):
+                        tm(pane, "send-keys", "-t", "{P}", "Enter")
+                finally: tm(pane, "delete-buffer", "-b", "deckpw")
+            break
+        time.sleep(0.3)
+    if FEED.get(pane) is me: del FEED[pane]
+
+def ssh_terms():
+    out = []
+    for sock in sockets():
+        for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{@deck_ssh}\t#{pane_id}\t#{session_name}\t#{pane_dead}\t#{session_created}\t#{window_name}").splitlines():
+            x = l.split("\t", 5)
+            if len(x) == 6 and x[0] and x[1].startswith("%"):
+                out.append({"pane": f"{sock}.{x[1][1:]}", "session": x[2], "host": x[0], "dead": x[3] == "1", "created": int(x[4]) if x[4].isdigit() else 0, "title": x[5]})
+    return out
+
+def valid_term(p):
+    return isinstance(p, str) and bool(re.fullmatch(PANE_RE, p)) and p in {t["pane"] for t in ssh_terms()}
+
+def ssh_state():
+    with _term_lock:
+        terms = ssh_terms(); used = {t["host"] for t in terms}
+        for k in [k for k in SSH_TEMP if k not in used]: del SSH_TEMP[k]
+        return {"hosts": ssh_hosts() + list(SSH_TEMP.values()), "terms": terms}
+
 def cbor(b, i=0):
     """Minimal CBOR decoder (ints, bytes, text, arrays, maps, bools): enough for attestationObject and COSE keys."""
     mt, ai = b[i] >> 5, b[i] & 31; i += 1
@@ -2038,7 +2115,7 @@ class H(BaseHTTPRequestHandler):
             v = vapid(); return self.send(200, {"key": b64u(v[1]) if v else None})
         if path == "/api/sessions":
             ps_ = proc_summary(); live = [{**s, "attn": attn(s), "procs": ps_.get(s["pane"])} for s in live_sessions()]
-            return self.send(200, {"live": live, "history": history(skip={s["session"] for s in live})})
+            return self.send(200, {"live": live, "history": history(skip={s["session"] for s in live}), "ssh": ssh_state()})
         if path == "/api/search":
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("q", [""])[0].strip()
             return self.send(200, {"results": search(q) if len(q) >= 3 else []})
@@ -2261,6 +2338,35 @@ class H(BaseHTTPRequestHandler):
             if isinstance(body, dict) and isinstance(body.get("delete"), str): return ssh_host_delete(body["delete"]) or self.send(200, {"ok": True})
             h, err = ssh_host_save(body["save"]) if isinstance(body, dict) and isinstance(body.get("save"), dict) else (None, "Nothing to save.")
             return self.send(400, {"error": err}) if err else self.send(200, {"host": h})
+        if self.path in ("/api/ssh/connect", "/api/ssh/close", "/api/ssh/reconnect"):  # SSH terminals: valid_term, never valid_pane
+            pw = body.get("password") or None
+            if pw is not None and not (isinstance(pw, str) and len(pw) <= 1024 and pw.isprintable()): return self.send(400, {"error": "That password isn't valid."})
+            try:
+                if self.path == "/api/ssh/connect":
+                    t = body.get("temp")
+                    with _term_lock:  # a throwaway host is only kept while it has a terminal: ssh_state mustn't drop it before this one starts
+                        if isinstance(t, dict):
+                            a, auth = parse_addr(t.get("addr")), t.get("auth")
+                            if not a or auth not in SSH_AUTH or auth == "config" and (a["host"] not in ssh_config_names() or a["user"] or a["port"]):
+                                return self.send(400, {"error": "That address isn't valid."})
+                            hid = "t" + secrets.token_hex(5); SSH_TEMP[hid] = {"id": hid, "name": a["host"], **a, "auth": auth, "perm": "default", "temp": True}
+                        else: hid = body.get("host")
+                        p = None
+                        try: p = ssh_open(hid, pw)
+                        finally:
+                            if isinstance(t, dict) and not p: SSH_TEMP.pop(hid, None)
+                    return self.send(200, {"pane": p}) if p else self.send(400, {"error": "That host wasn't found."})
+                pane = body.get("pane")
+                term = next((x for x in ssh_terms() if x["pane"] == pane), None)
+                if not term: return self.send(400, {"error": "pane"})
+                if self.path == "/api/ssh/close": tm(pane, "kill-session", "-t", "{P}"); return self.send(200, {"ok": True})
+                h = ssh_host(term["host"])
+                if not h: return self.send(400, {"error": "That host isn't saved any more."})
+                if not tm(pane, "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h), ok=True): return self.send(400, {"error": "Couldn't reconnect."})
+                if pw: threading.Thread(target=pw_feed, args=(pane, pw), daemon=True).start()
+                return self.send(200, {"ok": True})
+            except ValueError: return self.send(400, {"error": "That host's address isn't valid."})
+            except OSError as e: return self.send(500, {"error": f"Couldn't start ssh: {e}"})
         pane = body.get("pane", "")
         if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(400, {"error": "pane"})
         if self.path == "/api/procs/kill":
