@@ -25,7 +25,7 @@ How the multi-account deck (this folder) would move into `Obednal97/mac-ai-serve
 | `multiuser.conf` | not needed: the account list comes from the repo's own `people` helper, and the Tailscale login is a new per-person setting (below) |
 | test run (two decks, router, Playwright) | `tests/test_mod_deck.sh` (plist contents and commands, using the fakes) and `tests/test_deck.py` (router routing and 403, single-file secrets, engine list, with no network or tmux) |
 
-SSH needs nothing extra from mac-ai-server: it uses the system `ssh` and `tmux`, and keeps its state in the deck's own prefs folder.
+SSH needs nothing extra from mac-ai-server: it uses the system `ssh` and `tmux`, and keeps its state in the deck's own prefs folder (plus a copy of remote Claude chats' transcripts in the account's `~/Library/Caches/session-deck/remote`).
 
 ## Config keys
 
