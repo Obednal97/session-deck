@@ -291,6 +291,19 @@ class Chats(unittest.TestCase):
         c.request("POST", path, json.dumps(body), {"X-Deck-Token": server.TOK, "Content-Type": "application/json"})
         r = c.getresponse(); return r.status, json.loads(r.read())
 
+    def test_sign_in_card(self):  # Claude's sign-in screen in a remote chat: the link joined, the code typed in, sending held
+        f = self.home / "screen.txt"; f.write_text(CODE_CHAT); sid = str(uuid.uuid4())
+        s, pane = self.term(f"cat {f}; read c; echo GOT:$c; seq 10; while :; do sleep 60; done", claude=sid, rcwd="/root/x", rkind="plain"); self.claude(sid)
+        self.assertTrue(until(lambda: "Esc to cancel" in T("capture-pane", "-p", "-t", f"={s}:")))
+        st, b = self.get("/api/status/" + pane)
+        self.assertEqual((st, b["login"], b["menu"], b["working"]), (200, {"step": "code", "url": URL, "text": ""}, None, False))
+        self.assertEqual(self.post("/api/send", {"pane": pane, "text": "hi"})[0], 409)
+        for bad in ("a b", "", "x" * 501, 7): self.assertEqual(self.post("/api/login", {"pane": pane, "code": bad})[0], 400, bad)
+        self.assertEqual(self.post("/api/login", {"pane": pane, "code": " abc#def \n"}), (200, {"ok": True}))
+        self.assertTrue(until(lambda: "GOT:abc#def" in T("capture-pane", "-p", "-t", f"={s}:")))
+        self.assertIsNone(self.get("/api/status/" + pane)[1]["login"])  # the screen has moved on: no card, and nothing more is typed
+        self.assertEqual(self.post("/api/login", {"pane": pane, "code": "abc"})[0], 409)
+
     def test_deck_chat_listed(self):
         sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd="/root/x", rkind="plain")
         self.claude(sid, status="busy")
@@ -850,6 +863,57 @@ class StartArgs(unittest.TestCase):
         self.assertIsNone(server.start(str(d.parent), "claude", None))  # outside HOME
         self.assertEqual(server.claude_args("local", "plan", "opus", None, "n", R, True, "1" * 36), ["--permission-mode", "plan", "--resume", R, "--fork-session", "--session-id", "1" * 36, "--name=n"])
         self.assertIsNone(server.claude_args("claude", "bypass", None, None, None, "x", False))
+
+
+URL = ("https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2F"
+       "platform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Aprofile+user%3Ainference&code_challenge=XdEx9BSD4d1CVFTgV6ZSgy5cWaGm5yK3CJZxAdfbio8"
+       "&code_challenge_method=S256&state=5hys7WlPhcVy2ng6J9lb-lGOvvvLNiSEkIzaVxYJzvU")
+def wrap(u, w=52): return "\n".join(u[i:i + w] for i in range(0, len(u), w))
+BOX = " ╭" + "─" * 40 + "╮\n │" + " " * 40 + "│\n ╰" + "─" * 40 + "╯\n"
+# Claude Code 2.1.327's sign-in screens, as the pane shows them: /login in a chat (after "c" copied the link), and a signed-out start
+CODE_CHAT = ("▎ Using Opus 5.5 (from .claude/settings.json) ·\n▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n  Login\n\n  Browser didn't open? Use the URL below to sign\n  in\n"
+             "  (Sent via OSC 52 · select the URL manually if\n  paste fails)\n\n" + wrap(URL) + "\n\n  Hold Shift (Option in iTerm2, Fn in\n"
+             "  Terminal.app) while selecting to use your\n  terminal's native copy\n\n  Paste code here if prompted\n" + BOX + "\n  Esc to cancel\n")
+CODE_START = (" Welcome to Claude Code v2.1.327\n\n Browser didn't open? Use the URL below to sign in (c to\n copy)\n\n" + wrap(URL, 56) +
+              "\n\n Paste code here if prompted\n" + BOX + "\n Esc to go back\n")
+ERROR = (" Welcome to Claude Code v2.1.327\n\n OAuth error: That code wasn't accepted. It may be\n incomplete, expired, already used, or from an earlier\n"
+         " sign-in attempt. Sign in again to get a new code.\n\n\n Press Enter to retry. (Esc to continue without logging\n in)\n")
+DONE = " Welcome to Claude Code v2.1.327\n\n Login successful. Press Enter to continue…\n"
+METHOD = (" Welcome to Claude Code v2.1.327\n\n Claude Code can be used with your Claude subscription\n or billed based on API usage through your Console\n account.\n\n"
+          " Select login method:\n\n ❯ 1. Claude account with subscription · Individual,\n      Team, or Enterprise\n   2. Anthropic Console account · API usage billing\n"
+          "   3. 3rd-party platform · Bedrock, Microsoft Foundry,\n      Google Vertex AI\n")
+
+
+class Login(unittest.TestCase):
+    def test_code_screens(self):
+        for scr in (CODE_CHAT, CODE_START):
+            self.assertEqual(server.login_screen(scr), {"step": "code", "url": URL, "text": ""})
+            self.assertIsNone(server.parse_menu(scr))
+
+    def test_url_cut_off_the_top(self):  # no start of the link on screen: no link, rather than part of one
+        cut = CODE_CHAT.split("https://")[0] + wrap(URL).split("\n", 2)[2] + "\n\n  Paste code here if prompted\n" + BOX
+        self.assertEqual(server.login_screen(cut)["url"], None)
+
+    def test_lookalike_host(self):
+        for bad in ("https://evil.example/oauth/authorize?x=1", "https://claude.com.evil.example/oauth/authorize?x=1", "http://claude.com/oauth/authorize?x=1",
+                    "https://evilclaude.com/oauth/authorize?x=1"):
+            self.assertIsNone(server.login_screen(CODE_START.replace(wrap(URL, 56), bad))["url"], bad)
+        self.assertEqual(server.login_screen(CODE_START.replace(wrap(URL, 56), "https://platform.claude.com/oauth/authorize?x=1"))["url"], "https://platform.claude.com/oauth/authorize?x=1")
+
+    def test_error_and_done(self):
+        self.assertEqual(server.login_screen(ERROR), {"step": "error", "url": None, "text": "OAuth error: That code wasn't accepted. It may be incomplete, expired, "
+                         "already used, or from an earlier sign-in attempt. Sign in again to get a new code."})
+        self.assertEqual(server.login_screen(DONE)["step"], "done")
+
+    def test_not_a_sign_in(self):
+        self.assertIsNone(server.login_screen("❯ hello\n\nClaude said: paste code here if prompted, then OAuth error: x\n"))
+
+    def test_method_is_a_question(self):
+        m = server.parse_menu(METHOD)
+        self.assertEqual((m["question"], [o["label"] for o in m["options"]], m["selected"], m["mode"]),
+                         ("Select login method:", ["Claude account with subscription · Individual,", "Anthropic Console account · API usage billing",
+                                                   "3rd-party platform · Bedrock, Microsoft Foundry,"], 0, "arrows"))
+        self.assertIsNone(server.login_screen(METHOD))
 
 
 if __name__ == "__main__": unittest.main()

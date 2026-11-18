@@ -279,7 +279,7 @@ def parse_menu(plain):
         end = max((i for i, l in enumerate(L) if l.strip()), default=-1)
         m1 = next((i for i in range(max(0, end - 12), end + 1) if re.match(r"^\s*\u276f\s+\d+\.\s+\S", L[i])), None)
         # the "?" line is the one above the list, or a little higher: Switch model? has two lines of explanation in between
-        if m1 and any(l.rstrip().endswith("?") for l in [l for l in L[:m1] if l.strip()][-4:]): F = end + 1; L = L + [""]
+        if m1 and any(l.rstrip().endswith("?") or l.strip() == "Select login method:" for l in [l for l in L[:m1] if l.strip()][-4:]): F = end + 1; L = L + [""]
     if F >= 0:
         M = max((i for i in range(F) if re.match(r"^\s*\u276f\s+\S", L[i])), default=-1)
         if M >= 0:
@@ -309,6 +309,30 @@ def parse_menu(plain):
             amend = "Tab to amend" in L[F]
             if len(opts) >= 2: return {"question": q, "options": opts, "selected": sel, "mode": "arrows", "amend": amend,
                                        "detail": amend and perm_detail(L, j)}
+
+LOGIN_HOST = re.compile(r"https://(?:[\w-]+\.)*(?:claude\.com|claude\.ai|anthropic\.com)(?:[/?#]|$)")
+def login_screen(plain):
+    """Claude's sign-in screen (/login, or a signed-out Claude): {"step": "code", "url"} while it waits for the code, with the link
+    joined back from its hard-wrapped lines (None unless it is Anthropic's own); "error" with Claude's message; "done" once signed in."""
+    L = [l.rstrip() for l in plain.splitlines()]
+    while L and not L[-1].strip(): L.pop()  # the screen's empty rows below
+    tail = "\n".join([l.strip() for l in L if l.strip()][-3:])  # the screen's last lines: a chat's are its message box, whatever the chat quotes
+    if re.search(r"(?:^|\n)Login successful[\s\S]*Press Enter", tail): return {"step": "done", "url": None, "text": ""}
+    e = next((i for i in range(len(L) - 1, max(-1, len(L) - 15), -1) if L[i].lstrip().startswith("OAuth error:")), None)
+    if e is not None and re.search(r"^Press Enter to retry", tail, re.M):
+        t = []
+        for l in L[e:]:
+            if not l.strip(): break
+            t.append(l.strip())
+        return {"step": "error", "url": None, "text": " ".join(t)}
+    p = next((i for i in range(len(L) - 1, max(-1, len(L) - 8), -1) if L[i].strip() == "Paste code here if prompted"), None)
+    if p is None: return None
+    u = next((i for i in range(p - 1, -1, -1) if L[i].startswith("https://")), None)
+    v = u
+    while v is not None and v < p and L[v].strip() and not L[v].startswith(" "): v += 1  # the link: flush-left lines up to a blank one
+    url = "".join(L[u:v]) if u is not None else ""
+    ok = LOGIN_HOST.match(url) and re.fullmatch(r"[\x21-\x7e]+", url) and all(not l.strip() or l.startswith(" ") for l in L[v:p])  # nothing of a cut-off link below it
+    return {"step": "code", "url": url if ok else None, "text": ""}
 
 def perm_detail(L, j):
     """What a permission prompt asks to do (the tool, the command or diff), drawn between the dialog's top rule and the
@@ -421,7 +445,10 @@ def pane_screen(key):
     model = re.search(r"Model:\s*(.+?)\s*(\||$)", plain, re.M)
     ctx = re.search(r"Ctx:\s*([\d.]+%)\s*\(([^)]+)\)", plain)
     pm = re.search(r"^\s*(?:\u23f5\u23f5|\u23f8)\s*(.+?)(?:\s+on)?(?:\s*\(|\s+\u00b7|$)", plain, re.M)
-    menu = parse_menu(plain)
+    login = login_screen(plain)
+    if login and login["step"] == "code" and not login["url"]:  # the link's start may be above the screen: look in the scrollback too
+        login = login_screen(tm(key, "capture-pane", "-p", "-S", "-60", "-t", "{P}"))
+    menu = None if login else parse_menu(plain)
     if menu:  # several questions at once: a tab row "←  ☐ Topic  ☐ Topic  ✔ Submit  →", the current one on a coloured background
         row = next((l for l in scr.splitlines() if "\u2190" in l and "\u2192" in l and "Submit" in l), None)
         if row:
@@ -429,7 +456,7 @@ def pane_screen(key):
             tabs = [{"label": re.sub(r"\x1b\[[0-9;]*m", "", parts[i + 1]).strip(" \u2192"), "done": parts[i] != "\u2610",
                      "current": bool(re.search(r"\x1b\[48;[0-9;]*m", parts[i - 1]))} for i in range(1, len(parts) - 1, 2)]
             menu["tabs"] = [t for t in tabs if t["label"] != "Submit"]
-    return {"menu": menu, "working": "esc to interrupt" in plain or bool(st), "status": st[-1].strip() if st else None,
+    return {"menu": menu, "login": login, "working": not login and ("esc to interrupt" in plain or bool(st)), "status": st[-1].strip() if st else None,
             "suggestion": sug[-1] if sug else None, "model": model.group(1).strip() if model else None,
             "ctx": f"{ctx.group(1)} ({ctx.group(2)})" if ctx else None,
             "perm": pm.group(1).strip() if pm else "default (asks before acting)"}
@@ -2963,14 +2990,16 @@ class H(BaseHTTPRequestHandler):
             except subprocess.TimeoutExpired: return self.send(400, {"error": "The server took too long to answer."})
         pane = body.get("pane", "")
         if not re.fullmatch(PANE_RE, pane) or not valid_pane(pane): return self.send(400, {"error": "pane"})
-        if self.path in ("/api/send", "/api/choose", "/api/key") and any(x["pane"] == pane and x["dropped"] for x in remote_chats()):  # typing would reach ssh, or a password prompt
+        if self.path in ("/api/send", "/api/choose", "/api/key", "/api/login") and any(x["pane"] == pane and x["dropped"] for x in remote_chats()):  # typing would reach ssh, or a password prompt
             return self.send(409, {"error": "This chat isn't connected. Reconnect it first."})
         if self.path == "/api/procs/kill":
             pid = body.get("pid")
             r = stop_proc(pane, pid) if isinstance(pid, int) and not isinstance(pid, bool) and pid > 1 else {"error": "pid"}
             return self.send(409 if "error" in r else 200, r)  # 409 carries the reason to the page
         if self.path == "/api/send":
-            if pane_screen(pane)["menu"]: return self.send(409, {"error": "Claude is asking a question. Answer it first."})
+            sc = pane_screen(pane)
+            if sc["menu"]: return self.send(409, {"error": "Claude is asking a question. Answer it first."})
+            if sc["login"]: return self.send(409, {"error": "Claude is waiting for you to sign in. Use the sign-in card."})
             text = str(body.get("text", ""))[:20000]
             if body.get("id") and SENT_IDS.get(body["id"]): return self.send(200, SENT_IDS[body["id"]])  # a retried request: sent already
             ag, c = None, next((x for x in chats() if x["pane"] == pane), {})
@@ -2996,6 +3025,13 @@ class H(BaseHTTPRequestHandler):
             r = {"ok": True, "text": text}
             if body.get("id"): SENT_IDS[str(body["id"])[:40]] = r; [SENT_IDS.pop(k) for k in list(SENT_IDS)[:-50]]
             return self.send(200, r)
+        if self.path == "/api/login":  # the code from Claude's sign-in page, typed into its sign-in screen
+            code = body.get("code").strip() if isinstance(body.get("code"), str) else ""
+            if not re.fullmatch(r"[\x21-\x7e]{1,500}", code): return self.send(400, {"error": "That code doesn't look right. Copy it again."})
+            if (pane_screen(pane)["login"] or {}).get("step") != "code": return self.send(409, {"error": "Claude isn't asking for a code now."})
+            tm(pane, "set-buffer", "-b", "deck", "--", code); tm(pane, "paste-buffer", "-p", "-d", "-b", "deck", "-t", "{P}")
+            time.sleep(0.15); tm(pane, "send-keys", "-t", "{P}", "Enter"); _live[0] = _rch[0] = 0
+            return self.send(200, {"ok": True})
         if self.path == "/api/choose":
             m = pane_screen(pane)["menu"]  # same parse as /api/status, so it compares equal to what the page drew
             if not m: return self.send(409, {"error": "That question has gone."})
