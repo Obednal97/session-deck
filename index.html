@@ -1045,7 +1045,7 @@ const tcol=()=>{const c=getComputedStyle(document.documentElement).getPropertyVa
 new MutationObserver(tcol).observe(document.documentElement,{attributeFilter:['data-theme']});matchMedia('(prefers-color-scheme: dark)').addEventListener('change',tcol);tcol();
 function step(d){const p=inSplit?(COLS[FOC].x||{}).pane:cur&&cur.pane,A=[...live].sort((a,b)=>rank(b)-rank(a)||b.mtime-a.mtime),i=A.findIndex(s=>s.pane==p);if(!A.length)return;hideSheet();closeMenu();stack=[];open_(A[i<0?(d>0?0:A.length-1):(i+d+A.length)%A.length])}
 // shortcuts for the whole window; the columns pass these up to the outer page (see deck.key)
-function gkey(e){const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.code,a=e.target;if(!started||!$('lock').hidden||a&&a.closest&&a.closest('.xt'))return null;// keys typed in a live terminal are the terminal's
+function gkey(e){const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrlKey&&!e.metaKey,c=e.code,a=e.target;if(!started||!$('lock').hidden||a&&a.closest&&a.closest('.xt')&&!(MAC&&e.metaKey))return null;// keys typed in a live terminal are the terminal's (a Mac's ⌘ keys never reach it)
  if(m&&!e.shiftKey&&!e.altKey&&c=='KeyK')return()=>{if(s0)side();if(!dOpen)openMenu();$('q').focus();$('q').select()};
  if(m&&e.shiftKey&&c=='KeyO')return()=>$('nc').click();
  if(m&&!e.shiftKey&&c=='Comma')return()=>$('set').click();
@@ -1065,7 +1065,7 @@ document.addEventListener('keydown',e=>{const m=MAC?e.metaKey&&!e.ctrlKey:e.ctrl
  else if(e.key=='Tab'&&sh.classList.contains('on')){const F=[...sh.querySelectorAll('button,input,select,textarea,summary,a[href]')].filter(x=>!x.disabled&&x.offsetParent),i=F.indexOf(a);// keep Tab inside the dialog
   if(F.length&&(e.shiftKey?i<=0:i==F.length-1||i<0))f=()=>F[e.shiftKey?F.length-1:0].focus();else return}
  else if(e.key=='Escape'&&a==$('ta')&&!($('slash').hidden&&$('at').hidden))f=()=>$('slash').hidden=$('at').hidden=true;
- else if(!started||!$('lock').hidden||a&&a.closest&&a.closest('.xt'))return;
+ else if(!started||!$('lock').hidden||a&&a.closest&&a.closest('.xt')&&!(MAC&&e.metaKey))return;
  else if(m&&!e.shiftKey&&c=='Period'&&cur&&cur.session&&!cur.agent)f=()=>rOpen?closeRP():(hideSheet(),openRP());
  else f=gkey(e);
  if(f){e.preventDefault();e.stopImmediatePropagation();f()}},true);
@@ -1311,11 +1311,11 @@ $('sshb').onclick=e=>{if(e.target.id=='sshre')sshRe(cur.pane);if(e.target.id=='s
 // a password for a password host: the saved one, else nothing when another terminal there is up (its shared connection needs none), else asked for
 function pwAsk(h){return new Promise(ok=>{sb.innerHTML=`<h2>Password</h2><small class=sub2>${esc(h.name)} · ${esc(sshAddr(h))}</small><input id=pwi type=password autocomplete=off placeholder="Password${h.user?' for '+esc(h.user):''}">`+
   (h.temp?'':'<label class=ck><input type=checkbox id=pwk checked> Remember on this device</label>')+'<button class=go id=pwgo>Connect</button>';showSheet(1);
- const go=()=>{const v=$('pwi').value;if(!v)return $('pwi').focus();ok({pw:v,keep:!!($('pwk')&&$('pwk').checked)})};$('pwgo').onclick=go;$('pwi').onkeydown=e=>{if(e.key=='Enter')go()};setTimeout(()=>$('pwi')&&$('pwi').focus(),60)})}
+ const go=()=>{const v=$('pwi').value;if(!v)return $('pwi').focus();$('pwi').value='';ok({pw:v,keep:!!($('pwk')&&$('pwk').checked)})};$('pwgo').onclick=go;$('pwi').onkeydown=e=>{if(e.key=='Enter')go()};setTimeout(()=>$('pwi')&&$('pwi').focus(),60)})}
 async function pwFor(h,skip){if(h.auth!='password')return'';const p=!h.temp&&await pwGet(h.id);if(p)return p;if(SSH.terms.some(t=>t.host==h.id&&!t.dead&&t.pane!=skip))return'';
  const r=await pwAsk(h);if(r.keep&&!h.temp)await pwSet(h.id,r.pw);return r.pw}
 async function sshGo(b,h,pw){if(pw&&h.auth=='password')b.password=pw;let d;try{d=await api('/api/ssh/connect',b)}catch(e){return toast(e.reason||'Couldn\'t connect.')}
- hideSheet();closeMenu();stack=[];await list().catch(()=>{});sshOpen(d.pane)}
+ hideSheet();closeMenu();stack=[];await list(1).catch(()=>{});sshOpen(d.pane)}// fresh: a column's shared list may predate the new pane
 async function sshConnect(hid,pw){const h=sshH(hid);if(!h)return toast('That host has gone.');sshGo({host:hid},h,pw||await pwFor(h))}
 async function sshRe(p){const t=SSH.terms.find(x=>x.pane==p),h=t&&sshH(t.host);if(!h)return toast('That host isn\'t saved any more.');const pw=await pwFor(h,p);
  try{await api('/api/ssh/reconnect',{pane:p,...pw?{password:pw}:{}})}catch(e){return toast(e.reason||'Couldn\'t reconnect.')}hideSheet();await list().catch(()=>{});if(LT&&cur&&cur.pane==p)LT.focus()}
@@ -1329,10 +1329,10 @@ async function sshAdd(h){closeMenu();let cfg=[],au=h?h.auth:'password';try{cfg=(
  ${sel('xpm','Claude chats here',PERMO)}<button class=go id=xsc>Save and connect</button><div class=two>${B('xsv','Save')}${h?B('xcn','Cancel'):B('xso','Connect once')}</div>`;showSheet(h?1:-1);
  const A=v=>{au=v;$('xau').querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.au==v));$('xpb').hidden=v!='password'};A(au);$('xpm').value=h?h.perm:'default';
  $('xau').onclick=e=>{const b=e.target.closest('[data-au]');if(b)A(b.dataset.au)};$('xad').oninput=()=>{if(cfg.includes($('xad').value.trim()))A('config')};
- const V=()=>({name:$('xnm').value.trim(),addr:$('xad').value.trim(),auth:au,perm:$('xpm').value}),pw=()=>au=='password'?$('xpw').value:'',bs=[...sb.querySelectorAll('.go,.pick')];
- const save=async()=>{bs.forEach(b=>b.disabled=true);try{const x=(await api('/api/ssh/hosts',{save:{...h&&{id:h.id},...V()}})).host,p=pw(),k=$('xrm').checked;
-   if(x.auth!='password'||p&&!k)pwForget(x.id);if(p&&k)await pwSet(x.id,p);await list().catch(()=>{});return x}catch(e){toast(e.reason||'Couldn\'t save that.')}finally{bs.forEach(b=>b.disabled=false)}};
- $('xsv').onclick=async()=>{const x=await save();if(x)sshHost(x.id)};$('xsc').onclick=async()=>{const x=await save();if(x)sshConnect(x.id,pw())};
+ const V=()=>({name:$('xnm').value.trim(),addr:$('xad').value.trim(),auth:au,perm:$('xpm').value}),pw=()=>{const v=au=='password'?$('xpw').value:'';$('xpw').value='';return v},bs=[...sb.querySelectorAll('.go,.pick')];// a typed password leaves the field as soon as it is read
+ const save=async p=>{bs.forEach(b=>b.disabled=true);try{const x=(await api('/api/ssh/hosts',{save:{...h&&{id:h.id},...V()}})).host,k=$('xrm').checked;
+   if(x.auth!='password'||p&&!k)pwForget(x.id);if(p&&k)await pwSet(x.id,p);await list().catch(()=>{});return x}catch(e){$('xpw').value=p;toast(e.reason||'Couldn\'t save that.')}finally{bs.forEach(b=>b.disabled=false)}};
+ $('xsv').onclick=async()=>{const x=await save(pw());if(x)sshHost(x.id)};$('xsc').onclick=async()=>{const p=pw(),x=await save(p);if(x)sshConnect(x.id,p)};
  if(h)$('xcn').onclick=()=>sshHost(h.id);else $('xso').onclick=()=>{const v=V();sshGo({temp:{addr:v.addr,auth:au}},{auth:au},pw())}}
 // a host's page: its terminals (Open, Close), New terminal, Edit, Forget saved password, Delete. Redrawn when its terminals change (sshUI)
 const sshK=hid=>JSON.stringify([sshH(hid),sshT(hid),pwHas(hid)]);
