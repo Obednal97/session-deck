@@ -313,12 +313,12 @@ class Remote(unittest.TestCase):
         r = self.req("POST", f"/api/upload?pane={self.pane}&name=notes.txt", b"hello there\n", "application/octet-stream")
         d = json.loads(r.read())
         self.assertEqual(r.status, 200, d)
-        self.assertTrue(d["remote"]); self.assertTrue(d["path"].startswith("~/.cache/session-deck/uploads/"), d)
-        f = self.home / d["path"][2:]
+        self.assertTrue(d["remote"]); self.assertTrue(d["path"].startswith(f"{self.home}/.cache/session-deck/uploads/"), d)  # absolute: what the terminal types works from any folder
+        f = Path(d["path"])
         self.assertEqual(f.read_bytes(), b"hello there\n")
         self.assertEqual(list(server.UPL.glob("*-*-*/*")), [])  # the Mac's copy is gone
         self.assertEqual(self.post("/api/ssh/type", {"pane": self.pane, "text": d["path"] + " "}), (200, {"ok": True}))
-        self.assertTrue(until(lambda: d["path"] in server.tm(self.pane, "capture-pane", "-p", "-t", "{P}")))
+        self.assertTrue(until(lambda: d["path"] in server.tm(self.pane, "capture-pane", "-p", "-J", "-t", "{P}")))
         for b in ({"pane": self.pane, "text": "x" * 4097}, {"pane": self.pane, "text": 5}, {"pane": "decktest.99999", "text": "x"}):
             self.assertEqual(self.post("/api/ssh/type", b)[0], 400, b)
 
@@ -334,8 +334,8 @@ class Remote(unittest.TestCase):
             self.assertEqual(r.status, 200, d)
             want = {"a b;$(id).sh": "a_b__id.sh"}.get(name, name)  # made safe to type
             self.assertEqual(d["path"].rsplit("/", 1)[1], want); self.assertNotIn(d["path"], seen); seen.add(d["path"])
-            self.assertEqual((self.home / d["path"][2:]).read_bytes(), body, name)  # the second nginx.conf has its own folder: the first is kept
-        self.assertEqual(sorted((self.home / x[2:]).read_bytes() for x in seen if x.endswith("/nginx.conf")), [b"again\n", b"server { listen 80; }\n"])
+            self.assertEqual(Path(d["path"]).read_bytes(), body, name)  # the second nginx.conf has its own folder: the first is kept
+        self.assertEqual(sorted(Path(x).read_bytes() for x in seen if x.endswith("/nginx.conf")), [b"again\n", b"server { listen 80; }\n"])
         self.assertEqual((os.path.exists(up / "old/f"), os.path.exists(up / "gone")), (False, False))  # what's over 14 days old goes; its folder an hour after it's empty
         self.assertEqual(list(server.UPL.glob("*-*-*/*")), [])
 

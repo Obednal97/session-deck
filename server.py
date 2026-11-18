@@ -1111,15 +1111,18 @@ def stop_proc(pane, pid):
     _psum[0] = 0
     return {"ok": True, "pid": pid, "stopped": len(tree), "forced": len(rest), "gone": not left()}
 
-_files = {}  # cwd -> (when, paths): typing @abc asks once per keystroke pause
-def files(cwd, q, limit=30):
-    """Paths under cwd matching q for @ autocomplete: rg --files (respects .gitignore), cut off after 2 s on huge folders."""
-    if time.time() - _files.get(cwd, (0,))[0] > 20:
-        try: out = subprocess.run(["rg", "--files", "--max-depth", "12"], cwd=cwd, capture_output=True, text=True, timeout=2).stdout
+_files = {}  # (host id, cwd) -> (when, paths): typing @abc asks once per keystroke pause
+def files(cwd, q, limit=30, host=None):
+    """Paths under cwd matching q for @ autocomplete: rg --files (respects .gitignore), cut off after 2 s on huge folders. On a server
+    (host): find, skipping .git and node_modules, cut off after 3 s."""
+    k = (host and host["id"], cwd)
+    if time.time() - _files.get(k, (0,))[0] > 20:
+        try: out = (ssh_run(host, f"cd {rpath(cwd)} && find . -maxdepth 12 \\( -name .git -o -name node_modules \\) -prune -o -type f -print", timeout=3) if host else
+                    subprocess.run(["rg", "--files", "--max-depth", "12"], cwd=cwd, capture_output=True, text=True, timeout=2)).stdout
         except subprocess.TimeoutExpired as e: out = e.stdout or ""
         out = out.decode("utf8", "ignore") if isinstance(out, bytes) else out
-        _files.clear(); _files[cwd] = (time.time(), out.splitlines()[:200000])
-    ps = _files[cwd][1]; ql = q.lower()
+        _files.clear(); _files[k] = (time.time(), [l[2:] if host else l for l in out.splitlines()[:200000] if not host or l.startswith("./")])
+    ps = _files[k][1]; ql = q.lower()
     hit = [p for p in ps if ql in p.lower()]
     hit += [d for d in sorted({p[:i + 1] for p in hit for i, ch in enumerate(p) if ch == "/"}) if ql in d.lower()]
     base = lambda p: p.rstrip("/").rsplit("/", 1)[-1].lower()
@@ -1129,29 +1132,34 @@ def valid_pane(p):
     return p in {s["pane"] for s in chats()}
 
 def chat_cwd(key):
-    """Folder of a live pane or a saved chat. Git only ever runs in one of these, never in a path the client names."""
-    if re.fullmatch(PANE_RE, key): c = next((s["cwd"] for s in live_sessions() if s["pane"] == key), None)
-    else: f = find_file(key); c = f and cached(f, file_cwd)
-    return c if c and os.path.isdir(c) else None
+    """(folder, host) of a live pane or a saved chat: host None for the Mac's own, else the server's (its folder is never looked for on the Mac).
+    Git only ever runs in one of these, never in a path the client names. (None, None) if not known."""
+    if re.fullmatch(PANE_RE, key): s = next((s for s in chats() if s["pane"] == key), {}); c, hid = s.get("cwd"), s.get("host")
+    else: f = find_file(key); c, hid = f and cached(f, file_cwd), f and remote_of(f)
+    h = hid and ssh_host(hid)
+    return (c, h) if c and (h if hid else os.path.isdir(c)) else (None, None)
 
-def git(cwd, *a, cap=1_000_000):
-    """Read-only git: (returncode, text). Killed after 5 s, or once the output passes cap (then the text is cut)."""
-    p = subprocess.Popen(["git", "--no-optional-locks", "-c", "core.quotepath=off", "-c", "core.fsmonitor=false", "-C", cwd, *a],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    t = threading.Timer(5, p.kill); t.start()
+def git(cwd, *a, cap=1_000_000, host=None):
+    """Read-only git: (returncode, text). Killed after 5 s (10 s on a server, over its shared connection in batch mode), or once the
+    output passes cap (then the text is cut). A server path that can't be shell text is (1, "")."""
+    g = ["git", "--no-optional-locks", "-c", "core.quotepath=off", "-c", "core.fsmonitor=false", "-C"]
+    try: argv = ssh_argv(host, ["sh", "-c", shlex.quote(" ".join([*g, rpath(cwd), *map(shlex.quote, a)]))], batch=True) if host else [*g, cwd, *a]  # as ssh_run, but read as it comes
+    except ValueError: return 1, ""
+    p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    t = threading.Timer(10 if host else 5, p.kill); t.start()
     out = p.stdout.read(cap + 1)
     if len(out) > cap: p.kill()
     rc = p.wait(); t.cancel(); p.stdout.close()
     return (0 if len(out) > cap else rc), out[:cap].decode("utf8", "replace")
 
-def changes(cwd, limit=300):
-    rc, top = git(cwd, "rev-parse", "--show-toplevel")
-    if rc: return {"error": "This folder isn't in a git repository."}
+def changes(cwd, limit=300, host=None):
+    rc, top = git(cwd, "rev-parse", "--show-toplevel", host=host)
+    if rc: return {"error": ssh_err(subprocess.CompletedProcess((), 255)) if host and rc == 255 else "This folder isn't in a git repository."}
     top = top.strip()
-    rc, st = git(top, "status", "--porcelain=v1", "-z", "-b", "-uall")
+    rc, st = git(top, "status", "--porcelain=v1", "-z", "-b", "-uall", host=host)
     if rc: return {"error": "git status didn't finish."}
-    head = [] if git(top, "rev-parse", "-q", "--verify", "HEAD")[0] else ["HEAD"]  # a repo with no commits yet has no HEAD
-    t, nums, i = git(top, "diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", *head)[1].split("\0"), {}, 0
+    head = [] if git(top, "rev-parse", "-q", "--verify", "HEAD", host=host)[0] else ["HEAD"]  # a repo with no commits yet has no HEAD
+    t, nums, i = git(top, "diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", *head, host=host)[1].split("\0"), {}, 0
     while i < len(t) - 1:  # "add\tdel\tpath", or "add\tdel\t" then old and new paths for a rename
         a, d, p = (t[i].split("\t") + ["", ""])[:3]
         if not p: p = t[i + 2] if i + 2 < len(t) else ""; i += 2
@@ -1164,28 +1172,42 @@ def changes(cwd, limit=300):
         old = e[i] if x[0] in "RC" and i < len(e) else None  # the old path follows a rename or copy
         if old is not None: i += 1
         p, a, d = x[3:], *nums.get(x[3:], (None, None))
-        if x[:2] == "??" and len(files) < limit:
-            try: b = Path(top, p).read_bytes()[:200_000] if not Path(top, p).is_symlink() else b""
-            except Exception: b = b""
-            a, d = (None, None) if b"\0" in b else (b.count(b"\n") + (1 if b and not b.endswith(b"\n") else 0), 0)
         files.append({"path": p, "st": x[:2], **({"from": old} if old else {}), "add": int(a) if str(a).isdigit() else None, "del": int(d) if str(d).isdigit() else None})
+    new, bs = [f for f in files[:limit] if f["st"] == "??"], []  # untracked: lines counted from the first 200 KB (none for a symlink)
+    if host and new:  # one run for them all: per file a line with the bytes that follow it, then those bytes and a newline that shows they came whole
+        try: out = ssh_run(host, f"cd {rpath(top)} || exit 1; for f in {' '.join(shlex.quote(f['path']) for f in new)}; do n=0; [ -L \"$f\" ] || [ ! -f \"$f\" ] || "
+                           'n=$(($(head -c 200000 -- "$f" | wc -c))); echo "$n"; [ "$n" = 0 ] || head -c "$n" -- "$f"; echo; done', timeout=10).stdout
+        except (subprocess.TimeoutExpired, ValueError): out = b""
+        i = 0
+        while (j := out.find(b"\n", i)) >= 0 and out[i:j].isdigit() and out[j + 1 + int(out[i:j]):j + 2 + int(out[i:j])] == b"\n": n = int(out[i:j]); bs.append(out[j + 1:j + 1 + n]); i = j + 2 + n
+    for k, f in enumerate(new):
+        if host: b = bs[k] if k < len(bs) else None  # what didn't come stays unknown
+        else:
+            try: b = Path(top, f["path"]).read_bytes()[:200_000] if not Path(top, f["path"]).is_symlink() else b""
+            except Exception: b = b""
+        if b is not None: f["add"], f["del"] = (None, None) if b"\0" in b else (b.count(b"\n") + (1 if b and not b.endswith(b"\n") else 0), 0)
     return {"root": top, "branch": branch, "files": files[:limit], "more": max(0, len(files) - limit), "head": bool(head)}
 
-def change_diff(cwd, path):
-    c = changes(cwd)
+def change_diff(cwd, path, host=None):
+    c = changes(cwd, host=host)
     if c.get("error"): return c
     f = next((x for x in c["files"] if x["path"] == path), None)  # only a path git itself reported, so no traversal
     if not f: return {"error": "This file has no uncommitted changes now."}
     p = Path(c["root"], path)
     if f["st"] == "??":
-        if p.is_symlink(): lines = ["@symlink to " + os.readlink(p)]
+        if host:  # never the Mac's file of that name: the server's, or nothing
+            q = shlex.quote(path); r = ssh_run(host, f"cd {rpath(c['root'])} || exit 1; if [ -L {q} ]; then printf L; readlink -- {q}; else printf F; head -c 400000 -- {q}; fi", timeout=10)
+            o = b"" if r.returncode else r.stdout; link, b = o[:1] == b"L" and o[1:].decode("utf8", "replace").removesuffix("\n"), o[1:] if o[:1] == b"F" else None
         else:
-            try: b = p.read_bytes()[:400_000]
-            except Exception: return {"error": "Can't read this file."}
-            lines = ["@binary file"] if b"\0" in b else ["+" + l for l in b.decode("utf8", "replace").splitlines()]
+            link = p.is_symlink() and os.readlink(p)
+            try: b = None if link else p.read_bytes()[:400_000]
+            except Exception: b = None
+        if link: lines = ["@symlink to " + link]
+        elif b is None: return {"error": "Can't read this file."}
+        else: lines = ["@binary file"] if b"\0" in b else ["+" + l for l in b.decode("utf8", "replace").splitlines()]
     else:
         lines, body = ["@renamed from " + f["from"]] if f.get("from") else [], False
-        for l in git(c["root"], "diff", "-M", "--no-ext-diff", "--no-textconv", "--no-color", *(["HEAD"] if c["head"] else []), "--", *([f["from"]] if f.get("from") else []), path)[1].split("\n"):
+        for l in git(c["root"], "diff", "-M", "--no-ext-diff", "--no-textconv", "--no-color", *(["HEAD"] if c["head"] else []), "--", *([f["from"]] if f.get("from") else []), path, host=host)[1].split("\n"):
             if l.startswith("@@"): body = True; lines.append("@" + l)
             elif l.startswith("Binary files"): lines.append("@binary file changed")
             elif body and l and l[0] in "+- ": lines.append(l)
@@ -1401,6 +1423,7 @@ def watcher():
         except Exception as e: print("watcher:", e, flush=True)
 UPL = HOME / "Library" / "Caches" / "session-deck" / "uploads"
 UP_MAX, NAMES = 1 << 30, {}  # NAMES: saved path -> the file's name on the phone, for the "Attached:" line
+RUPL = {}  # a remote chat's pane -> {server path of each upload ssh_put made for it: (name on the phone, size)}, the only files /api/send passes it
 IMG = {"png", "jpg", "gif", "webp"}  # what Claude Code turns into an [Image #N] when its path is pasted
 TXT = {"txt", "csv", "tsv", "json", "md", "log", "xml", "html", "yaml", "yml", "py", "js", "ts", "sql", "sh", "swift"}
 
@@ -2098,15 +2121,16 @@ def ssh_err(r):
 
 def ssh_put(host, local, name):
     """Copies an upload, as it is, to its own folder in the server's uploads folder (where what's over 14 days old goes first), under its
-    name made safe to type, and deletes the Mac's copy: its server path, as ~/... Raises RuntimeError with the reason."""
+    name made safe to type, and deletes the Mac's copy: its absolute server path. Raises RuntimeError with the reason."""
     f = f"{time.strftime('%Y-%m-%d')}-{secrets.token_hex(3)}/{re.sub(r'[^A-Za-z0-9._+-]', '_', os.path.basename(name)).lstrip('.')[:120] or 'file'}"
     try:
         with open(local, "rb") as fh:
             r = ssh_run(host, f'umask 077; d="$HOME"/{REMOTE_UP}; mkdir -p "$d" && find "$d" -type f -mtime +14 -delete; find "$d" -mindepth 1 -type d -empty -mmin +60 -delete; '
-                       f'mkdir "$d"/{f.split("/")[0]} && cat > "$d"/{f}', fh, 3600)  # an emptied folder goes an hour later, so never one an upload has just made
+                       f'mkdir "$d"/{f.split("/")[0]} && cat > "$d"/{f} && printf "%s\\n" "$d"/{f}', fh, 3600)  # an emptied folder goes an hour later, so never one an upload has just made
     finally: local.unlink(missing_ok=True); NAMES.pop(str(local), None)
-    if r.returncode: raise RuntimeError(f"{name} didn't reach the server. {ssh_err(r)}")
-    return f"~/{REMOTE_UP}/{f}"
+    p = r.stdout.decode(errors="replace").rstrip("\n").rsplit("\n", 1)[-1]  # the last line: a server's shell startup may print first
+    if r.returncode or not p.startswith("/"): raise RuntimeError(f"{name} didn't reach the server. {ssh_err(r) if r.returncode else ''}".strip())
+    return p
 
 def ssh_get(host, path):
     """A server file no bigger than UP_MAX, copied to UPL/from-ssh/<hex8>/<its name>: that Path. Raises RuntimeError with the reason."""
@@ -2639,9 +2663,10 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {"diff": full_tool_diff(f, m.group(3)) if f and f.exists() else None})
         m = re.fullmatch(r"/api/changes/([\w.-]+)", path)
         if m:
-            cwd = chat_cwd(m.group(1)); fq = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("file")
+            (cwd, h), fq = chat_cwd(m.group(1)), urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("file")
             if not cwd: return self.send(200, {"error": "This chat's folder isn't known."})
-            return self.send(200, change_diff(cwd, fq[0]) if fq else changes(cwd))
+            try: return self.send(200, change_diff(cwd, fq[0], h) if fq else changes(cwd, host=h))
+            except (subprocess.TimeoutExpired, ValueError): return self.send(200, {"error": "Couldn't read the changes on the server."})
         m = re.fullmatch(r"/api/status/(" + PANE_RE + ")", path)
         if m and valid_pane(m.group(1)):
             SEEN[m.group(1)] = time.time(); q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -2653,9 +2678,10 @@ class H(BaseHTTPRequestHandler):
         if m and valid_pane(m.group(1)): return self.send(200, procs_view(m.group(1)))
         if path == "/api/files":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            s = next((x for x in live_sessions() if x["pane"] == qs.get("pane", [""])[0]), None)  # cwd comes from the live chat, never the client
-            if not s or not os.path.isdir(s["cwd"] or ""): return self.send(404, {"error": "pane"})
-            return self.send(200, {"files": files(s["cwd"], qs.get("q", [""])[0][:100])})
+            p = qs.get("pane", [""])[0]; cwd, h = chat_cwd(p) if re.fullmatch(PANE_RE, p) else (None, None)  # cwd comes from the live chat, never the client
+            if not cwd: return self.send(404, {"error": "pane"})
+            try: return self.send(200, {"files": files(cwd, qs.get("q", [""])[0][:100], host=h)})
+            except ValueError: return self.send(200, {"files": []})
         self.send(404, {"error": "nf"})
     def file(self, m):
         """A file Claude made, by the signed link out_files gave the page: the link stands in for the passkey cookie, as a new tab or a
@@ -2684,9 +2710,11 @@ class H(BaseHTTPRequestHandler):
             while left > 0 and (blk := fh.read(min(left, 1 << 20))): self.wfile.write(blk); left -= len(blk)
     def upload(self):
         """Raw file body, streamed to the uploads folder under a name the server picks."""
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        pane = q.get("pane", [""])[0]; term = re.fullmatch(PANE_RE, pane) and next((t for t in ssh_terms() if t["pane"] == pane), None)  # an SSH terminal's uploads go on to its server
-        if not re.fullmatch(PANE_RE, pane) or not term and not valid_pane(pane): return self.send(400, {"error": "This chat isn't running any more."})
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query); pane = q.get("pane", [""])[0]
+        c = re.fullmatch(PANE_RE, pane) and next((x for x in chats() if x["pane"] == pane), None)  # a chat first: a remote chat's pane is an SSH terminal's too
+        term = re.fullmatch(PANE_RE, pane) and not c and next((t for t in ssh_terms() if t["pane"] == pane), None)  # an SSH terminal's uploads go on to its server as they are
+        if not c and not term: return self.send(400, {"error": "This chat isn't running any more."})
+        rh = (term or c).get("host")  # a remote chat's go through the chat filter, then on to its server
         try: n = int(self.headers["Content-Length"])
         except Exception: return self.send(411, {"error": "The upload had no size."})
         if n > UP_MAX: return self.send(413, {"error": "Files over 1 GB can't be attached. Move them with Syncthing instead."})
@@ -2717,8 +2745,11 @@ class H(BaseHTTPRequestHandler):
         except Exception:
             tmp.unlink(missing_ok=True); return self.send(400, {"error": f"{name}: the upload failed."})
         out = {"path": str(p), "kind": "image" if ext in IMG else "file", "name": name, "size": p.stat().st_size}
-        if not term: NAMES[str(p)] = name; return self.send(200, out)
-        try: return self.send(200, {**out, "path": ssh_put(ssh_host(term["host"]) or {}, p, name), "remote": True})
+        if not rh: NAMES[str(p)] = name; return self.send(200, out)
+        try:
+            sp = ssh_put(ssh_host(rh) or {}, p, name if term else f"{Path(name).stem}.{ext}")  # its type's extension, so Claude on the server sees an image as one
+            if c: R = RUPL.setdefault(pane, {}); R[sp] = (name, out["size"]); [R.pop(k) for k in list(R)[:-50]]
+            return self.send(200, {**out, "path": sp, "remote": True})
         except (RuntimeError, ValueError, subprocess.TimeoutExpired) as e: p.unlink(missing_ok=True); return self.send(400, {"error": str(e) if isinstance(e, RuntimeError) else f"{name} didn't reach the server."})
     def siri(self):
         """POST /api/siri/<key> from the iPhone Shortcut, the text as the body (Request Body: File) or as {"text"}: the Tailscale login plus the Siri key (in the path, so the shortcut
@@ -2868,7 +2899,7 @@ class H(BaseHTTPRequestHandler):
             except OSError as e: return self.send(500, {"error": f"Couldn't start ssh: {e}"})
         if self.path in ("/api/ssh/type", "/api/ssh/get", "/api/ssh/installkey", "/api/ssh/forgetkey"):  # SSH remote commands: a terminal (valid_term) or a host
             term = next((x for x in ssh_terms() if x["pane"] == body.get("pane")), None)
-            h = ssh_host(term["host"] if term else None) if self.path in ("/api/ssh/type", "/api/ssh/get") else ssh_host(body.get("host"))
+            h = ssh_host(term["host"]) if term and self.path in ("/api/ssh/type", "/api/ssh/get") else None if self.path == "/api/ssh/type" else ssh_host(body.get("host"))  # get: a terminal's, or a reply's file chip's host
             if not h: return self.send(400, {"error": "That terminal or host has gone."})
             try:
                 if self.path == "/api/ssh/type":
@@ -2893,12 +2924,14 @@ class H(BaseHTTPRequestHandler):
             if pane_screen(pane)["menu"]: return self.send(409, {"error": "Claude is asking a question. Answer it first."})
             text = str(body.get("text", ""))[:20000]
             if body.get("id") and SENT_IDS.get(body["id"]): return self.send(200, SENT_IDS[body["id"]])  # a retried request: sent already
-            files = attached(body.get("files", []))
-            if files is None: return self.send(400, {"error": "files"})
-            imgs = [f for f in files if f.suffix[1:] in IMG]
-            if len(imgs) < len(files):  # Claude opens other files itself when it sees the path
-                text = (text.rstrip() + "\n\n" + "\n".join(f"Attached: {f} ({NAMES.get(str(f), f.name)}, {human(f.stat().st_size)})" for f in files if f not in imgs)).strip()
             ag, c = None, next((x for x in chats() if x["pane"] == pane), {})
+            fs, R = body.get("files", []), RUPL.get(pane, {}) if c.get("remote") else None  # a remote chat: only server paths its own uploads made
+            files = attached(fs) if R is None else fs if isinstance(fs, list) and len(fs) <= 20 and all(isinstance(x, str) and x in R for x in fs) else None
+            if files is None: return self.send(400, {"error": "files"})
+            imgs = [f for f in files if os.path.splitext(f)[1][1:] in IMG]
+            if len(imgs) < len(files):  # Claude opens other files itself when it sees the path
+                text = (text.rstrip() + "\n\n" + "\n".join(f"Attached: {f} ({R[f][0]}, {human(R[f][1])})" if isinstance(f, str) else
+                                                            f"Attached: {f} ({NAMES.get(str(f), f.name)}, {human(f.stat().st_size)})" for f in files if f not in imgs)).strip()
             if body.get("agent"):  # a subagent of this chat: its own transcript, its own input in the terminal
                 f = re.fullmatch(r"[0-9a-f-]{36}", str(body.get("session", ""))) and chat_file(body["session"], c.get("host"))
                 ag = next((a for a in agents(f) if a["id"] == body["agent"]), None) if f else None

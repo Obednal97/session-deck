@@ -606,6 +606,101 @@ class Chats(unittest.TestCase):
         T("kill-server"); self.term(claude=str(uuid.uuid4()), rcwd="/root/x", rkind="plain")  # a live chat: every 3 s again
         server._RSCAN[self.hid][0] = time.time() - 4; server.remote_chats(); time.sleep(0.5); self.assertEqual(n, [1, 1])
 
+    def repo(self):  # a git repo on the fake server (this Mac under its HOME): a modified file, a staged rename, untracked text, binary, symlink and an awkward name
+        r = os.path.realpath(self.home / "repo"); g = lambda *a: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", r, *a], capture_output=True, check=True)
+        os.makedirs(r); g("init", "-q")
+        for n, t in {"README.md": "one\ntwo\n", "old.txt": "a\nb\nc\n"}.items(): Path(r, n).write_text(t)
+        g("add", "-A"); g("commit", "-qm", "x")
+        Path(r, "README.md").write_text("one\nTWO\nthree\n"); g("mv", "old.txt", "new.txt")
+        Path(r, "notes.txt").write_text("x\ny\nz"); Path(r, "blob.bin").write_bytes(b"ab\0cd\n"); os.symlink("README.md", Path(r, "link"))
+        Path(r, "a b;$(touch PWNED).txt").write_text("q\n"); os.makedirs(Path(r, "node_modules/x")); Path(r, "node_modules/x/readme.js").write_text("")
+        return r
+
+    def chat(self):  # a live remote chat in the deck
+        sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd=str(self.home), rkind="plain"); self.claude(sid, cwd=str(self.home)); self.scan(); return pane
+
+    def upload(self, pane, name, body):
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=15)
+        c.request("POST", f"/api/upload?pane={pane}&name={urllib.parse.quote(name)}", body, {"X-Deck-Token": server.TOK, "Content-Type": "application/octet-stream"})
+        r = c.getresponse(); return r.status, json.loads(r.read())
+
+    def test_remote_changes(self):
+        r = self.repo(); here = server.changes(r); there = server.changes(r, host=self.h)
+        self.assertEqual(there, here)
+        self.assertEqual({f["path"]: (f["st"], f["add"], f["del"]) for f in there["files"]},
+                         {"README.md": (" M", 2, 1), "new.txt": ("R ", 0, 0), "notes.txt": ("??", 3, 0), "blob.bin": ("??", None, None), "link": ("??", 0, 0), "a b;$(touch PWNED).txt": ("??", 1, 0),
+                          "node_modules/x/readme.js": ("??", 0, 0)})
+        for f in here["files"]: self.assertEqual(server.change_diff(r, f["path"], host=self.h), server.change_diff(r, f["path"]), f["path"])
+        self.assertFalse(list(Path(r).glob("PWNED")) or (self.home / "PWNED").exists())
+        self.assertEqual(server.changes(str(self.home), host=self.h), {"error": "This folder isn't in a git repository."})
+        down = Path(TMP) / "down"; down.touch(); os.environ["FAKE_SSH_DOWN"] = str(down); self.addCleanup(down.unlink, missing_ok=True)
+        self.assertEqual(server.changes(r, host=self.h), {"error": "Open a terminal to this host first: the deck needs its connection."})
+
+    def test_remote_changes_route(self):  # /api/changes for a remote chat's pane runs git on its server, in the server's folder, never on the Mac
+        r = self.repo(); sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd=r, rkind="plain"); self.claude(sid, cwd=r); self.scan()
+        self.assertEqual(server.chat_cwd(pane), (r, self.h))
+        a, b = str(uuid.uuid4()), str(uuid.uuid4())  # by session id: the Mac's own transcript is local; a mirror's folder is its server's, never looked for on the Mac
+        for f in (server.PROJ / "-x" / f"{a}.jsonl", server.RMIR / self.hid / f"{b}.jsonl"): f.parent.mkdir(parents=True, exist_ok=True); f.write_text(json.dumps({"type": "user", "cwd": r}, separators=(",", ":")) + "\n"); self.addCleanup(f.unlink)
+        self.assertEqual((server.chat_cwd(a), server.chat_cwd(b)), ((r, None), (r, self.h)))
+        (server.RMIR / "zz" / f"{b}.jsonl").parent.mkdir(exist_ok=True); os.replace(server.RMIR / self.hid / f"{b}.jsonl", server.RMIR / "zz" / f"{b}.jsonl"); self.addCleanup(os.replace, server.RMIR / "zz" / f"{b}.jsonl", server.RMIR / self.hid / f"{b}.jsonl")
+        self.assertEqual(server.chat_cwd(b), (None, None))  # a host that has gone: nothing, not the Mac's folder of that name
+        real, seen = server.ssh_run, []
+        server.ssh_run = lambda h, script, *a, **k: seen.append(script) or real(h, script, *a, **k); self.addCleanup(setattr, server, "ssh_run", real)
+        st, d = self.get(f"/api/changes/{pane}")
+        self.assertEqual((st, d["root"], len(d["files"])), (200, r, 7))
+        st, d = self.get(f"/api/changes/{pane}?file=notes.txt")
+        self.assertEqual((st, d["path"], d["add"]), (200, "notes.txt", 3))
+        self.assertTrue(seen)
+        self.assertEqual(self.get("/api/changes/decktest.99999"), (200, {"error": "This chat's folder isn't known."}))
+
+    def test_remote_files(self):
+        r = self.repo(); server._files.clear()
+        got = server.files(r, "read", host=self.h)
+        self.assertIn("README.md", got)
+        self.assertFalse([p for p in got if p.startswith((".git", "node_modules")) or "/.git" in p or "node_modules" in p], got)
+        self.assertEqual(server.files(r, "zzz-none", host=self.h), [])
+        sid = str(uuid.uuid4()); s, pane = self.term(claude=sid, rcwd=r, rkind="plain"); self.claude(sid, cwd=r); self.scan()
+        st, d = self.get(f"/api/files?pane={pane}&q=notes")
+        self.assertEqual((st, d["files"]), (200, ["notes.txt"]))
+
+    def test_upload_to_remote_chat(self):
+        pane = self.chat(); png = b"\x89PNG\r\n\x1a\n" + os.urandom(200)
+        st, d = self.upload(pane, "shot.png", png)
+        self.assertEqual(st, 200, d)
+        self.assertTrue(d["path"].startswith(str(self.home) + "/.cache/session-deck/uploads/"), d)
+        self.assertEqual((d["kind"], d["name"], d["size"], d["remote"]), ("image", "shot.png", len(png), True))
+        self.assertEqual(Path(d["path"]).read_bytes(), png)
+        self.assertIn(d["path"], server.RUPL[pane])
+        st, d = self.upload(pane, "notes", b"plain words\n")  # the chat filter names it, as for a local chat
+        self.assertEqual((st, d["kind"], d["name"]), (200, "file", "notes")); self.assertTrue(d["path"].endswith("/notes.txt"), d)
+        st, d = self.upload(pane, "backup.tar.gz", b"\x1f\x8b\x08\x00" + os.urandom(300) + b"\x00")
+        self.assertEqual(st, 415, d)
+        self.assertEqual(list(server.UPL.glob("*-*-*/*")), [])  # the Mac keeps no copy
+
+    def test_send_remote_files(self):
+        pane = self.chat(); sent = []
+        real = server.deliver; server.deliver = lambda p, text, imgs=(): sent.append((p, text, list(imgs))); self.addCleanup(setattr, server, "deliver", real)
+        img, doc = "/srv/home/.cache/session-deck/uploads/d/shot.png", "/srv/home/.cache/session-deck/uploads/d/report.pdf"
+        server.RUPL[pane] = {img: ("shot.png", 2048), doc: ("Report.pdf", 3 << 20)}
+        for fs in (["/etc/passwd"], [img, "/etc/passwd"], "x", [5], [img] * 21):
+            self.assertEqual(self.post("/api/send", {"pane": pane, "text": "hi", "files": fs}), (400, {"error": "files"}), fs)
+        self.assertEqual(sent, [])
+        st, d = self.post("/api/send", {"pane": pane, "text": "look", "files": [img, doc]})
+        self.assertEqual(st, 200, d)
+        self.assertEqual(sent, [(pane, f"look\n\nAttached: {doc} (Report.pdf, 3.0 MB)", [img])])
+        a = server.UPL / time.strftime("%Y-%m-%d") / "a.png"; a.parent.mkdir(parents=True, exist_ok=True); a.write_bytes(b"x"); self.addCleanup(a.unlink)
+        self.assertEqual(self.post("/api/send", {"pane": pane, "text": "hi", "files": [str(a)]}), (400, {"error": "files"}))  # a Mac upload never goes to a remote chat
+
+    def test_get_by_host(self):
+        (self.home / "out.pdf").write_bytes(b"%PDF-1 x")
+        st, d = self.post("/api/ssh/get", {"host": self.hid, "path": "~/out.pdf"})
+        self.assertEqual((st, d["name"]), (200, "out.pdf"), d)
+        self.assertTrue(d["url"])
+        st, d = self.post("/api/ssh/get", {"host": self.hid, "path": str(self.home / "out.pdf")})
+        self.assertEqual((st, d["name"]), (200, "out.pdf"), d)
+        self.assertEqual(self.post("/api/ssh/get", {"host": "nope", "path": "~/out.pdf"}), (400, {"error": "That terminal or host has gone."}))
+        self.assertEqual(self.post("/api/ssh/get", {"host": self.hid, "path": "a\nb"}), (400, {"error": "That path or address isn't valid."}))
+
 
 class StartArgs(unittest.TestCase):
     """claude_args is start()'s own checks and flags, factored out: a local chat's argv is exactly what it was."""
