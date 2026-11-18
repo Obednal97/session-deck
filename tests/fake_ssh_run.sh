@@ -7,7 +7,7 @@ case " $* " in *" ControlPath=none "*) [ -e "${FAKE_SSH_NOKEY:-/nonexistent}" ] 
 while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done
 shift 2
 [ -e "${FAKE_SSH_DOWN:-/nonexistent}" ] && { echo "Permission denied (publickey,password)." >&2; exit 255; }
-export HOME="$FAKE_SSH_HOME"
+export HOME="$FAKE_SSH_HOME" PATH="$FAKE_SSH_HOME/bin:$PATH"  # the server's own commands (a stand-in tmux) come first
 cd
 [ $# -eq 0 ] && exec sh -i
 exec sh -c "$*"

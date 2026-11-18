@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Session Deck: shows live tmux Claude Code sessions as chats and types into them.
 Binds 127.0.0.1 (and DECK_SOCKET) only. Needs the token from <DECK_SECRETS>/session-deck.json for every local /api call."""
-import html, http.client, json, os, re, secrets, shlex, shutil, socket, stat, subprocess, sys, threading, time, urllib.parse
+import html, http.client, json, os, re, secrets, shlex, shutil, socket, stat, subprocess, sys, threading, time, urllib.parse, uuid
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -178,6 +178,8 @@ def term_reaper():
         time.sleep(10)
         try: roomy()
         except Exception: pass
+        try: reattach()
+        except Exception as e: print("reattach:", e, flush=True)
 
 def tm(key, *args, ok=False):
     """Run tmux against the server and pane named by key ("ssh.63"); "{P}" in args becomes the pane target. With ok, whether it worked."""
@@ -613,22 +615,29 @@ MODELS, EFFORTS = {"opus", "sonnet", "haiku"}, {"low", "medium", "high", "xhigh"
 def is_git(cwd):
     return subprocess.run(["git", "-C", cwd, "rev-parse", "--is-inside-work-tree"], capture_output=True).returncode == 0
 
-def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=None, name=None, worktree=False, account=None, system=None):
-    import shlex
-    cwd = os.path.realpath(cwd)
-    if not os.path.isdir(cwd) or not cwd.startswith(str(HOME) + "/"): return None
+def claude_args(engine, perm, model, effort, name, resume, fork, sid=None):
+    """Claude's flags for a new chat (a Mac's or a server's), or None when one of them isn't allowed. sid: the new session's id (--session-id)."""
     if resume and not re.fullmatch(r"[0-9a-f-]{36}", resume): return None
     perm, model, effort = str(perm), str(model or ""), str(effort or "")
     if perm not in PERMS or not (model in MODELS | {""} or re.fullmatch(r"claude-[a-z0-9-]{1,60}", model)) or effort not in EFFORTS | {""}: return None
     name = re.sub(r"[^\w .,'()&+-]", "", re.sub(r"\s+", " ", str(name or ""))).strip(" -")[:60]
+    a = [*PERMS[perm]] + (["--resume", resume] if resume else []) + (["--fork-session"] if fork and resume else []) + (["--session-id", sid] if sid else [])
+    if model and engine != "local": a.append("--model=" + model)  # claude-local sets its own model
+    if effort: a.append("--effort=" + effort)
+    if name: a.append("--name=" + name)
+    return a
+
+def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=None, name=None, worktree=False, account=None, system=None):
+    cwd = os.path.realpath(cwd)
+    if not os.path.isdir(cwd) or not cwd.startswith(str(HOME) + "/"): return None
+    a = claude_args(engine, perm, model, effort, name, resume, fork)
+    if a is None: return None
+    name = next((x[7:] for x in a if x.startswith("--name=")), "")
     exe = engine in ENGINES and engine_exe(engine)
     if not exe: return None  # only this deck's engines: a guest's deck must never start the owner's rclaude
     account = str(account or "")  # rclaude --account pins the chat to one plan; only a name `rclaude status` lists
     if account and (engine != "rotate" or account not in {a["name"] for a in accounts()}): return None
-    cmd = [exe] + (["--account", account] if account else []) + [*PERMS[perm]] + (["--resume", resume] if resume else []) + (["--fork-session"] if fork and resume else [])
-    if model and engine != "local": cmd.append("--model=" + model)  # claude-local sets its own model
-    if effort: cmd.append("--effort=" + effort)
-    if name: cmd.append("--name=" + name)
+    cmd = [exe] + (["--account", account] if account else []) + a
     if worktree and not resume and is_git(cwd): cmd.append("--worktree")
     if system: cmd += ["--append-system-prompt", system]
     if os.environ.get("DECK_DRYRUN"): cmd = ["bash", "-c", "exec -a claude cat"]
@@ -1962,7 +1971,7 @@ SSH_TEMP = {}  # throwaway hosts (connect without saving) by id, until their las
 PW_PROMPT = re.compile(r"'s password:$|^\(\S+\) [Pp]assword:$")  # OpenSSH's own prompts only, not su, sudo, passwd or mysql -p
 _term_lock, _pw_lock, FEED = threading.RLock(), threading.Lock(), {}  # FEED: pane -> its newest feeder; an older one (before a reconnect) stops
 
-def ssh_argv(host, cmd=(), batch=False):
+def ssh_argv(host, cmd=(), batch=False, tty=False):
     """ssh's argv for a host dict. The hosts file is trusted only as far as its 0600 mode: an address parse_addr wouldn't give is refused."""
     h, u, p = host.get("host"), host.get("user"), host.get("port")
     try: ok = parse_addr((f"{u}@" if u is not None else "") + (f"[{h}]" if ":" in h else h) + (f":{p}" if p is not None else "")) == {"user": u, "host": h, "port": p}
@@ -1973,7 +1982,7 @@ def ssh_argv(host, cmd=(), batch=False):
     if st.st_mode & 0o077: os.chmod(SSH_CM, 0o700)
     return [SSH_BIN, "-o", f"ControlPath={SSH_CM}/%C", "-o", "ControlMaster=auto", "-o", "ControlPersist=600", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
             *(["-o", "BatchMode=yes"] if batch else []), *(["-o", "PreferredAuthentications=publickey"] if host.get("auth") == "key" else []),
-            *(["-p", str(p)] if p else []), *(["-l", u] if u else []), "--", h, *cmd]
+            *(["-p", str(p)] if p else []), *(["-l", u] if u else []), *(["-t"] if tty else []), "--", h, *cmd]
 
 def ssh_master(host):
     """Whether the host's shared master is up. A terminal then opens through it with no password prompt, so the deck must type nothing:
@@ -1993,11 +2002,12 @@ def ssh_host(hid):
     if not h and hid[0] == "t": ssh_state(); h = SSH_TEMP.get(hid)  # a throwaway host from before a restart, rebuilt from its sessions
     return h
 
-def ssh_open(hid, password=None):
-    """A new terminal on a host (saved or throwaway): its pane key, or None. Raises ValueError for a tampered host."""
+def ssh_open(hid, password=None, rcmd=None, opts=None):
+    """A new terminal on a host (saved or throwaway): its pane key, or None. Raises ValueError for a tampered host. rcmd: a command to run on
+    the server, with a tty, instead of a shell; opts: {name: value} set as @name options on the session in the same tmux call."""
     h = ssh_host(hid)
     if not h: return None
-    argv, feed = ssh_argv(h), password and not ssh_master(h)  # checked before this terminal can become the master itself
+    argv, feed = ssh_argv(h, [rcmd] if rcmd else (), tty=bool(rcmd)), password and not ssh_master(h)  # checked before this terminal can become the master itself
     sock = next((s for s in TMUX_SOCKS if s in sockets()), TMUX_SOCKS[-1])  # as start() picks it
     with _term_lock:
         names = set(run("tmux", "-L", sock, "list-sessions", "-F", "#{session_name}").split())
@@ -2005,7 +2015,8 @@ def ssh_open(hid, password=None):
         # one tmux call, so the session is marked and kept on exit before an ssh that fails at once can end it
         r = run("tmux", "-L", sock, "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", s, "-x", "120", "-y", "40", "-n", h.get("name") or h["host"], *argv,
                 ";", "set-option", "-t", f"={s}:", "@deck_ssh", hid, ";", "set-option", "-t", f"={s}:", "status", "off", ";", "set-option", "-w", "-t", f"={s}:", "remain-on-exit", "on",
-                *([";", "set-option", "-t", f"={s}:", "@deck_ssh_host", json.dumps({k: h.get(k) for k in ("name", "host", "user", "port", "auth")})] if h.get("temp") else []))
+                *([";", "set-option", "-t", f"={s}:", "@deck_ssh_host", json.dumps({k: h.get(k) for k in ("name", "host", "user", "port", "auth")})] if h.get("temp") else []),
+                *[x for k, v in (opts or {}).items() for x in (";", "set-option", "-t", f"={s}:", f"@{k}", str(v))])
     _live[0] = 0; _socks.pop(sock, None)  # this may have started the tmux server
     if not r.strip().startswith("%"): return None
     pane = f"{sock}.{r.strip()[1:]}"
@@ -2036,11 +2047,11 @@ def ssh_terms():
     out = []
     for sock in sockets():
         for l in run("tmux", "-L", sock, "list-panes", "-a", "-F", "#{@deck_ssh}\t#{pane_id}\t#{session_name}\t#{pane_dead}\t#{session_created}\t#{@deck_ssh_host}\t"
-                     "#{@deck_claude}\t#{@deck_rcwd}\t#{@deck_rpid}\t#{@deck_rkind}\t#{@deck_rtmux}\t#{window_name}").splitlines():
-            x = l.split("\t", 11)
-            if len(x) == 12 and x[0] and x[1].startswith("%"):  # claude, rcwd, rpid, rkind, rtmux: a remote chat's (see remote_chats)
+                     "#{@deck_claude}\t#{@deck_rcwd}\t#{@deck_rpid}\t#{@deck_rkind}\t#{@deck_rtmux}\t#{pane_dead_status}\t#{window_name}").splitlines():
+            x = l.split("\t", 12)
+            if len(x) == 13 and x[0] and x[1].startswith("%"):  # claude, rcwd, rpid, rkind, rtmux: a remote chat's (see remote_chats)
                 out.append({"pane": f"{sock}.{x[1][1:]}", "session": x[2], "host": x[0], "dead": x[3] == "1", "created": int(x[4]) if x[4].isdigit() else 0, "rec": x[5],
-                            "claude": x[6], "rcwd": x[7], "rpid": x[8], "rkind": x[9], "rtmux": x[10], "title": x[11]})
+                            "claude": x[6], "rcwd": x[7], "rpid": x[8], "rkind": x[9], "rtmux": x[10], "exit": x[11], "title": x[12]})
     return out
 
 def valid_term(p):
@@ -2071,7 +2082,7 @@ KNOWN_HOSTS = HOME / ".ssh/known_hosts"
 def rpath(p):
     """A server path as shell text: ~/x becomes "$HOME"/'x' (quoting stops the server's ~ expanding), anything else is quoted whole."""
     if not isinstance(p, str) or not p or "\0" in p or "\n" in p: raise ValueError("not a valid path")
-    return '"$HOME"/' + shlex.quote(p[2:]) if p.startswith("~/") else shlex.quote(p)
+    return '"$HOME"' if p == "~" else '"$HOME"/' + shlex.quote(p[2:]) if p.startswith("~/") else shlex.quote(p)
 
 def ssh_run(host, script, inp=None, timeout=120, out=None):
     """sh -c script on the host. inp: bytes or an open file for stdin; out: an open file for stdout, else it's captured."""
@@ -2208,12 +2219,12 @@ RSCAN_SH = r"""C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 for f in "$C"/sessions/*.json; do p=${f##*/}; p=${p%.json}; case $p in ""|*[!0-9]*) continue;; esac
   kill -0 "$p" 2>/dev/null && { cat "$f"; printf '\n\036\n'; }; done; exit 0"""
 
-def rscan(host, wait=True):
+def rscan(host, wait=True, every=3):
     """The server's live Claude sessions ($C/sessions/<pid>.json whose pid answers kill -0): [{pid, sessionId, cwd, startedAt, status, kind}].
-    Asked 3 s after the last ask ended at the soonest, one at a time per host; a failed ask keeps the last good list for up to 60 s. Without wait it never waits on the server:
+    Asked `every` s (3) after the last ask ended at the soonest, one at a time per host; a failed ask keeps the last good list for up to 60 s. Without wait it never waits on the server:
     it answers from the cache and asks in the background. Every good answer matches the host's terminals again (rmatch)."""
     with _rscan_lock:
-        c = _RSCAN.setdefault(host["id"], [0, [], 0]); go = time.time() - c[0] >= 3
+        c = _RSCAN.setdefault(host["id"], [0, [], 0]); go = time.time() - c[0] >= every
         if go: c[0] = float("inf")
     if go and wait: _rscan(host, c)
     elif go: threading.Thread(target=_rscan, args=(host, c), daemon=True).start()
@@ -2274,10 +2285,12 @@ def rmatch(hid, items):
 
 def remote_chats():
     """One item per remote chat, with a live_sessions() item's keys plus host, rkind, dropped (its connection has ended) and remote.
-    Never waits on a server: the scan comes from rscan's cache, so the first look after a start may have no state."""
-    out, scans = [], {}
-    for t in ssh_terms():
-        if t["host"] not in scans: h = ssh_host(t["host"]); scans[t["host"]] = rscan(h, wait=False) if h else None
+    Never waits on a server: the scan comes from rscan's cache, so the first look after a start may have no state. A host whose chats
+    have all dropped is asked every 30 s at most. A deck-started chat whose ssh ended with 0 (Claude exited) is closed."""
+    out, scans, terms = [], {}, ssh_terms(); up = {t["host"] for t in terms if not t["dead"]}
+    for t in terms:
+        if t["dead"] and t["exit"] == "0" and t["rkind"] in ("tmux", "plain"): tm(t["pane"], "kill-session", "-t", "{P}"); continue  # Claude ended (/exit): so does the chat
+        if t["host"] not in scans: h = ssh_host(t["host"]); scans[t["host"]] = rscan(h, wait=False, every=3 if t["host"] in up else 30) if h else None
         if scans[t["host"]] is None or not re.fullmatch(SID_RE, t["claude"]): continue
         L = scans[t["host"]]; x = next((x for x in L if str(x["pid"]) == t["rpid"]), None) or next((x for x in L if x["sessionId"] == t["claude"]), None)
         f = RMIR / t["host"] / f"{t['claude']}.jsonl"; f = f if f.is_file() else None
@@ -2289,6 +2302,64 @@ def remote_chats():
 def chats():
     """Every chat the deck can drive: the Mac's own, then remote ones."""
     return live_sessions() + remote_chats()
+
+# SSH: starting remote chats. Claude runs in a login shell (so ~/.local/bin is on PATH), in the server's tmux when it has one: a dropped
+# link then leaves Claude running, and reconnecting (by hand, or reattach for a host that needs no password) attaches to it again.
+RLOGIN = 'exec "${SHELL:-/bin/sh}" -lc '
+_RINFO, _REATT = {}, {}  # host id -> (when, rinfo's answer); pane -> when reattach last tried it
+
+def rinfo(host):
+    """The engines (ENGINE_INFO ids) and whether tmux is on the server's PATH in a login shell, from one batch-mode ssh_run, kept 5 minutes.
+    Raises RuntimeError with what to tell the page."""
+    c = _RINFO.get(host["id"])
+    if c and time.time() - c[0] < 300: return c[1]
+    r = ssh_run(host, RLOGIN + shlex.quote(f"command -v {' '.join(v[0] for v in ENGINE_INFO.values())} tmux; exit 0"), timeout=15)
+    if r.returncode: raise RuntimeError(ssh_err(r))
+    got = {l.strip().rsplit("/", 1)[-1] for l in r.stdout.decode(errors="replace").splitlines()}
+    d = {"engines": [k for k in ("claude", "rotate", "local") if ENGINE_INFO[k][0] in got], "tmux": "tmux" in got}
+    _RINFO[host["id"]] = (time.time(), d); return d
+
+def rfolders(host, path="~"):
+    """The folders directly in a server folder (~, ~/... or absolute), absolute and sorted, at most 300; no hidden ones. Raises ValueError
+    for a path that's neither, RuntimeError with what to tell the page."""
+    if not (isinstance(path, str) and (path == "~" or path.startswith(("/", "~/")))): raise ValueError("not a valid path")
+    r = ssh_run(host, f"find {rpath(path.rstrip('/') or '/')} -mindepth 1 -maxdepth 1 -type d ! -name '.*'", timeout=15)
+    if r.returncode: raise RuntimeError(ssh_err(r))
+    return sorted(l for l in r.stdout.decode(errors="replace").splitlines() if l.startswith("/"))[:300]
+
+def rstart(hid, cwd, engine, resume=None, fork=False, perm=None, model=None, effort=None, name=None):
+    """A new Claude chat on a server, in its own SSH connection session: (pane, None) or (None, error). A fresh chat or a fork gets its id
+    here (--session-id), a resume keeps its own, so @deck_claude is known from the start. perm: the host's own when not given."""
+    h = ssh_host(hid)
+    if not h: return None, "That host wasn't found."
+    if not (isinstance(cwd, str) and (cwd == "~" or cwd.startswith(("/", "~/"))) and not re.search(r"[\x00-\x1f]", cwd)): return None, "That folder isn't valid."
+    try: info = rinfo(h)
+    except RuntimeError as e: return None, str(e)
+    except subprocess.TimeoutExpired: return None, "The server took too long to answer."
+    except (ValueError, OSError): return None, "That host's address isn't valid."
+    if h.get("auth") == "password" and not ssh_master(h): return None, ssh_err(subprocess.CompletedProcess([], 255, b"", b""))  # rinfo may be from the cache
+    if engine not in info["engines"]: return None, "That engine isn't on this server."
+    keep = bool(resume) and not fork; a = claude_args(engine, perm or h.get("perm") or "default", model, effort, name, resume, fork, None if keep else str(uuid.uuid4()))
+    if a is None: return None, "That chat's settings aren't valid."
+    u = resume if keep else a[a.index("--session-id") + 1]; rt, kind = f"deck-{u}", "tmux" if info["tmux"] else "plain"
+    cmd = RLOGIN + shlex.quote(f"cd -- {rpath(cwd)} && exec " + shlex.join([ENGINE_INFO[engine][0], *a]))
+    if kind == "tmux": cmd = f"tmux new-session -A -s {shlex.quote(rt)} -c {rpath(cwd)} {shlex.quote(cmd)} \\; set-option -t {shlex.quote(rt)} status off"
+    try: p = ssh_open(h["id"], rcmd=cmd, opts={"deck_claude": u, "deck_rcwd": cwd, "deck_rkind": kind, "deck_rcmd": cmd, **({"deck_rtmux": rt} if kind == "tmux" else {})})
+    except (ValueError, OSError): return None, "That host's address isn't valid."
+    return (p, None) if p else (None, "Couldn't start the chat.")
+
+def reattach():
+    """Reconnects each dropped tmux-kind chat on a host that signs in with no password (key, config): Claude kept running in the server's
+    tmux. At most once per 30 s per chat; never a plain-kind chat (its Claude ended with the link) or one whose ssh ended with 0."""
+    terms, now = ssh_terms(), time.time()
+    for p in [p for p in _REATT if p not in {t["pane"] for t in terms}]: _REATT.pop(p, None)
+    for t in terms:
+        if not t["dead"] or t["rkind"] != "tmux" or t["exit"] == "0" or now - _REATT.get(t["pane"], 0) < 30: continue
+        h = ssh_host(t["host"]); cmd = h and h.get("auth") in ("key", "config") and tm(t["pane"], "display", "-p", "-t", "{P}", "#{@deck_rcmd}").rstrip("\n")
+        if not cmd: continue
+        _REATT[t["pane"]] = now
+        try: tm(t["pane"], "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h, [cmd], tty=True))
+        except (ValueError, OSError, subprocess.TimeoutExpired): pass
 
 def cbor(b, i=0):
     """Minimal CBOR decoder (ints, bytes, text, arrays, maps, bools): enough for attestationObject and COSE keys."""
@@ -2499,6 +2570,13 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/prefs": return self.send(200, prefs())
         if path == "/api/ssh/vault": return self.send(200, {"key": vault_key(self)})
         if path == "/api/ssh/hosts": return self.send(200, {"hosts": ssh_hosts(), "config": ssh_config_names()})
+        if path in ("/api/ssh/rinfo", "/api/ssh/rfolders"):  # for the new remote chat sheet
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query); h = ssh_host((q.get("host") or [None])[0])
+            if not h: return self.send(400, {"error": "That host wasn't found."})
+            try: return self.send(200, rinfo(h) if path == "/api/ssh/rinfo" else {"folders": rfolders(h, (q.get("path") or ["~"])[0])})
+            except RuntimeError as e: return self.send(400, {"error": str(e)})
+            except ValueError: return self.send(400, {"error": "That folder or host address isn't valid."})
+            except subprocess.TimeoutExpired: return self.send(400, {"error": "The server took too long to answer."})
         if path == "/api/config":
             return self.send(200, {"home": str(HOME), "root": str(FOLDERS), "engines": [{"id": k, "label": v[1], "sub": v[2]} for k, v in ENGINES.items() if engine_exe(k)]})  # only what this user has installed
         if path == "/api/git":
@@ -2723,6 +2801,10 @@ class H(BaseHTTPRequestHandler):
             if isinstance(body, dict) and isinstance(body.get("delete"), str): return ssh_host_delete(body["delete"]) or self.send(200, {"ok": True})
             h, err = ssh_host_save(body["save"]) if isinstance(body, dict) and isinstance(body.get("save"), dict) else (None, "Nothing to save.")
             return self.send(400, {"error": err}) if err else self.send(200, {"host": h})
+        if self.path == "/api/ssh/rnew":
+            b = body if isinstance(body, dict) else {}
+            p, err = rstart(b.get("host"), b.get("cwd"), b.get("engine"), b.get("resume"), bool(b.get("fork")), b.get("perm"), b.get("model"), b.get("effort"), b.get("name"))
+            return self.send(400, {"error": err}) if err else self.send(200, {"pane": p})
         if self.path in ("/api/ssh/connect", "/api/ssh/close", "/api/ssh/reconnect"):  # SSH terminals: valid_term, never valid_pane
             pw = body.get("password") or None
             if pw is not None and not (isinstance(pw, str) and len(pw) <= 1024 and pw.isprintable()): return self.send(400, {"error": "That password isn't valid."})
@@ -2747,8 +2829,20 @@ class H(BaseHTTPRequestHandler):
                 if self.path == "/api/ssh/close": tm(pane, "kill-session", "-t", "{P}"); return self.send(200, {"ok": True})
                 h = ssh_host(term["host"])
                 if not h: return self.send(400, {"error": "That host isn't saved any more."})
+                cmd = term["rkind"] in ("tmux", "plain") and tm(pane, "display", "-p", "-t", "{P}", "#{@deck_rcmd}").rstrip("\n")  # a remote chat: never a plain shell
+                if term["rkind"] in ("tmux", "plain") and not cmd: return self.send(400, {"error": "Couldn't reconnect."})
+                if term["rkind"] == "plain":  # Claude ended with the link: resume its current session (a /clear changes it), unless it's still running there
+                    try: w = shlex.split(cmd); a = shlex.split(w[3]); ok = w[:3] == shlex.split(RLOGIN) and a[3:5] == ["&&", "exec"] and w[3].endswith(shlex.join(a[5:]))
+                    except (ValueError, IndexError): ok = False
+                    if not ok or not re.fullmatch(SID_RE, term["claude"]): return self.send(400, {"error": "Couldn't reconnect."})
+                    with _rscan_lock:
+                        c = _RSCAN.get(h["id"])
+                        if c and c[0] != float("inf"): c[0] = 0  # ask the server now
+                    if any(x["sessionId"] == term["claude"] for x in rscan(h)): return self.send(400, {"error": "Claude is still running on the server."})
+                    x = a[5:]; x = [v for i, v in enumerate(x) if v != "--fork-session" and v not in ("--session-id", "--resume") and not (i and x[i - 1] in ("--session-id", "--resume"))]
+                    cmd = RLOGIN + shlex.quote(w[3][:len(w[3]) - len(shlex.join(a[5:]))] + shlex.join(x + ["--resume", term["claude"]]))
                 feed = pw and not ssh_master(h)
-                if not tm(pane, "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h), ok=True): return self.send(400, {"error": "Couldn't reconnect."})
+                if not tm(pane, "respawn-pane", "-k", "-t", "{P}", *ssh_argv(h, [cmd] if cmd else (), tty=bool(cmd)), ok=True): return self.send(400, {"error": "Couldn't reconnect."})
                 if feed: threading.Thread(target=pw_feed, args=(pane, pw, h), daemon=True).start()
                 return self.send(200, {"ok": True})
             except ValueError: return self.send(400, {"error": "That host's address isn't valid."})
