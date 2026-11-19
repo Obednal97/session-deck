@@ -93,6 +93,16 @@ class RichHelpersInNode(unittest.TestCase):
         self.assertEqual(got[2], [-1000, 0, 1000, 2000, 3000])
         self.assertEqual(got[3:], ["ok", "ok", "threw", "threw"])  # cells and fields take any finite number; charts cap at 1e12
 
+    def test_a_table_title_is_drawn_once(self):  # a hidden caption repeating it came out twice in copied text (Aiva, 19 Nov 2026)
+        got = self.run_js(r"""const ti='Leeds to York, Fri 4 Dec',f=atable({title:ti,columns:['Depart'],rows:[['17:22']]}),
+          t=f.kids[1].kids[0];return [f.text.split(ti).length-1,t.attrs['aria-label'],t.kids.map(k=>k.tagName),t.kids[0].kids[0].kids.map(k=>k.text),
+          atable({columns:['Depart','Arrive'],rows:[['17:22','19:24']]}).kids[0].kids[0].kids[0].className]""")
+        self.assertEqual(got[0], 1)
+        self.assertEqual(got[1], "Leeds to York, Fri 4 Dec")  # its name for a screen reader
+        self.assertEqual(got[2], ["THEAD", "TBODY"])
+        self.assertEqual(got[3], ["Depart"])  # the header row is still drawn
+        self.assertEqual(got[4], "sr")  # an untitled table keeps its hidden caption ("Table: Depart, Arrive")
+
     def test_copy_text_is_the_lead_and_the_parts_drawn(self):
         got = self.run_js(r"""return avPlain('Aiva · Accounting: Receipts (2)',[{type:'table',title:'Receipts',columns:['#','Vendor','Amount'],
           rows:[[1,{text:'Acme',href:'https://acme.example/'},'£12.34'],[2,{text:'Bad',href:'javascript:x'},'unknown']],note:'and 1 more.'},

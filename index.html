@@ -1333,9 +1333,9 @@ function atable(p){const cols=(Array.isArray(p.columns)&&p.columns.length&&p.col
   c&&typeof c=='object'&&!Array.isArray(c)?{t:as_(c.text,160),u:aurl(c.href)}:avBad())}),A=Array.isArray(p.align)?p.align:[];
  const al=cols.map((_,i)=>A[i]=='left'||A[i]=='right'?A[i]:rows.some(r=>r[i].n)&&rows.every(r=>r[i].n||!r[i].t)?'right':'left'),ti=aso(p.title,80),cap=ti||'Table: '+cols.join(', ');
  const w=avEl('div','avt'),t=avEl('table'),hr=avEl('tr'),tb=avEl('tbody'),th=avEl('thead');w.tabIndex=0;w.setAttribute('role','region');w.setAttribute('aria-label',cap);
- t.append(avEl('caption','sr',cap),th,tb);th.append(hr);cols.forEach((c,i)=>{const h=avEl('th',al[i]=='right'?'r':0,c);h.scope='col';hr.append(h)});
+ if(ti)t.setAttribute('aria-label',ti);else t.append(avEl('caption','sr',cap));t.append(th,tb);th.append(hr);cols.forEach((c,i)=>{const h=avEl('th',al[i]=='right'?'r':0,c);h.scope='col';hr.append(h)});// a title is drawn once, above the scroller: a hidden caption repeating it came out twice in copied text
  for(const r of rows){const tr=avEl('tr');r.forEach((c,i)=>{const d=avEl('td',al[i]=='right'?'r':0);if(c.u)d.append(alink(c.u,c.t));else d.textContent=c.t;tr.append(d)});tb.append(tr)}
- w.append(t);const f=avEl('div','avtb'),no=aso(p.note,160)||(R.length>30?'and '+(R.length-30)+' more':'');if(ti){const h=avEl('div','avtt',ti);h.setAttribute('aria-hidden','true');f.append(h)}// the title stays put while the table scrolls under it
+ w.append(t);const f=avEl('div','avtb'),no=aso(p.note,160)||(R.length>30?'and '+(R.length-30)+' more':'');if(ti){const h=avEl('div','avtt',ti);h.setAttribute('aria-hidden','true');f.append(h)}// the title stays put while the table scrolls under it; the table carries it as its aria-label
  f.append(w);if(no)f.append(avEl('p','avnote',no));return f}
 const AKIND={trip:'Trip',receipt:'Receipt',person:'Person'};
 function acard(p){const ti=as_(p.title,80),k=typeof p.kind=='string'&&Object.hasOwn(AKIND,p.kind)?p.kind:'generic',w=avEl('div','avc avc-'+k);w.setAttribute('role','group');w.setAttribute('aria-label',ti);
