@@ -13,7 +13,7 @@ AP0 = {"id": "ap_1a2b3c4d", "task_id": "t_1", "persona": "household", "action": 
        "title": "Email to quotes@insurer.example", "subtitle": "Household · Personal · Tier 2", "context": "You asked for three home insurance quotes.",
        "grounding": [{"label": "To", "value": "quotes@insurer.example", "href": ""}, {"label": "Site", "value": "Insurer", "href": "https://insurer.example/quotes"}],
        "draft": "Hello,\nPlease send a quote.", "decision": "Should Household send this email?", "recommendation": {"answer": "yes", "text": "Yes: it only asks for a quote."},
-       "answers": ["yes", "no", "always", "never"], "always_covers": "quote emails to insurer.example", "never_covers": "aiva_mail.send proposals from household", "message_id": 812}
+       "answers": ["yes", "no", "always", "never", "answer"], "always_covers": "quote emails to insurer.example", "never_covers": "aiva_mail.send proposals from household", "message_id": 812}
 
 FORBIDDEN = [r"innerHTML", r"outerHTML", r"insertAdjacentHTML", r"DOMParser", r"createElement\(\s*['\"`]template", r"document\.write", r"\beval\(", r"new\s+Function\b",
              r"createContextualFragment", r"srcdoc", r"\bmarked\b", r"DOMPurify"]
@@ -141,8 +141,17 @@ class RichHelpersInNode(unittest.TestCase):
         self.assertEqual(got[8:], ["Or tell Aiva what you'd like instead", 2000, "https://insurer.example/quotes", "ap_1a2b3c4d"])
 
     def test_approval_card_without_always_draft_or_chat_message(self):
-        got = self.run_js(r"""const c=avApCard({...AP0,answers:['yes','no','never'],draft:'',message_id:0});return [btns(c),c.all().some(n=>n.className=='apd')]""")
+        got = self.run_js(r"""const c=avApCard({...AP0,answers:['yes','no','never','answer'],draft:'',message_id:0});return [btns(c),c.all().some(n=>n.className=='apd')]""")
         self.assertEqual(got, [["Yes", "No", "Never", "Send"], False])
+
+    def test_approval_card_draws_only_the_answers_aiva_takes(self):  # Yes only while its action exists; the text box only where an answer can rework it
+        got = self.run_js(r"""const c=avApCard({...AP0,answers:['no','never']}),d=avApCard({...AP0,answers:['yes','no','never']});
+          return [btns(c),c.querySelectorAll('textarea').length,btns(d),d.querySelectorAll('textarea').length]""")
+        self.assertEqual(got, [["No", "Never"], 0, ["Yes", "No", "Never"], 0])
+
+    def test_an_approval_that_failed_says_so(self):  # Aiva approved it, but running it failed
+        got = self.run_js(r"""api=async(p,b)=>{CALLS.push([p,b]);return{status:'failed'}};await btn(avApCard(AP0),'Yes').onclick();return TOASTS""")
+        self.assertEqual(got, ["Approved, but it failed: see the chat"])
 
     def test_tier_3_without_a_passkey(self):  # No, Never and Send still work; Yes and Always wait for Face ID
         got = self.run_js(r"""TS=false;const c=avApCard({...AP0,tier:3});TS=true;const d=avApCard({...AP0,tier:3});

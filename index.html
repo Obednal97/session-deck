@@ -1397,7 +1397,8 @@ function avPlain(t,P){const o=[t],c=v=>v&&typeof v=='object'?v.text+(aurl(v.href
   o.push(p.note)}
  return o.filter(v=>typeof v=='string'&&v).join('\n')}
 // the approvals panel (the header's Approvals button, in the bottom sheet): every approval waiting as a card, kept by its id between polls so a half-typed answer
-// and its focus survive the 3 s refresh. Always and Never ask first, as offers do; a tier 3 Yes or Always needs a passkey sign-in, No, Never and an answer never do
+// and its focus survive the 3 s refresh. Only the answers Aiva takes are drawn (a.answers: Yes while the action exists, the text box where a note can rework it).
+// Always and Never ask first, as offers do; a tier 3 Yes or Always needs a passkey sign-in, No, Never and an answer never do
 const AP={c:new Map(),box:null,none:null},APD={yes:['approve','Approved'],no:['reject','Rejected'],always:['approve_always','Always on'],never:['reject_never','Never again']};
 function avApCard(a){const s=v=>v==null?'':String(v),c=avEl('div','apc'),R=a.recommendation;c.dataset.ap=a.id;c.setAttribute('role','group');c.setAttribute('aria-label',s(a.title));
  const bt=(k,x,f,off)=>{const b=avEl('button',k,x);b.type='button';b.onclick=f;b.disabled=!!off;return b},say=k=>avApDo(c,{decision:APD[k][0]},APD[k][1]);
@@ -1408,17 +1409,19 @@ function avApCard(a){const s=v=>v==null?'':String(v),c=avEl('div','apc'),R=a.rec
  const q=avEl('div','apq');q.append(avEl('small','lbl','Decision'),avEl('p',0,s(a.decision)));c.append(q);
  if(R&&R.answer){const r=avEl('div','apr'),w=s(R.answer);r.append(avEl('b',0,'Aiva recommends: '+w[0].toUpperCase()+w.slice(1)));if(R.text)r.append(avEl('p',0,s(R.text)));c.append(r)}
  const row=avEl('div','pgo apa'),ask=k=>{const f=avEl('div','pgo apa');f.append(avEl('small',0,(k=='always'?'Always: '+s(a.always_covers):'Never: '+s(a.never_covers))+'?'),bt('go','Confirm',()=>say(k)),bt('pick','Cancel',()=>f.replaceWith(row)));row.replaceWith(f)};
- const L=[bt('go','Yes',()=>say('yes'))],no=avEl('small',0,'Needs a passkey sign-in');row.append(L[0],bt('pick','No',()=>say('no')));if(Array.isArray(a.answers)&&a.answers.includes('always'))row.append(L[1]=bt('pick','Always',()=>ask('always')));
+ const has=k=>Array.isArray(a.answers)&&a.answers.includes(k),L=[],lk=b=>(L.push(b),b),no=avEl('small',0,'Needs a passkey sign-in');
+ if(has('yes'))row.append(lk(bt('go','Yes',()=>say('yes'))));row.append(bt('pick','No',()=>say('no')));if(has('always'))row.append(lk(bt('pick','Always',()=>ask('always'))));
  row.append(bt('pick red','Never',()=>ask('never')),no);
  // redrawn on each sync: the age, and the tier 3 lock (a passkey sign-in frees Yes and Always), set only when it changes so a decision in flight keeps its buttons off
  c._up=()=>{sub.textContent=[s(a.subtitle),avAgo(a.created)].filter(Boolean).join(' · ');const k=+a.tier>=3&&!TS;if(k!==c._k){c._k=k;L.forEach(b=>b.disabled=k);no.hidden=!k}};c._up();
- const f=avEl('div','apt'),ta=avEl('textarea');ta.rows=2;ta.maxLength=2000;ta.placeholder='Or tell Aiva what you\'d like instead';ta.setAttribute('aria-label','Your answer');
- f.append(ta,bt('send','Send',()=>{const v=ta.value.trim();return v?avApDo(c,{decision:'answer',text:v},'Sent to Aiva'):ta.focus()}));c.append(row,f);
+ c.append(row);if(has('answer')){const f=avEl('div','apt'),ta=avEl('textarea');ta.rows=2;ta.maxLength=2000;ta.placeholder='Or tell Aiva what you\'d like instead';ta.setAttribute('aria-label','Your answer');
+ f.append(ta,bt('send','Send',()=>{const v=ta.value.trim();return v?avApDo(c,{decision:'answer',text:v},'Sent to Aiva'):ta.focus()}));c.append(f)}
  if(a.message_id&&AV.m.some(x=>x.id==a.message_id))c.append(bt('apj','Show in chat',()=>avApJump(a.message_id)));
  return c}
-// a decision: the card's controls wait for Aiva, then the reload takes the card away; an error gives them back (a locked Yes stays locked)
+// a decision: the card's controls wait for Aiva, then the reload takes the card away; an error gives them back (a locked Yes stays locked).
+// "failed": Aiva took the yes but running it failed, and the chat says why
 async function avApDo(c,b,ok){const bs=[...c.querySelectorAll('button,textarea')].filter(x=>!x.disabled);bs.forEach(x=>x.disabled=true);
- try{const r=await api('/api/aiva/approvals/'+encodeURIComponent(c.dataset.ap),b);toast(r&&r.repeat?'Already decided':ok)}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}
+ try{const r=await api('/api/aiva/approvals/'+encodeURIComponent(c.dataset.ap),b);toast(r&&r.repeat?'Already decided':r&&r.status=='failed'?'Approved, but it failed: see the chat':ok)}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}
 function avApJump(id){hideSheet();const e=cur&&cur.box&&[...cur.box.children].find(n=>n._x&&n._x.id==id);if(!e)return toast('That message isn\'t in the chat any more.');
  e.scrollIntoView({block:'center'});e.classList.add('avflash');setTimeout(()=>e.classList.remove('avflash'),2e3)}
 // after each load: cards for approvals gone are dropped, new ones added at the end, the rest left alone (only their age and passkey lock are redrawn); the badge shows the count
