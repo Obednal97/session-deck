@@ -149,6 +149,12 @@ class RichHelpersInNode(unittest.TestCase):
           return [c.querySelectorAll('button,textarea').map(b=>b.textContent+':'+b.disabled),c.text.includes('Needs a passkey sign-in'),d.querySelectorAll('button').some(b=>b.disabled)]""")
         self.assertEqual(got, [["Yes:true", "No:false", "Always:true", "Never:false", ":false", "Send:false"], True, False])
 
+    def test_passkey_sign_in_unlocks_a_kept_card(self):  # the lock follows TS on each sync, on the same node, leaving the text box alone
+        got = self.run_js(r"""TS=false;AV.ap=[{...AP0,tier:3}];avApSync();const c=AP.c.get(AP0.id),t=c.querySelectorAll('textarea')[0],no=c.all().find(n=>n.textContent=='Needs a passkey sign-in');
+          t.value='half typed';const st=()=>[btn(c,'Yes').disabled,btn(c,'Always').disabled,no.hidden],o=[st()];avApSync();o.push(st());
+          TS=true;avApSync();o.push(st(),AP.c.get(AP0.id)===c,t.value);TS=false;avApSync();o.push(st());TS=true;return o""")
+        self.assertEqual(got, [[True, True, False], [True, True, False], [False, False, True], True, "half typed", [True, True, False]])
+
     def test_sync_keeps_cards_by_id(self):  # a poll while the owner types must not rebuild the card
         got = self.run_js(r"""const B={...AP0,id:'ap_2'},b=$('apb');AV.ap=[AP0,B];avApSync();const box=AP.box,c1=AP.c.get(AP0.id),c2=AP.c.get('ap_2'),t=c2.querySelectorAll('textarea')[0];t.value='half typed';
           const o=[box.kids.filter(n=>n.dataset.ap).length,$('apbn').textContent,b.hidden];avApSync();o.push(AP.c.get(AP0.id)===c1&&AP.c.get('ap_2')===c2,t.value);

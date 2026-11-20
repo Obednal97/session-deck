@@ -343,7 +343,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 /* the approvals panel: the header button (Aiva's chat only; its label from 700px), then a card per approval in the sheet */
 .apb{position:relative;grid-auto-flow:column;gap:6px;margin-right:4px}.apb>span{display:none;font-size:14px;font-weight:600}body:not(.aiva) #apb{display:none!important}@media(min-width:700px){.apb>span{display:inline}}
 .aph{display:flex;align-items:center;gap:10px}.aph h2{flex:1}.aph .ic{margin:-6px -6px -6px 0;color:var(--m);font-size:15px}.aps{display:flex;flex-direction:column;gap:12px}.ap0{margin:0;color:var(--m)}
-.apc{border:1px solid var(--l);border-radius:12px;background:var(--bg);padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}.apc>b{font-size:15px;overflow-wrap:anywhere}.apc>small{color:var(--m);font-size:13px;margin-top:-6px}.apc p{margin:0;overflow-wrap:anywhere}.apc dl{margin:0}
+.apc{border:1px solid var(--l);border-radius:12px;background:var(--bg);padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}.apc button:disabled{opacity:.45;cursor:default}.apc>b{font-size:15px;overflow-wrap:anywhere}.apc>small{color:var(--m);font-size:13px;margin-top:-6px}.apc p{margin:0;overflow-wrap:anywhere}.apc dl{margin:0}
 .apd{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--s);border:1px solid var(--l);border-radius:8px;padding:8px 10px;font-size:14px;max-height:40vh;overflow-y:auto}
 .apq .lbl{display:block;margin-bottom:2px}.apq p{font-weight:600}.apr{border:1px solid var(--c);border-left-width:3px;border-radius:8px;padding:8px 10px;font-size:14px}.apr b{color:var(--c)}
 .apt{display:flex;gap:8px;align-items:flex-end}.apj{align-self:flex-start;border:0;background:none;color:var(--c);padding:2px 0;font-size:13.5px}@media(min-width:700px){.apa{grid-template-columns:repeat(auto-fit,minmax(80px,1fr))}}
@@ -1399,17 +1399,19 @@ function avPlain(t,P){const o=[t],c=v=>v&&typeof v=='object'?v.text+(aurl(v.href
 // the approvals panel (the header's Approvals button, in the bottom sheet): every approval waiting as a card, kept by its id between polls so a half-typed answer
 // and its focus survive the 3 s refresh. Always and Never ask first, as offers do; a tier 3 Yes or Always needs a passkey sign-in, No, Never and an answer never do
 const AP={c:new Map(),box:null,none:null},APD={yes:['approve','Approved'],no:['reject','Rejected'],always:['approve_always','Always on'],never:['reject_never','Never again']};
-function avApCard(a){const s=v=>v==null?'':String(v),c=avEl('div','apc'),lock=+a.tier>=3&&!TS,R=a.recommendation;c.dataset.ap=a.id;c.setAttribute('role','group');c.setAttribute('aria-label',s(a.title));
+function avApCard(a){const s=v=>v==null?'':String(v),c=avEl('div','apc'),R=a.recommendation;c.dataset.ap=a.id;c.setAttribute('role','group');c.setAttribute('aria-label',s(a.title));
  const bt=(k,x,f,off)=>{const b=avEl('button',k,x);b.type='button';b.onclick=f;b.disabled=!!off;return b},say=k=>avApDo(c,{decision:APD[k][0]},APD[k][1]);
- const sub=avEl('small');c._sub=()=>sub.textContent=[s(a.subtitle),avAgo(a.created)].filter(Boolean).join(' · ');c._sub();c.append(avEl('b',0,s(a.title)),sub);if(a.context)c.append(avEl('p',0,s(a.context)));
+ const sub=avEl('small');c.append(avEl('b',0,s(a.title)),sub);if(a.context)c.append(avEl('p',0,s(a.context)));
  const G=Array.isArray(a.grounding)?a.grounding.filter(g=>g&&typeof g=='object'):[];
  if(G.length){const dl=avEl('dl');for(const g of G){const d=avEl('div'),dd=avEl('dd'),u=aurl(g.href);dd.append(u?alink(u,s(g.value)):s(g.value));d.append(avEl('dt',0,s(g.label)),dd);dl.append(d)}c.append(dl)}
  if(a.draft)c.append(avEl('div','apd',s(a.draft)));// what would be sent, as it is
  const q=avEl('div','apq');q.append(avEl('small','lbl','Decision'),avEl('p',0,s(a.decision)));c.append(q);
  if(R&&R.answer){const r=avEl('div','apr'),w=s(R.answer);r.append(avEl('b',0,'Aiva recommends: '+w[0].toUpperCase()+w.slice(1)));if(R.text)r.append(avEl('p',0,s(R.text)));c.append(r)}
  const row=avEl('div','pgo apa'),ask=k=>{const f=avEl('div','pgo apa');f.append(avEl('small',0,(k=='always'?'Always: '+s(a.always_covers):'Never: '+s(a.never_covers))+'?'),bt('go','Confirm',()=>say(k)),bt('pick','Cancel',()=>f.replaceWith(row)));row.replaceWith(f)};
- row.append(bt('go','Yes',()=>say('yes'),lock),bt('pick','No',()=>say('no')));if(Array.isArray(a.answers)&&a.answers.includes('always'))row.append(bt('pick','Always',()=>ask('always'),lock));
- row.append(bt('pick red','Never',()=>ask('never')));if(lock)row.append(avEl('small',0,'Needs a passkey sign-in'));
+ const L=[bt('go','Yes',()=>say('yes'))],no=avEl('small',0,'Needs a passkey sign-in');row.append(L[0],bt('pick','No',()=>say('no')));if(Array.isArray(a.answers)&&a.answers.includes('always'))row.append(L[1]=bt('pick','Always',()=>ask('always')));
+ row.append(bt('pick red','Never',()=>ask('never')),no);
+ // redrawn on each sync: the age, and the tier 3 lock (a passkey sign-in frees Yes and Always), set only when it changes so a decision in flight keeps its buttons off
+ c._up=()=>{sub.textContent=[s(a.subtitle),avAgo(a.created)].filter(Boolean).join(' · ');const k=+a.tier>=3&&!TS;if(k!==c._k){c._k=k;L.forEach(b=>b.disabled=k);no.hidden=!k}};c._up();
  const f=avEl('div','apt'),ta=avEl('textarea');ta.rows=2;ta.maxLength=2000;ta.placeholder='Or tell Aiva what you\'d like instead';ta.setAttribute('aria-label','Your answer');
  f.append(ta,bt('send','Send',()=>{const v=ta.value.trim();return v?avApDo(c,{decision:'answer',text:v},'Sent to Aiva'):ta.focus()}));c.append(row,f);
  if(a.message_id&&AV.m.some(x=>x.id==a.message_id))c.append(bt('apj','Show in chat',()=>avApJump(a.message_id)));
@@ -1419,11 +1421,11 @@ async function avApDo(c,b,ok){const bs=[...c.querySelectorAll('button,textarea')
  try{const r=await api('/api/aiva/approvals/'+encodeURIComponent(c.dataset.ap),b);toast(r&&r.repeat?'Already decided':ok)}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}
 function avApJump(id){hideSheet();const e=cur&&cur.box&&[...cur.box.children].find(n=>n._x&&n._x.id==id);if(!e)return toast('That message isn\'t in the chat any more.');
  e.scrollIntoView({block:'center'});e.classList.add('avflash');setTimeout(()=>e.classList.remove('avflash'),2e3)}
-// after each load: cards for approvals gone are dropped, new ones added at the end, the rest left alone (only their age is redrawn); the badge shows the count
+// after each load: cards for approvals gone are dropped, new ones added at the end, the rest left alone (only their age and passkey lock are redrawn); the badge shows the count
 function avApSync(){if(!AP.box){AP.box=avEl('div','aps');AP.none=avEl('p','ap0','Nothing waiting for you.');AP.box.append(AP.none)}
  const L=Array.isArray(AV.ap)?AV.ap.filter(a=>a&&typeof a=='object'):[],ids=new Set(L.map(a=>a.id));
  for(const[id,n]of AP.c)if(!ids.has(id)){n.remove();AP.c.delete(id)}
- for(const a of L){const n=AP.c.get(a.id);if(n)n._sub();else{const k=avApCard(a);AP.c.set(a.id,k);AP.box.append(k)}}
+ for(const a of L){const n=AP.c.get(a.id);if(n)n._up();else{const k=avApCard(a);AP.c.set(a.id,k);AP.box.append(k)}}
  AP.none.hidden=AP.c.size>0;const b=$('apb'),n=L.length;b.hidden=!n;$('apbn').textContent=String(n);b.setAttribute('aria-label',n?'Approvals, '+n+' waiting':'Approvals')}
 function avApOpen(){avApSync();const h=avEl('div','aph'),x=avEl('button','ic','✕');x.type='button';x.setAttribute('aria-label','Close');x.onclick=hideSheet;h.append(avEl('h2',0,'Approvals'),x);
  sb.replaceChildren(AP.box);showSheet();sd.replaceChildren(h)}// after showSheet: its header pass would clear the head for the new body
