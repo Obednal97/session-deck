@@ -355,7 +355,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .sadd{border:0;background:none;color:var(--c);font:500 20px/1 system-ui,sans-serif;padding:0 4px;margin:-6px -4px -6px 8px;vertical-align:-1px}
 /* aiva-intake:start  Aiva's chat keeps the paperclip and the attachments row; a fold of the team's posts (chief of staff mode) reads as chat, not as tool calls */
 .aiva #clip{display:grid!important}.aiva #att:not([hidden]){display:flex!important}
-.avf>.tgh{font:13px system-ui,sans-serif}#stm button:disabled{opacity:.6}
+.avf>.tgh{font:13px system-ui,sans-serif}.avf:has(>.tgb:not([hidden]))>.tgh span{display:none}#stm button:disabled{opacity:.6}
 /* aiva-intake:end */
 .tmi{flex:none;width:34px;text-align:center;font:600 12px ui-monospace,monospace;font-style:normal;color:var(--m)}.crow.sht{padding-left:22px}.card>.sht+.sht::before{left:66px}
 .sshb{display:flex;align-items:center;gap:10px;padding:6px 16px;background:var(--r);border-bottom:1px solid var(--l);font-size:13.5px}.sshb span{flex:1;min-width:0;color:var(--o);font-weight:600}
@@ -484,7 +484,7 @@ function settings(){closeMenu();let a='Blue';try{a=localStorage.getItem('accent'
  <div class=srow><span style="white-space:nowrap">Tool calls</span><div class=seg id=stl>${['Show','Hide'].map((x,i)=>`<button data-v=${1-i} aria-pressed=${!document.documentElement.classList.contains('notools')==!i}>${x}</button>`).join('')}</div></div>
  <div class=srow><span style="white-space:nowrap">Terminal button</span><div class=seg id=stv>${['On','Off'].map((x,i)=>`<button data-v=${1-i} aria-pressed=${!document.documentElement.classList.contains('noterm')==!i}>${x}</button>`).join('')}</div></div></div>
  ${typeof AV!='undefined'&&AV.on?`<div class=sg><div class=lbl>Aiva</div><div class=srow><span>Share location with Aiva while open</span><div class=seg id=sloc>${['On','Off'].map((x,i)=>`<button data-v=${1-i} aria-pressed=${locOn()==!i}>${x}</button>`).join('')}</div></div><div class=srow><span>Who talks to you</span><div class=seg id=stm>${TMS.map(([m,x])=>`<button data-m=${m} aria-pressed=${TM.mode==m}>${x}</button>`).join('')}</div></div></div>`:''}<div class=sg><div class=lbl>Notifications</div><div class=pf id=pf></div></div><div class=sg><div class=lbl>Siri</div><button class=srow id=ssiri><span>Siri shortcut</span><i>›</i></button></div>`+(TS?`<div class=sg><div class=lbl>Security</div><button class=srow id=spk><span>Passkeys and Face ID</span><i>›</i></button><button class="srow red" id=sso><span>Sign out</span></button></div>`:'')+
- `<div class=sg><div class=lbl>About</div><div class=srow><span>Session Deck</span><small>${esc(location.host)}</small></div></div>`;showSheet(-1);theme(document.documentElement.dataset.theme||'');pushUI();if(typeof AV!='undefined'&&AV.on&&TM.mode==null)tick(avTmLoad)}
+ `<div class=sg><div class=lbl>About</div><div class=srow><span>Session Deck</span><small>${esc(location.host)}</small></div></div>`;showSheet(-1);theme(document.documentElement.dataset.theme||'');pushUI();if(typeof AV!='undefined'&&AV.on){avTmUI();tick(avTmLoad)}}
 $('set').onclick=settings;
 $('sbody').addEventListener('click',e=>{const t=e.target,th=t.closest('#seg [data-t]');if(th){theme(th.dataset.t);const de=document.documentElement,lt=de.dataset.theme=='light'||(!de.dataset.theme&&matchMedia('(prefers-color-scheme: light)').matches);return $('sw')&&$('sw').querySelectorAll('button').forEach(b=>{const x=ACC.find(a=>a[0]==b.dataset.a);b.style.background=lt?x[2]:x[1]})}
  const tm=t.closest('#stm [data-m]');if(tm)return avTmSet(tm.dataset.m);
@@ -1547,12 +1547,16 @@ setInterval(()=>{const o=cur&&cur.aiva;if(started&&$('lock').hidden&&(!COL||o)&&
 function avAtt(t,fs){return!(cur&&cur.aiva)?t:t.replace(/^Attached: ([^\n]+?) \(([\d.]+ [KM]B)\)$/gm,(m,n,z)=>{fs.push(`<span class=fch title="${esc(n)}">${FILE}<b>${esc(n)}</b><small>${esc(z)}</small></span>`);return''})}
 function avSize(n){n=+n||0;return n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB'}
 // the thread mode, Everyone or Chief of staff, set in Settings (Who talks to you) and by chat commands: read from Aiva when the chat opens, every 30 s while
-// it's open and a second after a send; unknown (nothing folds) while Aiva doesn't answer it. A change redraws the chat at once
-const TM={mode:null,at:0,busy:0,of:null},TMS=[['all','Everyone'],['chief-of-staff','Chief of staff']];
+// it's open, a second after a send and when Settings opens; unknown (nothing folds) until Aiva first answers it, then kept through failed reads.
+// A change redraws the chat at once and reaches the deck's other frames (the outer page and its columns: Settings is in one, Aiva's chat may be in another).
+// v counts taps and changes heard, so a read that started before one is dropped
+const TM={mode:null,at:0,busy:0,of:null,v:0},TMS=[['all','Everyone'],['chief-of-staff','Chief of staff']];
 function avTmUI(){const g=$('stm');if(g)for(const b of g.querySelectorAll('button')){b.setAttribute('aria-pressed',String(b.dataset.m==TM.mode));b.disabled=!!TM.busy}}
-function avTmNew(m){if(m!==TM.mode){TM.mode=m;if(cur&&cur.aiva)draw()}avTmUI()}
-async function avTmLoad(){TM.at=Date.now();let m=null;try{const d=await api('/api/aiva/thread-mode');if(d&&TMS.some(x=>x[0]==d.mode))m=d.mode}catch(e){}if(!TM.busy)avTmNew(m)}
-async function avTmSet(m){if(m==TM.mode||TM.busy)return;TM.busy=1;avTmUI();let n=TM.mode;
+function avTmNew(m,heard){if(heard)TM.v++;if(m!==TM.mode){TM.mode=m;if(cur&&cur.aiva)draw();if(!heard)avTmTell(m)}avTmUI()}
+function avTmTell(m){let t=window;try{if(COL&&parent.deck)t=parent}catch(e){}
+ for(const w of[t,...[...t.document.querySelectorAll('iframe')].map(f=>f.contentWindow)])try{if(w!==window&&typeof w.avTmNew=='function')w.avTmNew(m,1)}catch(e){}}
+async function avTmLoad(){TM.at=Date.now();const v=TM.v;let m=null;try{const d=await api('/api/aiva/thread-mode');if(d&&TMS.some(x=>x[0]==d.mode))m=d.mode}catch(e){m=TM.mode}if(!TM.busy&&v==TM.v)avTmNew(m)}
+async function avTmSet(m){if(m==TM.mode||TM.busy)return;TM.busy=1;TM.v++;avTmUI();let n=TM.mode;
  try{const d=await api('/api/aiva/thread-mode',{mode:m});n=d&&TMS.some(x=>x[0]==d.mode)?d.mode:m;toast(n=='all'?'Everyone on the team talks to you again.':'Only the chief of staff talks to you now.')}
  catch(e){toast(e.reason||'That didn\'t work.')}TM.busy=0;TM.at=Date.now();avTmNew(n);tick(avLoad)}
 setInterval(()=>{if(cur&&cur.aiva&&started&&$('lock').hidden&&(TM.of!==cur||Date.now()-TM.at>=3e4)){TM.of=cur;tick(avTmLoad)}},1e3);

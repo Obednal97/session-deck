@@ -364,6 +364,8 @@ class AivaIntake(unittest.TestCase):
         self.assertIn("id=stm", st[st.index("<div class=lbl>Aiva</div>"):st.index("<div class=lbl>Notifications</div>")])
         self.assertIn("t.closest('#stm [data-m]')", src)  # a tap in Settings goes to avTmSet
         self.assertIn("const B=avFold(AV.m.map(avItem))", src)
+        self.assertIn("if(typeof AV!='undefined'&&AV.on){avTmUI();tick(avTmLoad)}", st)  # Settings shows the busy state and always reads the mode again
+        self.assertIn(".avf:has(>.tgb:not([hidden]))>.tgh span{display:none}", src)  # an open fold drops its preview line
         self.assertIn(".aiva #clip{display:grid!important}", src)  # the shared hide rule stays as it is; the block shows the paperclip again
         self.assertIn("dropOk=e=>!inSplit&&cur&&(cur.pane||cur.via||cur.aiva)", src)
         self.assertIn("if(!cur.menu&&ATT.some(a=>a.av))return toast(", src)  # a session chat won't send files attached in Aiva's chat

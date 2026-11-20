@@ -156,6 +156,28 @@ class RichHelpersInNode(unittest.TestCase):
         self.assertEqual(three, ["4 messages from Household, Finance and Travel", "e"])  # no label: the persona's name
         self.assertEqual(old6, 6)  # an older Aiva sends no via: never folds
 
+    def test_thread_mode_reads_taps_and_frames(self):  # a failed read keeps the mode; a read older than a tap is dropped; every deck frame hears a change
+        s = (ROOT / "index.html").read_text(); i = s.index("const TM=")
+        js = r"""(async()=>{const G=[];globalThis.tick=()=>{};globalThis.window=globalThis;globalThis.COL=false;
+          const fw={avTmNew:(m,q)=>G.push(['col',m,q])},bad={get avTmNew(){throw new Error('cross-origin')}};
+          document.querySelectorAll=()=>[{contentWindow:fw},{contentWindow:bad},{contentWindow:{}}];
+          let res;globalThis.api=async(p,b)=>{if(b)return{mode:b.mode};if(FAIL)throw FAIL;return new Promise(r=>res=r)};
+          const l1=avTmLoad();res({mode:'chief-of-staff'});await l1;const a=TM.mode,g1=G.splice(0);
+          FAIL={st:503};await avTmLoad();const b=TM.mode;FAIL=null;
+          const l2=avTmLoad();await avTmSet('all');res({mode:'chief-of-staff'});await l2;const c=TM.mode,g2=G.splice(0);
+          avTmNew('chief-of-staff',1);const d=[TM.mode,G.length];
+          globalThis.COL='1';const par={deck:{},avTmNew:(m,q)=>G.push(['top',m,q]),document:{querySelectorAll:()=>[{contentWindow:globalThis},{contentWindow:fw}]}};globalThis.parent=par;
+          avTmNew('all');return[a,g1,b,c,g2,d,G]})()"""
+        r = subprocess.run(["node"], input="globalThis.setInterval=()=>0;" + FAKE_DOM + rich_block() + s[i:s.index("// aiva-intake:end", i)] +
+                           "\n" + js + ".then(v=>console.log(JSON.stringify(v)))", capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        a, g1, b, c, g2, d, g3 = json.loads(r.stdout)
+        self.assertEqual((a, g1), ("chief-of-staff", [["col", "chief-of-staff", 1]]))  # the outer page tells its columns; a frame it can't reach is skipped
+        self.assertEqual(b, "chief-of-staff")  # a failed read keeps the last known mode
+        self.assertEqual((c, g2), ("all", [["col", "all", 1]]))  # the read that started before the tap doesn't undo it
+        self.assertEqual(d, ["chief-of-staff", 0])  # a mode heard from another frame isn't sent on again
+        self.assertEqual(g3, [["top", "all", 1], ["col", "all", 1]])  # a column tells the outer page and the other columns, not itself
+
     # the approvals panel (a bottom sheet): one card per approval, kept by id between polls
     def test_approval_card_in_full(self):
         got = self.run_js(r"""AV.m=[{id:812,role:'aiva',text:'x'}];const c=avApCard(AP0),t=c.querySelectorAll('textarea')[0],l=c.querySelectorAll('a')[0];
