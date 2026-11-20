@@ -353,6 +353,10 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .sshv :is(#foot,#tv,#status,#stats,#menu,#login,#sab,#jump){display:none!important}header .sshx{display:none}.sshv header .sshx{display:grid}
 .sst{border:0;background:none;padding:0;font:inherit;color:inherit;letter-spacing:inherit}.sst::after{content:"  \25BE"}.sst[aria-expanded=false]::after{content:"  \25B8"}
 .sadd{border:0;background:none;color:var(--c);font:500 20px/1 system-ui,sans-serif;padding:0 4px;margin:-6px -4px -6px 8px;vertical-align:-1px}
+/* aiva-intake:start  Aiva's chat keeps the paperclip and the attachments row; the thread mode bar sits above its messages */
+.aiva #clip{display:grid!important}.aiva #att:not([hidden]){display:flex!important}body:not(.aiva) #avtm{display:none!important}
+.avtm{display:flex;align-items:center;gap:10px;padding:6px 16px;border-bottom:1px solid var(--l);font-size:13px;color:var(--m)}.avtm>span{flex:none}.avtm .seg{flex:0 1 320px}.avtm .seg button:disabled{opacity:.6}
+/* aiva-intake:end */
 .tmi{flex:none;width:34px;text-align:center;font:600 12px ui-monospace,monospace;font-style:normal;color:var(--m)}.crow.sht{padding-left:22px}.card>.sht+.sht::before{left:66px}
 .sshb{display:flex;align-items:center;gap:10px;padding:6px 16px;background:var(--r);border-bottom:1px solid var(--l);font-size:13.5px}.sshb span{flex:1;min-width:0;color:var(--o);font-weight:600}
 .kill.op{color:var(--c)}.rfl{display:flex;flex-direction:column;gap:6px;max-height:min(40vh,320px);overflow:auto;margin-top:6px}.sshb button{flex:none;border:1px solid var(--l);background:var(--s);border-radius:99px;padding:3px 12px;color:var(--c);font-size:13px}
@@ -701,7 +705,7 @@ const lk=t=>esc(t).replace(/https?:\/\/[^\s<>"'`]+/g,u=>{const v=u.replace(/[.,;
 if(window.DOMPurify)DOMPurify.addHook('afterSanitizeAttributes',n=>{if(n.tagName=='A'&&ART.test(n.getAttribute('href')||'')&&!n.classList.contains('art')){const t=n.textContent.trim();n.className='art';n.innerHTML=artCard(n.getAttribute('href').match(ART)[0],ART.test(t)?'':t).replace(/^<a[^>]*>|<\/a>$/g,'')}if(n.tagName=='A'&&n.getAttribute('href')){n.setAttribute('target','_blank');n.setAttribute('rel','noopener noreferrer')}});
 const FILE='<svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.8 stroke-linejoin=round><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
 // a user message: "Attached: <path> (<name>, <size>)" lines from /api/send become file chips
-const ub=t=>{const fs=[];t=(t||'').replace(/^Attached: (\/\S+) \((.*), ([\d.]+ [KM]B)\)$/gm,(m,p,n,s)=>{fs.push(`<span class=fch title="${esc(p)}">${FILE}<b>${esc(n)}</b><small>${esc(s)}</small></span>`);return''}).trim();return(t?md(t):'')+fs.join('')};
+const ub=t=>{const fs=[];t=avAtt(t||'',fs).replace(/^Attached: (\/\S+) \((.*), ([\d.]+ [KM]B)\)$/gm,(m,p,n,s)=>{fs.push(`<span class=fch title="${esc(p)}">${FILE}<b>${esc(n)}</b><small>${esc(s)}</small></span>`);return''}).trim();return(t?md(t):'')+fs.join('')};
 // files Claude made (a pdf, csv, image…) named in a reply: images show, and each file gets a chip to open or save it on this device
 const RGET={};// a server file named in a reply, once fetched: host\npath -> its chip (out_files)
 const outF=fs=>(fs||[]).map(f=>f.rpath?RGET[f.host+'\n'+f.rpath]?outF([RGET[f.host+'\n'+f.rpath]]):`<span class="fch out" title="${esc(f.rpath)}">${FILE}<b>${esc(f.name)}</b><small>On ${esc((sshH(f.host)||{}).name||'the server')}</small><a href="#" data-rget="${esc(f.rpath)}" data-rh="${esc(f.host)}">Get</a></span>`:(f.img?`<img class=fim src="${esc(f.url)}" alt="${esc(f.name)}" loading=lazy>`:'')+`<span class="fch out">${FILE}<b>${esc(f.name)}</b><small>${esc(f.size)}</small>${f.show?`<a href="${esc(f.url)}" target=_blank rel=noopener>Open</a>`:''}<a href="${esc(f.url)}&dl=1" download="${esc(f.name)}">Save</a></span>`).join('');
@@ -912,24 +916,28 @@ let busy=false;function sendBtn(){const stop=busy&&!$('ta').value.trim()&&!ATT.l
 $('ta').addEventListener('input',sendBtn);
 /* attachments: each file uploads as soon as it is picked or pasted; Send waits for all of them */
 const ATT=[];let attN=0;
-function attUI(){const el=$('att');el.hidden=!ATT.length;el.innerHTML=ATT.map(a=>`<div class=ach data-id=${a.id} title="${esc(a.name)}">${a.thumb?`<img src="${a.thumb}" alt="">`:FILE+`<span>${esc(a.name)}</span>`}${a.path?'':`<b>${a.pct}%</b><i style="width:${a.pct}%"></i>`}<button aria-label="Remove">×</button></div>`).join('')+'<small class=anote>Very large files (several GB) are better moved with Syncthing.</small>';
+// aiva-intake:start  Aiva's chat attaches too (paperclip, paste, drop): its files go to api/upload?aiva=1, which takes only Aiva's kinds, 10 MB each, 5 at a time
+const AVA={max:10<<20,n:5,accept:'image/*,application/pdf,.pdf,.csv,.qif,.ofx,.txt'};
+function attUI(){const el=$('att');el.hidden=!ATT.length;el.innerHTML=ATT.map(a=>`<div class=ach data-id=${a.id} title="${esc(a.name)}">${a.thumb?`<img src="${a.thumb}" alt="">`:FILE+`<span>${esc(a.name)}</span>`}${a.path?'':`<b>${a.pct}%</b><i style="width:${a.pct}%"></i>`}<button aria-label="Remove">×</button></div>`).join('')+'<small class=anote>'+(cur&&cur.aiva?'Aiva takes PDFs, photos, CSV, QIF, OFX and text files: up to 5, 10 MB each.':'Very large files (several GB) are better moved with Syncthing.')+'</small>';
  el.querySelectorAll('img').forEach(i=>i.onerror=()=>i.outerHTML=FILE+`<span>${esc(i.parentNode.title)}</span>`);sendBtn()}
 function unattach(a,msg){const i=ATT.indexOf(a);if(i<0)return;ATT.splice(i,1);if(a.xhr.readyState<4)a.xhr.abort();if(a.thumb)URL.revokeObjectURL(a.thumb);attUI();if(msg)toast(msg)}
-function attach(files){if(!cur||!(cur.pane||cur.via))return;for(const f of files){const name=f.name||'pasted image';if(f.size>1<<30){toast(name+' is over 1 GB. Move very large files with Syncthing instead.');continue}
- const a={id:++attN,name,pct:0,thumb:/^image\//.test(f.type)?URL.createObjectURL(f):''},x=a.xhr=new XMLHttpRequest();ATT.push(a);
- x.open('POST','api/upload?pane='+encodeURIComponent(cur.pane||cur.via)+'&name='+encodeURIComponent(name));x.setRequestHeader('X-Deck-Token',TOK);
+function attach(files){if(!cur||!(cur.pane||cur.via||cur.aiva))return;const av=!!cur.aiva;for(const f of files){const name=f.name||'pasted image';if(f.size>1<<30){toast(name+' is over 1 GB. Move very large files with Syncthing instead.');continue}
+ if(av&&f.size>AVA.max){toast(name+' is over 10 MB, the most Aiva takes.');continue}if(av&&ATT.filter(a=>a.av).length>=AVA.n){toast('Aiva takes up to '+AVA.n+' files at a time.');break}
+ const a={id:++attN,name,pct:0,av,thumb:/^image\//.test(f.type)?URL.createObjectURL(f):''},x=a.xhr=new XMLHttpRequest();ATT.push(a);
+ x.open('POST','api/upload?'+(av?'aiva=1':'pane='+encodeURIComponent(cur.pane||cur.via))+'&name='+encodeURIComponent(name));x.setRequestHeader('X-Deck-Token',TOK);
  x.upload.onprogress=e=>{const c=$('att').querySelector(`[data-id="${a.id}"]`);if(!e.lengthComputable||!c||!c.querySelector('b'))return;a.pct=Math.round(e.loaded*100/e.total);c.querySelector('b').textContent=a.pct+'%';c.querySelector('i').style.width=a.pct+'%'};
- x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status==200&&r.path){a.path=r.path;attUI()}else unattach(a,r.error||name+': upload failed ('+x.status+').')};
+ x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status==200&&r.path){a.path=r.path;a.size=r.size;attUI()}else unattach(a,r.error||name+': upload failed ('+x.status+').')};
  x.onerror=()=>unattach(a,name+': upload failed. Check the connection.');x.send(f)}attUI()}
-const FIA=$('fi').accept;$('clip').onclick=()=>{$('fi').accept=FIA;$('fi').click()};$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
+const FIA=$('fi').accept;$('clip').onclick=()=>{$('fi').accept=cur&&cur.aiva?AVA.accept:FIA;$('fi').click()};$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
 $('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
 $('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
 // files dragged in from the computer, dropped on the messages or the box, attach as the paperclip does; a file dropped anywhere else
 // is ignored rather than opened in place of the deck. Drags that start on the page (an image in a reply) are left alone
 let ownDrag=0,dropT;addEventListener('dragstart',()=>ownDrag=1);addEventListener('dragend',()=>ownDrag=0);
-const fileDrag=e=>!ownDrag&&e.dataTransfer.types.includes('Files'),dropOk=e=>!inSplit&&cur&&!cur.aiva&&(cur.pane||cur.via)&&!(e.target.closest&&e.target.closest('.drawer,.sheet,.lock'));
+const fileDrag=e=>!ownDrag&&e.dataTransfer.types.includes('Files'),dropOk=e=>!inSplit&&cur&&(cur.pane||cur.via||cur.aiva)&&!(e.target.closest&&e.target.closest('.drawer,.sheet,.lock'));
 addEventListener('dragover',e=>{if(!fileDrag(e))return;e.preventDefault();const ok=dropOk(e);e.dataTransfer.dropEffect=ok?'copy':'none';document.body.classList.toggle('drop',!!ok);clearTimeout(dropT);dropT=setTimeout(()=>document.body.classList.remove('drop'),150)});
 addEventListener('drop',e=>{if(!fileDrag(e))return;e.preventDefault();document.body.classList.remove('drop');if(dropOk(e))(cur.ssh?sshAttach:attach)([...e.dataTransfer.files])});
+// aiva-intake:end
 const vv=window.visualViewport;
 if(vv){let ft=[];/* while typing, pin the page to the visible area: newer iOS shrinks innerHeight with the keyboard too, so guessing "keyboard open" from the two heights failed and left the page scrolled up.
  With nothing being typed in, the page fills the screen and a scrolled viewport is put back: after a rotation iOS can leave it offset (a gap above the header, taps landing off target) */
@@ -1513,10 +1521,17 @@ function locSend(force){if(COL||!locOn()||!navigator.geolocation||document.hidde
  navigator.geolocation.getCurrentPosition(p=>{api('/api/aiva/location',{lat:p.coords.latitude,lon:p.coords.longitude,acc:Math.round(p.coords.accuracy),ts:Math.floor(p.timestamp/1e3),device:avDevice()}).catch(()=>{})},
   e=>{if(e&&e.code==1&&!locWarned){locWarned=1;toast('Location is blocked for this page, so Aiva can\'t see where you are.')}},{maximumAge:6e4,timeout:2e4})}
 setInterval(()=>locSend(0),3e4);document.addEventListener('visibilitychange',()=>locSend(0));
-async function avSend(t,say){const v=t.trim(),me=cur;if(!v||AV.pend)return;AV.pend=v;sending=1;if(!say){$('ta').value='';grow()}sendBtn();AV.end=1;draw();
- try{await api('/api/aiva/messages',{text:v,device:avDevice()});AV.pend='';await avLoad()}catch(e){AV.pend='';const back=cur===me&&!$('ta').value;if(back){$('ta').value=v;grow()}
-  toast(back?e.reason||'Not sent. Your message is back in the box.':(e.reason?e.reason+' ':'')+'Not sent: '+(v.length>80?v.slice(0,79)+'…':v))}
+// aiva-intake:start  a send carries the files attached in Aiva's chat (their upload paths; the deck reads them and sends them on), text optional with files;
+// they leave the box only once Aiva has taken the message. A card's button (say) sends just its text
+async function avSend(t,say){const v=t.trim(),me=cur,A=say?[]:ATT.slice();if(!v&&!A.length||AV.pend)return;
+ if(A.some(a=>!a.av))return toast('Those files were attached in another chat. Remove them first.');if(A.some(a=>!a.path))return toast('Wait for the uploads to finish.');
+ AV.pend=[v,...A.map(a=>'Attached: '+a.name+' ('+avSize(a.size)+')')].filter(Boolean).join('\n');sending=1;if(!say){$('ta').value='';grow()}sendBtn();AV.end=1;draw();
+ try{await api('/api/aiva/messages',{text:v,device:avDevice(),...A.length&&{files:A.map(a=>a.path)}},A.length?6e4:2e4);AV.pend='';
+  for(const a of A){const i=ATT.indexOf(a);if(i>=0)ATT.splice(i,1);if(a.thumb)URL.revokeObjectURL(a.thumb)}if(A.length)attUI();await avLoad()}
+ catch(e){AV.pend='';const back=cur===me&&!$('ta').value,w=v||A.map(a=>a.name).join(', ');if(back&&v){$('ta').value=v;grow()}
+  toast(back?e.reason||(v?'Not sent. Your message is back in the box.':'Not sent. Your files are still attached.'):(e.reason?e.reason+' ':'')+'Not sent: '+(w.length>80?w.slice(0,79)+'…':w))}
  sending=0;sendBtn();if(cur===me){AV.end=1;draw()}}
+// aiva-intake:end
 async function avDecide(p,d){const bs=p.querySelectorAll('button');bs.forEach(x=>x.disabled=true);
  try{await api('/api/aiva/approvals/'+encodeURIComponent(p.dataset.ap),{decision:d});toast(d=='approve'?'Approved':'Rejected')}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}
 async function avAnswer(p,a){const id=p.dataset.of,bs=p.querySelectorAll('button');bs.forEach(x=>x.disabled=true);AV.cf=null;
@@ -1526,6 +1541,23 @@ $('main').addEventListener('click',e=>{const f=e.target.closest('.pgo[data-of] b
  const b=e.target.closest('.pga[data-ap] [data-d]');if(b&&cur&&cur.aiva)avDecide(b.parentNode,b.dataset.d);
  const y=e.target.closest('.avsay');if(y&&cur&&cur.aiva&&!AV.pend&&y._say)avSend(y._say,1)});// a card's button: sent as if typed
 setInterval(()=>{const o=cur&&cur.aiva;if(started&&$('lock').hidden&&(!COL||o)&&Date.now()-AV.at>=(o?3e3:3e4)-500)tick(avLoad)},1e3);
+// aiva-intake:start
+// The owner's messages in Aiva's chat: each "Attached: name (2.1 MB)" line is drawn as the file chip session chats use (ub calls this; everything escaped)
+function avAtt(t,fs){return!(cur&&cur.aiva)?t:t.replace(/^Attached: ([^\n]+?) \(([\d.]+ [KM]B)\)$/gm,(m,n,z)=>{fs.push(`<span class=fch title="${esc(n)}">${FILE}<b>${esc(n)}</b><small>${esc(z)}</small></span>`);return''})}
+function avSize(n){n=+n||0;return n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB'}
+// the thread mode: a bar above Aiva's messages (DOM nodes only), Everyone or Chief of staff only, read from Aiva when the chat opens and every 30 s;
+// hidden while Aiva doesn't answer it. A tap sets it
+const TM={el:null,mode:null,at:0,busy:0,of:null},TMS=[['all','Everyone'],['chief-of-staff','Chief of staff only']];
+function avTmUI(){if(!TM.el){const e=TM.el=document.createElement('div'),l=document.createElement('span'),g=document.createElement('div');e.className='avtm';e.id='avtm';l.textContent='Thread';
+  g.className='seg';g.setAttribute('role','group');g.setAttribute('aria-label','Who talks to you in this chat');
+  for(const[m,x]of TMS){const b=document.createElement('button');b.type='button';b.textContent=x;b.dataset.m=m;b.onclick=()=>avTmSet(m);g.append(b)}e.append(l,g);$('main').before(e)}
+ TM.el.hidden=!(cur&&cur.aiva&&TM.mode);for(const b of TM.el.querySelectorAll('button')){b.setAttribute('aria-pressed',String(b.dataset.m==TM.mode));b.disabled=!!TM.busy}}
+async function avTmLoad(){TM.at=Date.now();let m=null;try{const d=await api('/api/aiva/thread-mode');if(d&&TMS.some(x=>x[0]==d.mode))m=d.mode}catch(e){}if(!TM.busy)TM.mode=m;avTmUI()}
+async function avTmSet(m){if(m==TM.mode||TM.busy)return;TM.busy=1;avTmUI();
+ try{const d=await api('/api/aiva/thread-mode',{mode:m});TM.mode=d&&TMS.some(x=>x[0]==d.mode)?d.mode:m;toast(TM.mode=='all'?'Everyone on the team talks to you here again.':'Only the chief of staff talks to you here now.')}
+ catch(e){toast(e.reason||'That didn\'t work.')}TM.busy=0;TM.at=Date.now();avTmUI();tick(avLoad)}
+setInterval(()=>{const o=cur&&cur.aiva;if(TM.el||o)avTmUI();if(o&&started&&$('lock').hidden&&(TM.of!==cur||Date.now()-TM.at>=3e4)){TM.of=cur;tick(avTmLoad)}},1e3);
+// aiva-intake:end
 /* SSH: a section in the chat list, a host sheet and page, and terminals in the live terminal. Hosts live on the Mac (/api/ssh/hosts) and SSH
    terminals in /api/sessions' ssh, never in Active or History. A saved password stays on this device (localStorage sshpw:<host id>), AES-GCM
    encrypted with a key the Mac gives only to a signed-in session (/api/ssh/vault); it goes to the Mac only inside a connect, and only for a password host */

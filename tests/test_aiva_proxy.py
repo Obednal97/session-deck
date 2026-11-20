@@ -260,4 +260,107 @@ class Location(unittest.TestCase):
             self.req(b'{"lat":51.123456}', self.basic(self.SECRET)); self.req(b'{"lat":51.123456}', self.basic("wrong"))
         self.assertNotIn(self.SECRET, buf.getvalue()); self.assertNotIn("51.123456", buf.getvalue())
 
+
+# aiva-intake: files from Aiva's chat (upload paths in, base64 out to Aiva), uploads for Aiva, and the thread mode
+class AivaIntake(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        AivaProxy.setUpClass.__func__(cls)
+        cls.upl, cls.old_upl = Path(tempfile.mkdtemp()).resolve(), server.UPL
+        cls.http = ThreadingHTTPServer(("127.0.0.1", 0), server.H); threading.Thread(target=cls.http.serve_forever, daemon=True).start()
+    @classmethod
+    def tearDownClass(cls): server.UPL = cls.old_upl; cls.http.shutdown(); cls.http.server_close(); cls.srv.shutdown(); cls.srv.server_close()
+    def setUp(self): GOT.clear(); server.AIVA_SOCK = self.sock; server.UPL = self.upl
+    post, verify = AivaProxy.post, AivaProxy.verify
+
+    def saved(self, name, data, on_phone=None):
+        d = self.upl / "2026-01-01"; d.mkdir(exist_ok=True); f = d / name; f.write_bytes(data)
+        if on_phone: server.NAMES[str(f)] = on_phone
+        return str(f)
+
+    def test_files_forwarded_as_base64_with_names(self):
+        pdf, png = b"%PDF-1.4\n% a test document\n", b"\x89PNG\r\n\x1a\n" + bytes(range(64))
+        a, b = self.saved("a1.pdf", pdf, "notice.pdf"), self.saved("b2.png", png)
+        h, g = self.post("/api/aiva/messages", {"text": "  what is this? ", "device": "phone", "files": [a, b]})
+        self.assertEqual((h.out[0], g["path"]), (200, "/messages"))
+        sent = json.loads(g["body"])
+        self.assertEqual((sent["text"], sent["device"]), ("what is this?", "phone"))
+        self.assertEqual([f["name"] for f in sent["files"]], ["notice.pdf", "b2.png"])  # the phone's name when the deck has it, else the saved one
+        self.assertEqual([base64.b64decode(f["data"]) for f in sent["files"]], [pdf, png])
+        self.verify(g, "0")
+        h, g = self.post("/api/aiva/messages", {"text": "", "files": [a]}, ts=True, se=("me@example.com", "sid"))  # no text is fine with files
+        self.assertEqual((json.loads(g["body"])["text"], json.loads(g["body"])["device"]), ("", "unknown")); self.verify(g, "1")
+
+    def test_path_outside_uploads_400(self):
+        out = Path(tempfile.mkdtemp(), "x.pdf"); out.write_bytes(b"%PDF-1.4\n")
+        ok = self.saved("c3.pdf", b"%PDF-1.4\n")
+        for fs in ([str(out)], [ok, str(out)], [str(self.upl / "2026-01-01" / ".." / ".." / out.name)], [str(self.upl / "nope.pdf")], "abc"):
+            n = len(GOT); h = Stub("/x"); self.assertTrue(server.aiva_api(h, "/api/aiva/messages", {"text": "hi", "files": fs}))
+            self.assertEqual(h.out[0], 400, fs); self.assertEqual(len(GOT), n, fs)
+
+    def test_too_many_or_too_big_never_read(self):
+        fs = [self.saved(f"m{i}.txt", b"hello") for i in range(6)]
+        h = Stub("/x"); server.aiva_api(h, "/api/aiva/messages", {"files": fs}); self.assertEqual(h.out, (400, {"error": "Up to 5 files at a time."}))
+        big = self.saved("big.txt", b"x" * ((10 << 20) + 1), "big.txt")
+        h = Stub("/x"); server.aiva_api(h, "/api/aiva/messages", {"files": [big]}); self.assertEqual(h.out, (413, {"error": "big.txt is over 10 MB."}))
+        self.assertEqual(GOT, [])
+
+    def test_thread_mode_get_and_post(self):
+        h = Stub("/api/aiva/thread-mode?x=1"); self.assertTrue(server.aiva_api(h, "/api/aiva/thread-mode"))
+        self.assertEqual((GOT[-1]["method"], GOT[-1]["path"], h.out[0]), ("GET", "/thread-mode", 200))
+        for m in ("chief-of-staff", "all"):
+            h, g = self.post("/api/aiva/thread-mode", {"mode": m, "by": "x"})
+            self.assertEqual((g["method"], g["path"], json.loads(g["body"])), ("POST", "/thread-mode", {"mode": m})); self.verify(g, "0")
+        h, g = self.post("/api/aiva/thread-mode", {"mode": "all"}, ts=True, se=("me@example.com", "sid")); self.verify(g, "1")
+
+    def test_thread_mode_bad_mode_400(self):
+        for b in ({}, {"mode": ""}, {"mode": "everyone"}, {"mode": ["all"]}, {"mode": None}, ["all"]):
+            h = Stub("/x"); self.assertTrue(server.aiva_api(h, "/api/aiva/thread-mode", b)); self.assertEqual(h.out[0], 400, b)
+        self.assertEqual(GOT, [])
+
+    def upload(self, q, body, length=None):
+        h = ["POST /api/upload?" + q + " HTTP/1.1", "Host: 127.0.0.1", "X-Deck-Token: " + server.TOK, f"Content-Length: {len(body) if length is None else length}"]
+        with socket.create_connection(self.http.server_address, timeout=10) as c:
+            c.sendall(("\r\n".join(h) + "\r\n\r\n").encode() + body); buf = b""
+            while not (b"\r\n\r\n" in buf and len(buf.partition(b"\r\n\r\n")[2]) >= int(re.search(rb"Content-Length: (\d+)", buf)[1])):
+                d = c.recv(65536)
+                if not d: break
+                buf += d
+        head, _, rest = buf.partition(b"\r\n\r\n")
+        return int(head.split()[1]), json.loads(rest)
+
+    def test_upload_for_aiva(self):
+        code, r = self.upload("aiva=1&name=bill.pdf", b"%PDF-1.4\n% generated\n")
+        self.assertEqual((code, r["name"], r["kind"]), (200, "bill.pdf", "file"))
+        self.assertTrue(Path(r["path"]).resolve().is_relative_to(self.upl) and r["path"].endswith(".pdf")); self.assertEqual(server.NAMES[r["path"]], "bill.pdf")
+        self.assertEqual(self.upload("aiva=1&name=export.qif", b"!Type:Bank\nD01/01/2026\nT-1.00\n^\n")[1]["path"][-4:], ".qif")
+        for name, body in (("setup.exe", b"MZ\x90\x00\x03\x00\x00\x00\x04\x00"), ("report.docx", b"PK\x03\x04" + b"\x00" * 40), ("notes.md", b"# notes\n")):
+            code, r = self.upload("aiva=1&name=" + name, body); self.assertEqual(code, 415, name); self.assertIn(name, r["error"])
+        code, r = self.upload("aiva=1&name=huge.pdf", b"", length=(10 << 20) + 1); self.assertEqual((code, r["error"]), (413, "huge.pdf is over 10 MB, the most Aiva takes."))
+        self.assertEqual(self.upload("name=bill.pdf", b"%PDF-1.4\n")[0], 400)  # neither a chat nor Aiva
+        self.assertEqual(GOT, [])  # an upload never reaches Aiva by itself
+
+    def test_page_blocks(self):
+        src = (Path(__file__).resolve().parent.parent / "index.html").read_text()
+        self.assertEqual(src.count("aiva-intake:start"), src.count("aiva-intake:end"))
+        tm = src[src.index("const TM="):src.index("// aiva-intake:end", src.index("const TM="))]
+        for f in ("innerHTML", "outerHTML", "insertAdjacentHTML", "template"): self.assertNotIn(f, tm)  # the thread mode bar is DOM nodes only
+        self.assertIn(".aiva #clip{display:grid!important}", src)  # the shared hide rule stays as it is; the block shows the paperclip again
+        self.assertIn("dropOk=e=>!inSplit&&cur&&(cur.pane||cur.via||cur.aiva)", src)
+
+    def test_attached_lines_are_escaped_chips(self):
+        import shutil, subprocess
+        node = shutil.which("node")
+        if not node: self.skipTest("no node")
+        src = (Path(__file__).resolve().parent.parent / "index.html").read_text()
+        fn = re.search(r"function avAtt\(.*?\n", src)[0] + re.search(r"function avSize\(.*?\n", src)[0]
+        js = "const esc=s=>String(s??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));const FILE='F';let cur={aiva:1};\n" + fn + \
+             "const fs=[],t=avAtt('see this\\nAttached: <img src=x onerror=alert(1)>.pdf (2.1 MB)\\nAttached: a.csv (340 KB)',fs);" \
+             "cur={pane:'%1'};const g=[];avAtt('Attached: b.pdf (1 KB)',g);console.log(JSON.stringify([t.trim(),fs,g.length,avSize(2202010),avSize(348160),avSize(10)]))"
+        r = subprocess.run([node, "-e", js], capture_output=True, text=True); self.assertEqual(r.returncode, 0, r.stderr)
+        t, fs, g, *sz = json.loads(r.stdout)
+        self.assertEqual((t, len(fs), g, sz), ("see this", 2, 0, ["2.1 MB", "340 KB", "1 KB"]))
+        self.assertNotIn("<img", fs[0]); self.assertIn("&lt;img src=x onerror=alert(1)&gt;.pdf", fs[0]); self.assertIn("<small>2.1 MB</small>", fs[0])
+        self.assertTrue(fs[1].startswith("<span class=fch "))
+
 if __name__ == "__main__": unittest.main()

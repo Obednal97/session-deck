@@ -1454,7 +1454,9 @@ UPL = HOME / "Library" / "Caches" / "session-deck" / "uploads"
 UP_MAX, NAMES = 1 << 30, {}  # NAMES: saved path -> the file's name on the phone, for the "Attached:" line
 RUPL = {}  # a remote chat's pane -> {server path of each upload ssh_put made for it: (name on the phone, size)}, the only files /api/send passes it
 IMG = {"png", "jpg", "gif", "webp"}  # what Claude Code turns into an [Image #N] when its path is pasted
-TXT = {"txt", "csv", "tsv", "json", "md", "log", "xml", "html", "yaml", "yml", "py", "js", "ts", "sql", "sh", "swift"}
+TXT = {"txt", "csv", "tsv", "json", "md", "log", "xml", "html", "yaml", "yml", "py", "js", "ts", "sql", "sh", "swift", "qif", "ofx"}
+# aiva-intake: what Aiva's chat may attach (HEIC is saved as a JPEG), and its caps; Aiva checks them all again
+AIVA_KINDS, AIVA_MAX, AIVA_FILES, AIVA_TOTAL = {"pdf", "png", "jpg", "gif", "webp", "heic", "csv", "txt", "qif", "ofx"}, 10 << 20, 5, 25 << 20
 
 def sniff(b, name):
     """Extension for an upload from its first bytes; the name only picks between text types. None = not allowed."""
@@ -1792,6 +1794,22 @@ class AivaConn(http.client.HTTPConnection):
 def aiva_api(h, path, body=None):
     """/api/aiva/* for GET (body None) and POST, passed on to Aiva; False when the path is another route's."""
     data, strong = None, "0"
+    # aiva-intake:start  files from Aiva's chat and the thread mode, ahead of the other branches
+    if path == "/api/aiva/thread-mode":  # GET reads it; POST sets it, only to one of Aiva's two modes
+        if body is None: return aiva_forward(h, "/thread-mode", None)
+        if not isinstance(body, dict) or body.get("mode") not in ("all", "chief-of-staff"): return h.send(400, {"error": "The mode is all or chief-of-staff."}) or True
+        return aiva_forward(h, "/thread-mode", json.dumps({"mode": body["mode"]}).encode(), "1" if h.via_ts() and h.session() else "0")
+    if isinstance(body, dict) and path == "/api/aiva/messages" and body.get("files"):  # the page sends upload paths; Aiva gets each file's name and bytes
+        raw, fs = body["files"], attached(body["files"])
+        if fs is None: return h.send(400, {"error": "Those files aren't on the Mac any more. Attach them again."}) or True
+        if len(fs) > AIVA_FILES: return h.send(400, {"error": f"Up to {AIVA_FILES} files at a time."}) or True
+        names = [NAMES.get(str(r)) or NAMES.get(str(p)) or p.name for r, p in zip(raw, fs)]
+        big = next((n for n, p in zip(names, fs) if p.stat().st_size > AIVA_MAX), None)
+        if big or sum(p.stat().st_size for p in fs) > AIVA_TOTAL: return h.send(413, {"error": f"{big} is over 10 MB." if big else "That's over 25 MB in all."}) or True
+        b = {"text": str(body.get("text") or "").strip(), "device": body.get("device") if body.get("device") in ("phone", "laptop") else "unknown",
+             "files": [{"name": n, "data": base64.b64encode(p.read_bytes()).decode()} for n, p in zip(names, fs)]}
+        return aiva_forward(h, "/messages", json.dumps(b).encode(), "1" if h.via_ts() and h.session() else "0")
+    # aiva-intake:end
     if body is None and path in ("/api/aiva/status", "/api/aiva/messages", "/api/aiva/approvals", "/api/aiva/offers", "/api/aiva/qbo-signin"):
         q = [(k, v) for k, v in urllib.parse.parse_qsl(urllib.parse.urlparse(h.path).query) if k in ("after", "tail")] if path == "/api/aiva/messages" else []
         if any(not re.fullmatch(r"\d{1,12}", v, re.A) for k, v in q): return h.send(400, {"error": "after and tail are whole numbers"}) or True
@@ -2805,20 +2823,23 @@ class H(BaseHTTPRequestHandler):
     def upload(self):
         """Raw file body, streamed to the uploads folder under a name the server picks."""
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query); pane = q.get("pane", [""])[0]
+        av = q.get("aiva", [""])[0] == "1" and not pane  # aiva-intake: a file for Aiva's chat, saved here like any upload
         c = re.fullmatch(PANE_RE, pane) and next((x for x in chats() if x["pane"] == pane), None)  # a chat first: a remote chat's pane is an SSH terminal's too
         term = re.fullmatch(PANE_RE, pane) and not c and next((t for t in ssh_terms() if t["pane"] == pane), None)  # an SSH terminal's uploads go on to its server as they are
-        if not c and not term: return self.send(400, {"error": "This chat isn't running any more."})
-        rh = (term or c).get("host")  # a remote chat's go through the chat filter, then on to its server
+        if not c and not term and not av: return self.send(400, {"error": "This chat isn't running any more."})
+        rh = (term or c or {}).get("host")  # a remote chat's go through the chat filter, then on to its server
         try: n = int(self.headers["Content-Length"])
         except Exception: return self.send(411, {"error": "The upload had no size."})
         if n > UP_MAX: return self.send(413, {"error": "Files over 1 GB can't be attached. Move them with Syncthing instead."})
         name = re.sub(r"[\x00-\x1f()/\\]", "", q.get("name", [""])[0]).strip()[:120] or "file"
+        if av and n > AIVA_MAX: return self.send(413, {"error": f"{name} is over 10 MB, the most Aiva takes."})  # aiva-intake
         d = UPL / time.strftime("%Y-%m-%d"); d.mkdir(parents=True, exist_ok=True)
         sv = os.statvfs(d)
         if sv.f_bavail * sv.f_frsize < n + (2 << 30): return self.send(507, {"error": "The Mac is low on disk space."})
         self.connection.settimeout(120)  # a phone that drops off mid-upload mustn't hold a thread for ever
         head = self.rfile.read(min(n, 1 << 20)); ext = None if term else sniff(head, name)  # to a server any file goes as it is
         if not ext and not term: return self.send(415, {"error": f"{name}: that type of file can't be attached."})
+        if av and ext not in AIVA_KINDS: return self.send(415, {"error": f"{name}: Aiva takes PDFs, photos, CSV, QIF, OFX and text files."})  # aiva-intake
         tmp, left = d / f"{secrets.token_hex(8)}.part", n - len(head)
         try:
             with open(tmp, "wb") as fh:
