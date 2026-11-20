@@ -141,12 +141,13 @@ class RichHelpersInNode(unittest.TestCase):
           TM.mode='all';const all=avFold(B)===B;TM.mode=null;const none=avFold(B)===B;TM.mode='chief-of-staff';
           const F=avFold(B),old=F[1].h;B[2].h='k3b';const moved=avFold(B)[1].h!=old;
           const three=avFold([T(7,'household','Aiva · Household: a'),T(8,'finance','Aiva · Finance: b'),T(9,'travel','c\nd'),T(10,'household','Aiva · Household: e')].map(blk))[0];
+          const parts=avFold([{id:11,role:'aiva',via:'team',persona:'finance',text:'Aiva · Finance: ',parts:[{type:'table',title:'Receipts'}]}].map(blk))[0];
           const old6=avFold(M.map(x=>({...x,via:undefined})).map(blk)).length;
-          return[all,none,F.length,F[0]===B[0]&&F[2]===B[3]&&F[4]===B[5],hd(F[1]),hd(F[3]),F[1].h.startsWith('avf:'),moved,hd(three).slice(3,5),old6]})()"""
+          return[all,none,F.length,F[0]===B[0]&&F[2]===B[3]&&F[4]===B[5],hd(F[1]),hd(F[3]),F[1].h.startsWith('avf:'),moved,hd(three).slice(3,5),old6,hd(parts).slice(3,5)]})()"""
         r = subprocess.run(["node"], input="globalThis.setInterval=()=>0;" + FAKE_DOM + rich_block() + tm + "\nconsole.log(JSON.stringify(" + js + "))",
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr)
-        all_, none, n, kept, f1, f2, key, moved, three, old6 = json.loads(r.stdout)
+        all_, none, n, kept, f1, f2, key, moved, three, old6, parts = json.loads(r.stdout)
         self.assertTrue(all_); self.assertTrue(none)  # everyone mode, or the mode not known yet: nothing folds
         self.assertEqual(n, 5); self.assertTrue(kept)  # Ollie's own message splits the team's posts into two folds
         self.assertEqual(f1, ["tg avf", "av2", "tgh", "2 messages from Household and Finance", "Card bill paid", "tgb", True,
@@ -155,6 +156,7 @@ class RichHelpersInNode(unittest.TestCase):
         self.assertTrue(key); self.assertTrue(moved)  # a folded message that changes redraws its fold
         self.assertEqual(three, ["4 messages from Household, Finance and Travel", "e"])  # no label: the persona's name
         self.assertEqual(old6, 6)  # an older Aiva sends no via: never folds
+        self.assertEqual(parts, ["1 message from Finance", "Receipts"])  # only rich parts: the first one's title
 
     def test_thread_mode_reads_taps_and_frames(self):  # a failed read keeps the mode; a read older than a tap is dropped; every deck frame hears a change
         s = (ROOT / "index.html").read_text(); i = s.index("const TM=")
@@ -165,18 +167,41 @@ class RichHelpersInNode(unittest.TestCase):
           const l1=avTmLoad();res({mode:'chief-of-staff'});await l1;const a=TM.mode,g1=G.splice(0);
           FAIL={st:503};await avTmLoad();const b=TM.mode;FAIL=null;
           const l2=avTmLoad();await avTmSet('all');res({mode:'chief-of-staff'});await l2;const c=TM.mode,g2=G.splice(0);
+          const l3=avTmLoad();res({mode:'later'});await l3;const e=[TM.mode,G.length];
+          let resP;globalThis.api=async(p,b)=>new Promise(r=>b?resP=r:res=r);
+          const s4=avTmSet('chief-of-staff'),l4=avTmLoad();resP({mode:'chief-of-staff'});await s4;res({mode:'all'});await l4;const f=TM.mode;G.splice(0);
           avTmNew('chief-of-staff',1);const d=[TM.mode,G.length];
           globalThis.COL='1';const par={deck:{},avTmNew:(m,q)=>G.push(['top',m,q]),document:{querySelectorAll:()=>[{contentWindow:globalThis},{contentWindow:fw}]}};globalThis.parent=par;
-          avTmNew('all');return[a,g1,b,c,g2,d,G]})()"""
+          avTmNew('all');return[a,g1,b,c,g2,d,G,e,f]})()"""
         r = subprocess.run(["node"], input="globalThis.setInterval=()=>0;" + FAKE_DOM + rich_block() + s[i:s.index("// aiva-intake:end", i)] +
                            "\n" + js + ".then(v=>console.log(JSON.stringify(v)))", capture_output=True, text=True, timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr)
-        a, g1, b, c, g2, d, g3 = json.loads(r.stdout)
+        a, g1, b, c, g2, d, g3, e, f = json.loads(r.stdout)
         self.assertEqual((a, g1), ("chief-of-staff", [["col", "chief-of-staff", 1]]))  # the outer page tells its columns; a frame it can't reach is skipped
         self.assertEqual(b, "chief-of-staff")  # a failed read keeps the last known mode
         self.assertEqual((c, g2), ("all", [["col", "all", 1]]))  # the read that started before the tap doesn't undo it
         self.assertEqual(d, ["chief-of-staff", 0])  # a mode heard from another frame isn't sent on again
         self.assertEqual(g3, [["top", "all", 1], ["col", "all", 1]])  # a column tells the outer page and the other columns, not itself
+        self.assertEqual(e, ["all", 0])  # a mode this deck doesn't know keeps the last one and tells no frame
+        self.assertEqual(f, "chief-of-staff")  # a read started while a tap was being sent doesn't undo it either
+
+    def test_mode_switch_repaints_a_chat_that_starts_with_a_team_run(self):  # paint only lines up from the new list's first two blocks
+        s = (ROOT / "index.html").read_text(); i = s.index("const TM=")
+        pt = s[s.index("function paint("):s.index("function jumpUI(")]
+        js = r"""(()=>{globalThis.window=globalThis;globalThis.COL=false;document.querySelectorAll=()=>[];globalThis.getSelection=()=>({rangeCount:0});globalThis.loadImg=()=>{};
+          N.prototype.matches=()=>false;N.prototype.contains=()=>true;Object.defineProperty(N.prototype,'firstChild',{get(){return this.kids[0]}});
+          const m={dataset:{},scrollHeight:0,scrollTop:0,contains:()=>true,querySelectorAll:()=>[],set innerHTML(v){this.firstChild=avEl('div','chat');this.firstChild.append(avEl('button','more'))}};
+          const T=(id,t)=>({id,role:'aiva',via:'team',persona:'household',text:'Aiva · Household: '+t}),
+            M=[T(2,'one'),{id:4,role:'ollie',text:'ok'},{id:5,role:'aiva',via:'',text:'Aiva: done'}];AV.m=M;
+          const blk=x=>({x,h:'k'+x.id,mk:()=>[avEl('div','a',x.text)]});globalThis.cur={aiva:1};globalThis.draw=()=>paint(m,avFold(M.map(blk)),false,true);
+          const shown=()=>cur.box.kids.slice(1).map(k=>k.className=='tg avf'?'fold:'+k.dataset.g:k.text);
+          avTmNew('all');draw();const a=shown();avTmNew('chief-of-staff');const b=shown();avTmNew('all');return[a,b,shown()]})()"""
+        r = subprocess.run(["node"], input="globalThis.setInterval=()=>0;" + FAKE_DOM + rich_block() + s[i:s.index("// aiva-intake:end", i)] + pt +
+                           "\n" + "console.log(JSON.stringify(" + js + "))", capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        a, b, c = json.loads(r.stdout)
+        every = ["Aiva · Household: one", "ok", "Aiva: done"]  # one leading team message: both directions line up on "ok"
+        self.assertEqual(a, every); self.assertEqual(b, ["fold:av2", "ok", "Aiva: done"]); self.assertEqual(c, every)
 
     # the approvals panel (a bottom sheet): one card per approval, kept by id between polls
     def test_approval_card_in_full(self):

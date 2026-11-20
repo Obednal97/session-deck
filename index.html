@@ -1549,20 +1549,21 @@ function avSize(n){n=+n||0;return n>=1048576?(n/1048576).toFixed(1)+' MB':Math.m
 // the thread mode, Everyone or Chief of staff, set in Settings (Who talks to you) and by chat commands: read from Aiva when the chat opens, every 30 s while
 // it's open, a second after a send and when Settings opens; unknown (nothing folds) until Aiva first answers it, then kept through failed reads.
 // A change redraws the chat at once and reaches the deck's other frames (the outer page and its columns: Settings is in one, Aiva's chat may be in another).
-// v counts taps and changes heard, so a read that started before one is dropped
+// v counts taps and changes heard, so a read that started before one is dropped. Folding or unfolding rebuilds the chat (grew): paint lines up only
+// from the new list's first two blocks, so a team run at the top would otherwise stay as it was
 const TM={mode:null,at:0,busy:0,of:null,v:0},TMS=[['all','Everyone'],['chief-of-staff','Chief of staff']];
 function avTmUI(){const g=$('stm');if(g)for(const b of g.querySelectorAll('button')){b.setAttribute('aria-pressed',String(b.dataset.m==TM.mode));b.disabled=!!TM.busy}}
-function avTmNew(m,heard){if(heard)TM.v++;if(m!==TM.mode){TM.mode=m;if(cur&&cur.aiva)draw();if(!heard)avTmTell(m)}avTmUI()}
+function avTmNew(m,heard){if(heard)TM.v++;if(m!==TM.mode){const f=(m=='chief-of-staff')!=(TM.mode=='chief-of-staff');TM.mode=m;if(cur&&cur.aiva){if(f&&AV.m.some(x=>x.via=='team'))cur.grew=1;draw()}if(!heard)avTmTell(m)}avTmUI()}
 function avTmTell(m){let t=window;try{if(COL&&parent.deck)t=parent}catch(e){}
  for(const w of[t,...[...t.document.querySelectorAll('iframe')].map(f=>f.contentWindow)])try{if(w!==window&&typeof w.avTmNew=='function')w.avTmNew(m,1)}catch(e){}}
-async function avTmLoad(){TM.at=Date.now();const v=TM.v;let m=null;try{const d=await api('/api/aiva/thread-mode');if(d&&TMS.some(x=>x[0]==d.mode))m=d.mode}catch(e){m=TM.mode}if(!TM.busy&&v==TM.v)avTmNew(m)}
+async function avTmLoad(){TM.at=Date.now();const v=TM.v;let m=TM.mode;try{const d=await api('/api/aiva/thread-mode');if(d&&TMS.some(x=>x[0]==d.mode))m=d.mode}catch(e){}if(!TM.busy&&v==TM.v)avTmNew(m)}
 async function avTmSet(m){if(m==TM.mode||TM.busy)return;TM.busy=1;TM.v++;avTmUI();let n=TM.mode;
  try{const d=await api('/api/aiva/thread-mode',{mode:m});n=d&&TMS.some(x=>x[0]==d.mode)?d.mode:m;toast(n=='all'?'Everyone on the team talks to you again.':'Only the chief of staff talks to you now.')}
- catch(e){toast(e.reason||'That didn\'t work.')}TM.busy=0;TM.at=Date.now();avTmNew(n);tick(avLoad)}
+ catch(e){toast(e.reason||'That didn\'t work.')}TM.busy=0;TM.v++;TM.at=Date.now();avTmNew(n);tick(avLoad)}
 setInterval(()=>{if(cur&&cur.aiva&&started&&$('lock').hidden&&(TM.of!==cur||Date.now()-TM.at>=3e4)){TM.of=cur;tick(avTmLoad)}},1e3);
 // chief of staff mode folds each run of the team's own posts (via "team") into one line in the tool-call group style, the last one's first line under it;
 // a tap opens it in place and it stays open across polls (data-g from the first message's id). An older Aiva sends no via, so nothing folds
-const avWho=x=>{const t=x.text||'',w=t.match(/^Aiva(?: · ([^:\n]{1,60}))?:\s*/),p=x.persona||'';return[w&&w[1]||p.charAt(0).toUpperCase()+p.slice(1)||'the team',t.slice(w?w[0].length:0).split('\n')[0]]};
+const avWho=x=>{const t=x.text||'',w=t.match(/^Aiva(?: · ([^:\n]{1,60}))?:\s*/),p=x.persona||'';return[w&&w[1]||p.charAt(0).toUpperCase()+p.slice(1)||'the team',t.slice(w?w[0].length:0).split('\n')[0]||((x.parts||[])[0]||{}).title||'']};
 function avFold(B){if(TM.mode!='chief-of-staff')return B;const out=[];let R=[];
  const flush=()=>{if(!R.length)return;const r=R,n=[...new Set(r.map(b=>avWho(b.x)[0]))];R=[];
   out.push({h:'avf:'+r.map(b=>b.h).join(''),mk:()=>{const g=avEl('div','tg avf'),hd=avEl('button','tgh'),bd=avEl('div','tgb');g.dataset.g='av'+r[0].x.id;hd.type='button';bd.hidden=true;
