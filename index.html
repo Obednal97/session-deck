@@ -7,7 +7,9 @@ const noTerm=()=>{try{document.documentElement.classList.toggle('noterm',localSt
 const noTools=()=>{try{document.documentElement.classList.toggle('notools',localStorage.getItem('tools')=='0')}catch(e){}};noTools();
 try{const t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t;setAcc(localStorage.getItem('accent'))}catch(e){}
 // column mode: this page inside one column of the desktop split view (the outer page adds ?col=<id>)
-const COL=parent!==window&&new URLSearchParams(location.search).get('col');if(COL)document.documentElement.classList.add('col');if(COL=='agp')document.documentElement.classList.add('agpm')</script>
+const COL=parent!==window&&new URLSearchParams(location.search).get('col');if(COL)document.documentElement.classList.add('col');if(COL=='agp')document.documentElement.classList.add('agpm')
+// /deck without its slash would send every relative api/ call past the deck: add it before anything loads
+if(!COL&&/\/[^/.]+$/.test(location.pathname))location.replace(location.pathname+'/'+location.search+location.hash)</script>
 <style>
 :root{color-scheme:dark;--bg:#0e1118;--s:#171b25;--r:#1f2430;--l:#2b3242;--fg:#e7ebf3;--m:#8c97ab;--c:var(--cd,#7d9bff);--o:#f0b25e;--g:#4cc47f;--on:#0e1118}
 @media(prefers-color-scheme:light){:root:not([data-theme=dark]){color-scheme:light;--bg:#f3f5f8;--s:#fff;--r:#eaeef4;--l:#d6dce6;--fg:#161b26;--m:#5b6677;--c:var(--cl,#2f5bd8);--o:#a8650a;--g:#1f8a4c;--on:var(--onl,#fff)}}
@@ -641,10 +643,10 @@ async function endChat(p){const b=$('endb'),gone=()=>!chatOf(p),done=m=>{hideShe
  b.textContent='Still running: close window';twice(b,'Tap again to close the window',async()=>{b.onclick=null;await api('/api/end',{pane:p,kill:true});await list();done('Window closed')})}
 // t: a chat from the row menu {id, pane, title}; without it, the open chat (from Chat info)
 function renameStep(t){const row=t&&t.id!==undefined;if(!row)t={id:cur.session,pane:cur.pane,title:cur.title};sb.innerHTML=(row?'':'<button class=dback id=rback style="padding:0;text-align:left">‹ Chat info</button>')+`<h2>Rename</h2><input id=rn type=text value="${esc(t.title||'')}" autocomplete=off>
- <label class=ck><input type=checkbox id=rc checked> Claude session name</label>
+ <label class=ck><input type=checkbox id=rcn checked> Claude session name</label>
  <label class=ck><input type=checkbox id=rt ${t.pane?'checked':'disabled'}> tmux window name${t.pane?'':' (only for live chats)'}</label>
  <button class=go id=rgo>Save</button>`;showSheet(1);if(!row)$('rback').onclick=showInfo;
- $('rgo').onclick=async()=>{const name=$('rn').value.trim();if(!name)return;let r;try{r=await api('/api/rename',{session:t.id||'',pane:t.pane||'',name,claude:$('rc').checked,tmux:$('rt').checked})}catch(e){return toast(e.reason||'Couldn\'t rename the chat.')}
+ $('rgo').onclick=async()=>{const name=$('rn').value.trim();if(!name)return;let r;try{r=await api('/api/rename',{session:t.id||'',pane:t.pane||'',name,claude:$('rcn').checked,tmux:$('rt').checked})}catch(e){return toast(e.reason||'Couldn\'t rename the chat.')}
   if(r.done&&r.done.length){if(cur&&(t.id?cur.session==t.id:cur.pane==t.pane)){cur.title=name;$('title').textContent=name}hideSheet();if(row)list()}}}
 $('title').onclick=showInfo;
 sb.addEventListener('click',e=>{if(e.target.closest('#agopen')){hideSheet();rpAll=(info&&info.agents)||rpAll;openRP()}});
@@ -981,7 +983,7 @@ let started=false;
 function lock(s){const L=$('lock');if(!L.hidden&&!s)return;L.hidden=false;hideSheet();closeMenu();const ok=!!window.PublicKeyCredential,has=!s||s.passkeys>0;
  $('lkm').textContent=!ok?'Face ID needs the secure https:// address of this Mac (tailscale serve with HTTPS).':has?'Locked. Unlock to carry on.':'First time on this device: enter your setup code (or the deck token) to set up Face ID.';
  $('lku').hidden=!ok||!has;$('lke').hidden=!ok||has;$('lks').hidden=!ok||!has;$('lkn').value=devName()}
-const unlocked=()=>{$('lock').hidden=true;$('lkt').value='';if(!started){started=true;start()}else colWake();if(RC.el&&!RC.el.hidden)rcPoll(++RC.n)};
+const unlocked=()=>{$('lock').hidden=true;$('lkt').value='';if(!started){started=true;start()}else{colWake();avHash()}if(RC.el&&!RC.el.hidden)rcPoll(++RC.n)};
 $('lku').onclick=async()=>{try{await unlock();unlocked()}catch(e){$('lkm').textContent=why(e)}};
 $('lks').onclick=()=>{$('lke').hidden=false;$('lks').hidden=true;$('lkm').textContent='Paste the deck token once to add a passkey on this device.'};
 $('lkr').onclick=async()=>{try{await enrol($('lkt').value.trim(),$('lkn').value.trim());unlocked()}catch(e){$('lkm').textContent=why(e)}};
@@ -1006,7 +1008,7 @@ const siriPrompt=()=>`Create a shortcut named exactly "${SIRI.name}" (not "Ask $
 sb.addEventListener('click',async e=>{const c=e.target.closest('[data-cp]');if(c&&SIRI)return copyText(c.dataset.cp=='prompt'?siriPrompt():SIRI[c.dataset.cp]);
  if(e.target.id=='sirinew'&&confirm('Make a new key? The shortcut stops working until you paste the new address into it.')){const d=await tell('/api/siri/key',{});if(d&&d.url){SIRI.url=d.url;copyText(d.url)}}});
 sb.addEventListener('change',async e=>{if(e.target.id!='sirn')return;const d=await tell('/api/siri/name',{name:e.target.value});if(d&&d.name){SIRI.name=d.name;siri(0)}});
-async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{if(avHash())return;const l=localStorage.getItem('last'),s=chatOf(l);if(s)open_(s);else if(SSH.terms.some(t=>t.pane==l))sshOpen(l);else openMenu()})}
+async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{if(avHash())return;const l=localStorage.getItem('last'),s=chatOf(l);if(s)open_(s);else if(SSH.terms.some(t=>t.pane==l))sshOpen(l);else openMenu()},()=>avHash())}
 async function boot(){const r=await fetch('api/auth/state'),s=await r.json().catch(()=>({}));TS=!!s.ts||r.status==403;
  if(!TS){if(!TOK){TOK=clean(prompt('Token'));localStorage.setItem('deck',TOK)}started=true;return start()}
  try{localStorage.removeItem('deck')}catch(e){}TOK='';
@@ -1304,7 +1306,9 @@ const avEl=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=
 const avBad=()=>{throw 0},AHOST=/(?:[a-z][\w+.-]*:)?\/\/([^\s\/?#]+)|\b(www\.[^\s\/?#]+)/gi;
 function alink(u,t){const a=avEl('a','avl');a.href=u.href;a.target='_blank';a.rel='noopener noreferrer';t=String(t).trim();const same=t==u.href||t+'/'==u.href;// the text is its own address only when it says so literally (a look-alike host shows the real one)
  if(!same&&[...t.matchAll(AHOST)].some(m=>(m[1]||m[2]).split('@').pop().split(':')[0].toLowerCase()!=u.hostname))t=u.host;
- a.textContent=t||u.host;if(t&&!same&&t!=u.host)a.append(avEl('small',0,' '+u.host));return a}
+ a.textContent=t||u.host;if(t&&!same&&t!=u.host)a.append(avEl('small',0,' '+u.host));
+ if(u.hash&&new URL('.',u).href==new URL('.',location.href).href)a.onclick=e=>{e.preventDefault();(COL?parent:window).location.hash=u.hash};// the deck itself: here, not a new window without the sign-in
+ return a}
 // lead text: # to ### headings, - * and 1. lists, blank-line paragraphs, single newlines as breaks, ``` code, **bold**, *italic* _italic_, `code`, [label](https://…) and bare https:// links
 const AIN=/`([^`\n]+)`|\*\*(?=\S)([^\n]*?\S)\*\*|\*(?=[^\s*])([^*\n]*?[^\s*])\*|\[([^\]\n]{1,300})\]\(((?:[^()\s]|\([^()\s]*\)){1,600})\)|(https:\/\/[^\s<>"'`]+)|(^|[^\w])_(?=[^\s_])([^_\n]*?[^\s_])_(?!\w)/g;
 function ain(s,d){const o=[],re=new RegExp(AIN.source,'g');let i=0,m;
