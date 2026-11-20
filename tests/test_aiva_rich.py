@@ -9,6 +9,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import server
 
+AP0 = {"id": "ap_1a2b3c4d", "task_id": "t_1", "persona": "household", "action": "Send an email", "kind": "aiva_mail.send", "tier": 2, "created": 1763600000.0, "reversible": True,
+       "title": "Email to quotes@insurer.example", "subtitle": "Household · Personal · Tier 2", "context": "You asked for three home insurance quotes.",
+       "grounding": [{"label": "To", "value": "quotes@insurer.example", "href": ""}, {"label": "Site", "value": "Insurer", "href": "https://insurer.example/quotes"}],
+       "draft": "Hello,\nPlease send a quote.", "decision": "Should Household send this email?", "recommendation": {"answer": "yes", "text": "Yes: it only asks for a quote."},
+       "answers": ["yes", "no", "always", "never"], "always_covers": "quote emails to insurer.example", "never_covers": "aiva_mail.send proposals from household", "message_id": 812}
+
 FORBIDDEN = [r"innerHTML", r"outerHTML", r"insertAdjacentHTML", r"DOMParser", r"createElement\(\s*['\"`]template", r"document\.write", r"\beval\(", r"new\s+Function\b",
              r"createContextualFragment", r"srcdoc", r"\bmarked\b", r"DOMPurify"]
 
@@ -45,17 +51,28 @@ class RichBlock(unittest.TestCase):
 
 # The renderer's helpers, run in node from the block itself with a tiny stand-in for the DOM
 FAKE_DOM = r"""
-class N{constructor(t){this.tagName=t.toUpperCase();this.kids=[];this.dataset={};this.attrs={};this.textContent=''}
- append(...k){this.kids.push(...k)}setAttribute(k,v){this.attrs[k]=String(v)}querySelectorAll(){return[]}
+class N{constructor(t){this.tagName=t.toUpperCase();this.kids=[];this.dataset={};this.attrs={};this.textContent='';this.parent=null;this.hidden=false;this.disabled=false;this.value='';
+  const c=new Set();this.classList={add:x=>c.add(x),remove:x=>c.delete(x),contains:x=>c.has(x)}}
+ focus(){}append(...k){for(const x of k)if(x&&typeof x=='object'){if(x.parent)x.remove();x.parent=this}this.kids.push(...k)}setAttribute(k,v){this.attrs[k]=String(v)}
+ remove(){const p=this.parent;if(p)p.kids=p.kids.filter(k=>k!==this);this.parent=null}
+ replaceWith(n){const p=this.parent;p.kids[p.kids.indexOf(this)]=n;n.parent=p;this.parent=null}
+ replaceChildren(...k){this.kids.forEach(x=>x.parent=null);this.kids=[];this.append(...k)}
+ all(){return this.kids.flatMap(k=>typeof k=='string'?[]:[k,...k.all()])}
+ querySelectorAll(s){const T=s.split(',').map(x=>x.trim().toUpperCase());return this.all().filter(n=>T.includes(n.tagName))}// tag names only
  get text(){return this.textContent+this.kids.map(c=>typeof c=='string'?c:c.text).join('')}}
-globalThis.document={createElement:t=>new N(t),createElementNS:(ns,t)=>new N(t)};globalThis.AV={pend:''};
+globalThis.document={createElement:t=>new N(t),createElementNS:(ns,t)=>new N(t)};globalThis.AV={pend:'',ap:[],m:[]};
 const tryit=f=>{try{f();return 'ok'}catch(e){return 'threw'}};
+// what the approvals panel calls outside the block
+const IDS={};globalThis.$=id=>IDS[id]||(IDS[id]=new N('button'));globalThis.TS=true;globalThis.cur=null;globalThis.sb=new N('div');globalThis.sd=new N('div');
+globalThis.CALLS=[];globalThis.TOASTS=[];globalThis.FAIL=null;globalThis.api=async(p,b)=>{CALLS.push([p,b]);if(FAIL)throw FAIL;return{status:'ok'}};
+globalThis.toast=m=>TOASTS.push(m);globalThis.avLoad=async()=>{};globalThis.avAgo=()=>'5m';globalThis.showSheet=()=>{};globalThis.hideSheet=()=>{};
+const btn=(c,t)=>c.querySelectorAll('button').find(b=>b.textContent==t),btns=c=>c.querySelectorAll('button').map(b=>b.textContent);
 """
 
 @unittest.skipUnless(shutil.which("node"), "needs node")
 class RichHelpersInNode(unittest.TestCase):
     def run_js(self, code):
-        r = subprocess.run(["node"], input=FAKE_DOM + rich_block() + "\nconsole.log(JSON.stringify((()=>{" + code + "})()))",
+        r = subprocess.run(["node"], input=FAKE_DOM + rich_block() + "\nAP0=" + json.dumps(AP0) + ";\n(async()=>{" + code + "})().then(v=>console.log(JSON.stringify(v)))",
                            capture_output=True, text=True, timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr)
         return json.loads(r.stdout)
@@ -112,6 +129,48 @@ class RichHelpersInNode(unittest.TestCase):
             "Aiva · Accounting: Receipts (2)", "Receipts", "# | Vendor | Amount", "1 | Acme (https://acme.example/) | £12.34",
             "2 | Bad | unknown", "and 1 more.", "Trip", "Seat: 12A", "Window", "Book: https://b.example/", "Spend: Jan £12.50, Feb -£3"])
 
+
+    # the approvals panel (a bottom sheet): one card per approval, kept by id between polls
+    def test_approval_card_in_full(self):
+        got = self.run_js(r"""AV.m=[{id:812,role:'aiva',text:'x'}];const c=avApCard(AP0),t=c.querySelectorAll('textarea')[0],l=c.querySelectorAll('a')[0];
+          return [c.kids[0].tagName,c.kids[0].text,c.text.includes('Household · Personal · Tier 2 · 5m'),c.text.includes('Aiva recommends: Yes'),c.text.includes('Yes: it only asks for a quote.'),
+            c.text.includes('Hello,\nPlease send a quote.'),c.text.includes('Should Household send this email?'),btns(c),t.placeholder,t.maxLength,l.href,c.dataset.ap]""")
+        self.assertEqual(got[:2], ["B", "Email to quotes@insurer.example"])
+        self.assertEqual(got[2:7], [True] * 5)
+        self.assertEqual(got[7], ["Yes", "No", "Always", "Never", "Send", "Show in chat"])
+        self.assertEqual(got[8:], ["Or tell Aiva what you'd like instead", 2000, "https://insurer.example/quotes", "ap_1a2b3c4d"])
+
+    def test_approval_card_without_always_draft_or_chat_message(self):
+        got = self.run_js(r"""const c=avApCard({...AP0,answers:['yes','no','never'],draft:'',message_id:0});return [btns(c),c.all().some(n=>n.className=='apd')]""")
+        self.assertEqual(got, [["Yes", "No", "Never", "Send"], False])
+
+    def test_tier_3_without_a_passkey(self):  # No, Never and Send still work; Yes and Always wait for Face ID
+        got = self.run_js(r"""TS=false;const c=avApCard({...AP0,tier:3});TS=true;const d=avApCard({...AP0,tier:3});
+          return [c.querySelectorAll('button,textarea').map(b=>b.textContent+':'+b.disabled),c.text.includes('Needs a passkey sign-in'),d.querySelectorAll('button').some(b=>b.disabled)]""")
+        self.assertEqual(got, [["Yes:true", "No:false", "Always:true", "Never:false", ":false", "Send:false"], True, False])
+
+    def test_sync_keeps_cards_by_id(self):  # a poll while the owner types must not rebuild the card
+        got = self.run_js(r"""const B={...AP0,id:'ap_2'},b=$('apb');AV.ap=[AP0,B];avApSync();const box=AP.box,c1=AP.c.get(AP0.id),c2=AP.c.get('ap_2'),t=c2.querySelectorAll('textarea')[0];t.value='half typed';
+          const o=[box.kids.filter(n=>n.dataset.ap).length,$('apbn').textContent,b.hidden];avApSync();o.push(AP.c.get(AP0.id)===c1&&AP.c.get('ap_2')===c2,t.value);
+          AV.ap=[B,{...AP0,id:'ap_3'}];avApSync();o.push(box.kids.filter(n=>n.dataset.ap).map(n=>n.dataset.ap),AP.c.get('ap_2')===c2,AP.c.has(AP0.id),c1.parent);
+          AV.ap=[];avApSync();o.push(b.hidden,AP.none.hidden,AP.c.size);return o""")
+        self.assertEqual(got, [2, "2", False, True, "half typed", ["ap_2", "ap_3"], True, False, None, True, False, 0])
+
+    def test_card_decisions(self):  # Always and Never ask first; the answer is trimmed; an error gives the buttons back
+        got = self.run_js(r"""const c=avApCard(AP0),o=[];btn(c,'Never').onclick();o.push(btns(c),c.text.includes('Never: aiva_mail.send proposals from household?'));
+          btn(c,'Cancel').onclick();o.push(btns(c));btn(c,'Never').onclick();await btn(c,'Confirm').onclick();
+          const d=avApCard(AP0);btn(d,'Always').onclick();o.push(d.text.includes('Always: quote emails to insurer.example?'));await btn(d,'Confirm').onclick();
+          const e=avApCard(AP0);await btn(e,'Send').onclick();e.querySelectorAll('textarea')[0].value='  Ask for a monthly price instead \n';await btn(e,'Send').onclick();
+          await btn(avApCard(AP0),'Yes').onclick();await btn(avApCard(AP0),'No').onclick();
+          TS=false;FAIL={reason:'Aiva isn\'t running'};const f=avApCard({...AP0,tier:3});await btn(f,'No').onclick();TS=true;
+          o.push(CALLS,TOASTS,f.querySelectorAll('button').map(b=>b.disabled));return o""")
+        self.assertEqual(got[:2], [["Confirm", "Cancel", "Send"], True])
+        self.assertEqual(got[2][:4], ["Yes", "No", "Always", "Never"]); self.assertTrue(got[3])
+        u = "/api/aiva/approvals/ap_1a2b3c4d"
+        self.assertEqual(got[4], [[u, {"decision": "reject_never"}], [u, {"decision": "approve_always"}], [u, {"decision": "answer", "text": "Ask for a monthly price instead"}],
+                                  [u, {"decision": "approve"}], [u, {"decision": "reject"}], [u, {"decision": "reject"}]])  # an empty box sends nothing
+        self.assertEqual(got[5], ["Never again", "Always on", "Sent to Aiva", "Approved", "Rejected", "Aiva isn't running"])
+        self.assertEqual(got[6], [True, False, True, False, False])  # back after the error, but Yes and Always stay locked
 
 PARTS = [{"type": "table", "title": "<img src=x onerror=alert(1)>", "columns": ["a", "b"], "rows": [["</table><script>x</script>", 1.5], [{"text": "x", "href": "javascript:alert(1)"}, -2]]},
          {"type": "card", "kind": "trip", "title": "Rome · café ☃", "fields": [{"label": "Seat", "value": "12A"}], "links": [{"label": "Booking", "href": "https://example.com/b?x=1&y=2"}],

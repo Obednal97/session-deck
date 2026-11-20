@@ -318,7 +318,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .pgt{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.pgt em{font:600 11px system-ui,sans-serif;font-style:normal;padding:2px 8px;border-radius:99px;border:1px solid var(--l);color:var(--m)}.pgt .ns{border-color:var(--o);color:var(--o)}
 .pgt i{font:600 11px system-ui,sans-serif;font-style:normal;padding:2px 8px;border-radius:99px;background:var(--s);color:var(--c);cursor:pointer}.achat{font-style:normal;color:var(--c);cursor:pointer}
 .pin{flex:none;display:grid;place-items:center;width:30px;height:30px;margin:-6px -4px -6px 0;border-radius:8px;color:var(--m);opacity:.55}.pin svg{width:16px;height:16px}.pin[aria-pressed=true]{color:var(--c);opacity:1}.pin:hover{opacity:1;background:var(--l)}
-.pga{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pga .pick{text-align:center}.pga .pick.red{color:#e5484d}
+.pga{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pga .pick{text-align:center}:is(.pga,.apa) .pick.red{color:#e5484d}
 .pg pre.log{margin:0;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--l);font:11.5px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:50vh;overflow:auto;color:var(--fg)}
 .pgf{align-self:center;color:var(--c);font-size:13.5px;padding:10px;text-decoration:none}.pgf:hover{text-decoration:underline}
 @media(min-width:700px){.pg .sec{top:-20px}}
@@ -335,11 +335,19 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .avt{max-width:100%;overflow-x:auto}.avt:focus-visible{outline-offset:-2px}.a .avt table{display:table;border:0;min-width:100%}
 .a .avt :is(th,td){border:0;border-top:1px solid var(--l);vertical-align:top}.a .avt thead th{color:var(--m);font-size:12px;font-weight:600;border-top:0}.avt .r{text-align:right;font-variant-numeric:tabular-nums}.a .avt :is(th,td).w{overflow-wrap:anywhere;min-width:20em}
 .avc{border:1px solid var(--l);border-radius:12px;background:var(--s);padding:10px 12px;display:flex;flex-direction:column;gap:4px;max-width:440px}.avck{font:600 10.5px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;color:var(--c)}.avct{font-size:15px}.avcs{color:var(--m);font-size:13px}
-.avc dl{margin:4px 0 0;display:grid;grid-template-columns:fit-content(45%) minmax(0,1fr);gap:3px 12px;font-size:13.5px}.avc dl>div{display:contents}.avc dt{color:var(--m)}.avc dd{margin:0;overflow-wrap:anywhere}
+.avc dl,.apc dl{margin:4px 0 0;display:grid;grid-template-columns:fit-content(45%) minmax(0,1fr);gap:3px 12px;font-size:13.5px}:is(.avc,.apc) dl>div{display:contents}:is(.avc,.apc) dt{color:var(--m)}:is(.avc,.apc) dd{margin:0;overflow-wrap:anywhere}
 .avcb{margin:4px 0 0!important;white-space:pre-wrap;font-size:14px}.avcl{display:flex;flex-direction:column;gap:2px;font-size:14px}.avca{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-top:6px}.avca .pick{text-align:center;font-size:14px}.avsay:disabled{opacity:.5;cursor:default}
 .avch{margin-left:0;margin-right:0;max-width:480px}.avch figcaption{display:flex;justify-content:space-between;gap:8px;font-weight:600;font-size:13.5px;margin-bottom:4px}.avch figcaption small{color:var(--m);font-weight:400;margin-right:auto}.avlast{font-variant-numeric:tabular-nums;color:var(--m);font-weight:400}
 .avch svg{display:block;width:100%;height:auto}.avch .s0{--k:var(--c)}.avch .s1{--k:var(--o)}.avch .s2{--k:var(--g)}.avch :is(rect,circle){fill:var(--k)}.avch polyline{fill:none;stroke:var(--k);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
 .avch .gr{stroke:var(--l);stroke-width:1}.avch .zl{stroke:var(--m);stroke-width:1}.avch .ax{fill:var(--m);font:10px system-ui,sans-serif}.avlg{display:flex;flex-wrap:wrap;gap:2px 12px;font-size:12px;color:var(--m);margin-bottom:4px}.avlg i{display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--k);margin-right:5px}
+/* the approvals panel: the header button (Aiva's chat only; its label from 700px), then a card per approval in the sheet */
+.apb{position:relative;grid-auto-flow:column;gap:6px;margin-right:4px}.apb>span{display:none;font-size:14px;font-weight:600}body:not(.aiva) #apb{display:none!important}@media(min-width:700px){.apb>span{display:inline}}
+.aph{display:flex;align-items:center;gap:10px}.aph h2{flex:1}.aph .ic{margin:-6px -6px -6px 0;color:var(--m);font-size:15px}.aps{display:flex;flex-direction:column;gap:12px}.ap0{margin:0;color:var(--m)}
+.apc{border:1px solid var(--l);border-radius:12px;background:var(--bg);padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}.apc>b{font-size:15px;overflow-wrap:anywhere}.apc>small{color:var(--m);font-size:13px;margin-top:-6px}.apc p{margin:0;overflow-wrap:anywhere}.apc dl{margin:0}
+.apd{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--s);border:1px solid var(--l);border-radius:8px;padding:8px 10px;font-size:14px;max-height:40vh;overflow-y:auto}
+.apq .lbl{display:block;margin-bottom:2px}.apq p{font-weight:600}.apr{border:1px solid var(--c);border-left-width:3px;border-radius:8px;padding:8px 10px;font-size:14px}.apr b{color:var(--c)}
+.apt{display:flex;gap:8px;align-items:flex-end}.apj{align-self:flex-start;border:0;background:none;color:var(--c);padding:2px 0;font-size:13.5px}@media(min-width:700px){.apa{grid-template-columns:repeat(auto-fit,minmax(80px,1fr))}}
+.avflash{outline:2px solid var(--c);outline-offset:6px;border-radius:4px}/* Show in chat: the message that raised it, for 2 s */
 .aiva :is(#kbt,#clip,#kbar,#slash,#at,#bang,#att,#sug,#tv,#status,#stats,#menu,#login,#sab){display:none!important}/* Aiva's chat: the session chat's box without the terminal, files and status */
 /* SSH: the section in the chat list (fold, +), terminal rows under their host, and the terminal view (no chat box, status or Terminal button) */
 .sshv :is(#foot,#tv,#status,#stats,#menu,#login,#sab,#jump){display:none!important}header .sshx{display:none}.sshv header .sshx{display:grid}
@@ -349,7 +357,7 @@ kbd{font:600 12.5px ui-monospace,monospace;border:1px solid var(--l);border-bott
 .sshb{display:flex;align-items:center;gap:10px;padding:6px 16px;background:var(--r);border-bottom:1px solid var(--l);font-size:13.5px}.sshb span{flex:1;min-width:0;color:var(--o);font-weight:600}
 .kill.op{color:var(--c)}.rfl{display:flex;flex-direction:column;gap:6px;max-height:min(40vh,320px);overflow:auto;margin-top:6px}.sshb button{flex:none;border:1px solid var(--l);background:var(--s);border-radius:99px;padding:3px 12px;color:var(--c);font-size:13px}
 </style>
-<header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class="ic sshx" id=sclip aria-label="Attach a file" title="Attach a file"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg></button><button class="ic sshx" id=sget aria-label="Get a file from the server" title="Get a file from the server"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg></button><button class=chip id=tv hidden>Terminal</button></header>
+<header><button class=ic id=mb aria-label=Menu><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><button class=back id=back hidden>&lsaquo; Back</button><h1 id=title>Session Deck</h1><button class="ic apb" id=apb aria-label=Approvals hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><rect x=3.5 y=3.5 width=17 height=17 rx=3.5 /><path d="M8 12.3l2.8 2.8L16.2 9.6"/></svg><span>Approvals</span><b class=bdg id=apbn></b></button><button class="ic sab" id=sab aria-label=Subagents hidden><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.9 stroke-linecap=round stroke-linejoin=round><circle cx=6 cy=6 r=2.5 /><circle cx=6 cy=18 r=2.5 /><circle cx=18 cy=12 r=2.5 /><path d="M8.5 6h2a3 3 0 0 1 3 3v0a3 3 0 0 0 2 2.8M8.5 18h2a3 3 0 0 0 3-3v0a3 3 0 0 1 2-2.8"/></svg><b class=sbn id=sbn hidden></b></button><button class="ic sshx" id=sclip aria-label="Attach a file" title="Attach a file"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.4 3.4 0 0 1 4.8 4.8l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/></svg></button><button class="ic sshx" id=sget aria-label="Get a file from the server" title="Get a file from the server"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg></button><button class=chip id=tv hidden>Terminal</button></header>
 <div class=off id=off hidden>Reconnecting…</div><div class=sshb id=sshb hidden></div>
 <main id=main></main><div id=cols></div>
 <div class="kbar tkeys" id=tkeys hidden><button>Esc</button><button>Tab</button><button data-m=c aria-pressed=false>Ctrl</button><button data-m=a aria-pressed=false>Alt</button><button aria-label=Left>&#8592;</button><button aria-label=Up>&#8593;</button><button aria-label=Down>&#8595;</button><button aria-label=Right>&#8594;</button><button>|</button><button>~</button><button>/</button><button>-</button><button data-p>Paste</button></div>
@@ -1388,6 +1396,37 @@ function avPlain(t,P){const o=[t],c=v=>v&&typeof v=='object'?v.text+(aurl(v.href
   else o.push(...p.series.map(s=>p.title+(p.series.length>1&&s.name?' ('+s.name+')':'')+': '+s.values.map((v,i)=>(p.labels?p.labels[i]+' ':'')+afmt(v,p.unit||'')).join(', ')));
   o.push(p.note)}
  return o.filter(v=>typeof v=='string'&&v).join('\n')}
+// the approvals panel (the header's Approvals button, in the bottom sheet): every approval waiting as a card, kept by its id between polls so a half-typed answer
+// and its focus survive the 3 s refresh. Always and Never ask first, as offers do; a tier 3 Yes or Always needs a passkey sign-in, No, Never and an answer never do
+const AP={c:new Map(),box:null,none:null},APD={yes:['approve','Approved'],no:['reject','Rejected'],always:['approve_always','Always on'],never:['reject_never','Never again']};
+function avApCard(a){const s=v=>v==null?'':String(v),c=avEl('div','apc'),lock=+a.tier>=3&&!TS,R=a.recommendation;c.dataset.ap=a.id;c.setAttribute('role','group');c.setAttribute('aria-label',s(a.title));
+ const bt=(k,x,f,off)=>{const b=avEl('button',k,x);b.type='button';b.onclick=f;b.disabled=!!off;return b},say=k=>avApDo(c,{decision:APD[k][0]},APD[k][1]);
+ const sub=avEl('small');c._sub=()=>sub.textContent=[s(a.subtitle),avAgo(a.created)].filter(Boolean).join(' · ');c._sub();c.append(avEl('b',0,s(a.title)),sub);if(a.context)c.append(avEl('p',0,s(a.context)));
+ const G=Array.isArray(a.grounding)?a.grounding.filter(g=>g&&typeof g=='object'):[];
+ if(G.length){const dl=avEl('dl');for(const g of G){const d=avEl('div'),dd=avEl('dd'),u=aurl(g.href);dd.append(u?alink(u,s(g.value)):s(g.value));d.append(avEl('dt',0,s(g.label)),dd);dl.append(d)}c.append(dl)}
+ if(a.draft)c.append(avEl('div','apd',s(a.draft)));// what would be sent, as it is
+ const q=avEl('div','apq');q.append(avEl('small','lbl','Decision'),avEl('p',0,s(a.decision)));c.append(q);
+ if(R&&R.answer){const r=avEl('div','apr'),w=s(R.answer);r.append(avEl('b',0,'Aiva recommends: '+w[0].toUpperCase()+w.slice(1)));if(R.text)r.append(avEl('p',0,s(R.text)));c.append(r)}
+ const row=avEl('div','pgo apa'),ask=k=>{const f=avEl('div','pgo apa');f.append(avEl('small',0,(k=='always'?'Always: '+s(a.always_covers):'Never: '+s(a.never_covers))+'?'),bt('go','Confirm',()=>say(k)),bt('pick','Cancel',()=>f.replaceWith(row)));row.replaceWith(f)};
+ row.append(bt('go','Yes',()=>say('yes'),lock),bt('pick','No',()=>say('no')));if(Array.isArray(a.answers)&&a.answers.includes('always'))row.append(bt('pick','Always',()=>ask('always'),lock));
+ row.append(bt('pick red','Never',()=>ask('never')));if(lock)row.append(avEl('small',0,'Needs a passkey sign-in'));
+ const f=avEl('div','apt'),ta=avEl('textarea');ta.rows=2;ta.maxLength=2000;ta.placeholder='Or tell Aiva what you\'d like instead';ta.setAttribute('aria-label','Your answer');
+ f.append(ta,bt('send','Send',()=>{const v=ta.value.trim();return v?avApDo(c,{decision:'answer',text:v},'Sent to Aiva'):ta.focus()}));c.append(row,f);
+ if(a.message_id&&AV.m.some(x=>x.id==a.message_id))c.append(bt('apj','Show in chat',()=>avApJump(a.message_id)));
+ return c}
+// a decision: the card's controls wait for Aiva, then the reload takes the card away; an error gives them back (a locked Yes stays locked)
+async function avApDo(c,b,ok){const bs=[...c.querySelectorAll('button,textarea')].filter(x=>!x.disabled);bs.forEach(x=>x.disabled=true);
+ try{const r=await api('/api/aiva/approvals/'+encodeURIComponent(c.dataset.ap),b);toast(r&&r.repeat?'Already decided':ok)}catch(e){bs.forEach(x=>x.disabled=false);toast(e.reason||'That didn\'t work.')}await avLoad()}
+function avApJump(id){hideSheet();const e=cur&&cur.box&&[...cur.box.children].find(n=>n._x&&n._x.id==id);if(!e)return toast('That message isn\'t in the chat any more.');
+ e.scrollIntoView({block:'center'});e.classList.add('avflash');setTimeout(()=>e.classList.remove('avflash'),2e3)}
+// after each load: cards for approvals gone are dropped, new ones added at the end, the rest left alone (only their age is redrawn); the badge shows the count
+function avApSync(){if(!AP.box){AP.box=avEl('div','aps');AP.none=avEl('p','ap0','Nothing waiting for you.');AP.box.append(AP.none)}
+ const L=Array.isArray(AV.ap)?AV.ap.filter(a=>a&&typeof a=='object'):[],ids=new Set(L.map(a=>a.id));
+ for(const[id,n]of AP.c)if(!ids.has(id)){n.remove();AP.c.delete(id)}
+ for(const a of L){const n=AP.c.get(a.id);if(n)n._sub();else{const k=avApCard(a);AP.c.set(a.id,k);AP.box.append(k)}}
+ AP.none.hidden=AP.c.size>0;const b=$('apb'),n=L.length;b.hidden=!n;$('apbn').textContent=String(n);b.setAttribute('aria-label',n?'Approvals, '+n+' waiting':'Approvals')}
+function avApOpen(){avApSync();const h=avEl('div','aph'),x=avEl('button','ic','✕');x.type='button';x.setAttribute('aria-label','Close');x.onclick=hideSheet;h.append(avEl('h2',0,'Approvals'),x);
+ sb.replaceChildren(AP.box);showSheet();sd.replaceChildren(h)}// after showSheet: its header pass would clear the head for the new body
 // aiva-rich:end
 /* Aiva, a local assistant, through /api/aiva/*: a section at the top of the chat list (its latest message, approvals waiting) opens one long-lived chat,
    shown like a session chat with the same box. Polls every 3 s while that's open, else every 30 s. #aiva in the address opens it (a push's link).
@@ -1427,9 +1466,10 @@ async function avOffers(){const ids=AV.m.map(x=>x.offer_id).filter(Boolean),mc=A
  for(const o of l)if(ids.includes(o.id)){delete mc[o.id];if((AV.of[o.id]||{}).status!=o.status)AV.of[o.id]={status:o.status}}// back again: its misses start over
  for(const i of ids)if(!l.some(o=>o.id==i)&&(!AV.of[i]||AV.of[i].status=='open')){mc[i]=(mc[i]||0)+1;if(mc[i]>=2)AV.of[i]={status:'gone'}}}// gone only after two fetches without it
 async function avLoad(){AV.at=Date.now();let a;
- try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals')}catch(e){AV.down=e.st==503;if(AV.down&&AV.on!=null){AV.on=false;AV.ap=[]}return avDraw()}
+ try{for(let i=0;await avMore()&&i<50;i++);a=await api('/api/aiva/approvals')}catch(e){AV.down=e.st==503;if(AV.down&&AV.on!=null){AV.on=false;AV.ap=[];avApSync()}return avDraw()}
  try{await avOffers()}catch(e){}// an older Aiva without offers, or a slow answer, must not stop the rest
- AV.on=true;AV.down=0;AV.ap=Array.isArray(a)?a:a.approvals||[];avDraw()}
+ AV.on=true;AV.down=0;AV.ap=Array.isArray(a)?a:a.approvals||[];avApSync();avDraw()}
+$('apb').onclick=avApOpen;
 window.openAiva=()=>{if(COL&&parent.deck)return parent.openAiva();closeMenu();hideSheet();if(rOpen)closeRP();stack=[];AV.end=1;open_({aiva:1,title:'Aiva'})};
 function avHash(){const rc=location.hash=='#qbo-signin';if(COL||location.hash!='#aiva'&&!rc)return false;history.replaceState(null,'',location.pathname+location.search);openAiva();if(rc)rcOpen();return true}
 addEventListener('hashchange',()=>{if(started&&$('lock').hidden)avHash()});

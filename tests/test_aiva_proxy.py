@@ -132,6 +132,22 @@ class AivaProxy(unittest.TestCase):
         h, g = self.post("/api/aiva/approvals/ap_1234abcd", {"decision": "reject"})
         self.assertEqual(json.loads(g["body"]), {"decision": "reject", "by": "local"}); self.verify(g, "0")
 
+    def test_approval_answer_always_and_never_forwarded(self):  # the panel's free-text answer, Yes always and Never
+        h, g = self.post("/api/aiva/approvals/ap_1234abcd", {"decision": "answer", "text": "  Ask for a 12 month quote instead \n", "by": "x"}, ts=True, se=("me@example.com", "sid"))
+        self.assertEqual(json.loads(g["body"]), {"decision": "answer", "text": "Ask for a 12 month quote instead", "by": "me@example.com"}); self.verify(g, "1")
+        h, g = self.post("/api/aiva/approvals/ap_1234abcd", {"decision": "answer", "text": "x" * 2000})
+        self.assertEqual(json.loads(g["body"]), {"decision": "answer", "text": "x" * 2000, "by": "local"}); self.verify(g, "0")
+        for d in ("reject_never", "approve_always"):
+            h, g = self.post("/api/aiva/approvals/ap_1234abcd", {"decision": d, "text": "only an answer carries text"})
+            self.assertEqual(json.loads(g["body"]), {"decision": d, "by": "local"})
+
+    def test_approval_bad_decision_or_answer_never_reaches_aiva(self):
+        n = len(GOT)
+        for b in ({"decision": "answer"}, {"decision": "answer", "text": ""}, {"decision": "answer", "text": " \n "}, {"decision": "answer", "text": "x" * 2001},
+                  {"decision": "answer", "text": ["hi"]}, {"decision": "maybe"}, {"decision": "never"}, {"decision": ["approve"]}, {}):
+            h = Stub("/x"); self.assertTrue(server.aiva_api(h, "/api/aiva/approvals/ap_1", b)); self.assertEqual(h.out, (400, {"error": "bad"}), b)
+        self.assertEqual(len(GOT), n)
+
     def test_socket_missing_503(self):
         server.AIVA_SOCK = self.sock + ".gone"
         for path, body in (("/api/aiva/status", None), ("/api/aiva/messages", {"text": "hi"})):

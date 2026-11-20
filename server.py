@@ -1802,8 +1802,13 @@ def aiva_api(h, path, body=None):
     elif body is not None and (path == "/api/aiva/messages" or re.fullmatch(r"/api/aiva/(?:approvals|offers)/[\w-]{1,64}", path, re.A)):
         ap, se = path[9:], h.via_ts() and h.session()
         by = se[0] if se else "local"
-        b = {"text": str(body.get("text") or "").strip(), "device": body.get("device") if body.get("device") in ("phone", "laptop") else "unknown"} if ap == "/messages" else {"answer": body.get("answer"), "by": by} if ap.startswith("/offers/") else {"decision": body.get("decision"), "by": by}
-        if not b.get("text") and b.get("decision") not in ("approve", "reject") and b.get("answer") not in ("yes", "no", "always", "never"): return h.send(400, {"error": "bad"}) or True
+        d, t = body.get("decision"), body.get("text")
+        if ap == "/messages": b = {"text": str(t or "").strip(), "device": body.get("device") if body.get("device") in ("phone", "laptop") else "unknown"}; ok = b["text"]
+        elif ap.startswith("/offers/"): b = {"answer": body.get("answer"), "by": by}; ok = b["answer"] in ("yes", "no", "always", "never")
+        else:  # an approval: Yes, No, Always, Never, or the panel's free-text answer (1 to 2000 characters, sent to Aiva as the owner's words)
+            b = {"decision": d, "by": by, **({"text": t.strip() if isinstance(t, str) else ""} if d == "answer" else {})}
+            ok = d in ("approve", "reject", "approve_always", "reject_never") or d == "answer" and 0 < len(b["text"]) <= 2000
+        if not ok: return h.send(400, {"error": "bad"}) or True
         data, strong = json.dumps(b).encode(), "1" if se else "0"
     elif body is not None and path == "/api/aiva/qbo-signin":  # the robot check: one tap, text or key, checked here before Aiva sees it
         b = qbo_input(body)
