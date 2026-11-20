@@ -876,7 +876,7 @@ $('menu').onclick=async e=>{const g=e.target.closest('[data-t]');if(g&&cur.menu)
   c.classList.toggle('on');$('menu').querySelectorAll('[data-o]').forEach(x=>x.classList.toggle('sel',x===b));if(await tell('/api/choose',{pane:cur.pane,index:+b.dataset.o,...q}))setTimeout(poll,250);return}
  $('menu').hidden=true;menuKey='';
  if(await tell('/api/choose',{pane:cur.pane,index:+b.dataset.o,...q,...(note?{text:t}:{})})){if(note){$('ta').value='';grow();taUI()}setTimeout(draw,700)}};
-async function send(t){if(sending)return;if(cur.aiva)return avSend(t);if(cur.login)return toast('Use the sign-in card above.');const fs=cur.menu?[]:ATT.map(a=>a.path);if(!t.trim()&&!fs.length)return;if(fs.includes(undefined))return toast('Wait for the uploads to finish.');if(cur.menu){if(!await tell('/api/choose',{pane:cur.pane,text:t,...shown()}))return;$('ta').value='';grow();$('menu').hidden=true;menuKey='';return setTimeout(draw,700)}// the message shows at once as "sending…" and Send is held until the server answers (it waits for a chat that is still
+async function send(t){if(sending)return;if(cur.aiva)return avSend(t);if(!cur.menu&&ATT.some(a=>a.av))return toast('Those files were attached in Aiva\'s chat. Remove them first.');/* aiva-intake */if(cur.login)return toast('Use the sign-in card above.');const fs=cur.menu?[]:ATT.map(a=>a.path);if(!t.trim()&&!fs.length)return;if(fs.includes(undefined))return toast('Wait for the uploads to finish.');if(cur.menu){if(!await tell('/api/choose',{pane:cur.pane,text:t,...shown()}))return;$('ta').value='';grow();$('menu').hidden=true;menuKey='';return setTimeout(draw,700)}// the message shows at once as "sending…" and Send is held until the server answers (it waits for a chat that is still
  // starting), so a slow first send can't be sent twice; a dropped connection is retried with the same id, which the server sends once
  const me=cur,b={pane:cur.pane||cur.via,...cur.agent&&{session:cur.session,agent:cur.agent},text:t,files:fs,id:Date.now().toString(36)+Math.random().toString(36).slice(2,8)},show=t.trim()&&!'!/'.includes(t.trim()[0]);
  sending=1;sendBtn();if(show){me.pend={t,at:Date.now(),s:1};$('ta').value='';grow();taUI();draw()}
@@ -917,7 +917,7 @@ $('ta').addEventListener('input',sendBtn);
 /* attachments: each file uploads as soon as it is picked or pasted; Send waits for all of them */
 const ATT=[];let attN=0;
 // aiva-intake:start  Aiva's chat attaches too (paperclip, paste, drop): its files go to api/upload?aiva=1, which takes only Aiva's kinds, 10 MB each, 5 at a time
-const AVA={max:10<<20,n:5,accept:'image/*,application/pdf,.pdf,.csv,.qif,.ofx,.txt'};
+const AVA={max:10<<20,n:5};// no accept list in Aiva's chat: iOS greys out .qif and .ofx, so the server's 415 does the checking
 function attUI(){const el=$('att');el.hidden=!ATT.length;el.innerHTML=ATT.map(a=>`<div class=ach data-id=${a.id} title="${esc(a.name)}">${a.thumb?`<img src="${a.thumb}" alt="">`:FILE+`<span>${esc(a.name)}</span>`}${a.path?'':`<b>${a.pct}%</b><i style="width:${a.pct}%"></i>`}<button aria-label="Remove">×</button></div>`).join('')+'<small class=anote>'+(cur&&cur.aiva?'Aiva takes PDFs, photos, CSV, QIF, OFX and text files: up to 5, 10 MB each.':'Very large files (several GB) are better moved with Syncthing.')+'</small>';
  el.querySelectorAll('img').forEach(i=>i.onerror=()=>i.outerHTML=FILE+`<span>${esc(i.parentNode.title)}</span>`);sendBtn()}
 function unattach(a,msg){const i=ATT.indexOf(a);if(i<0)return;ATT.splice(i,1);if(a.xhr.readyState<4)a.xhr.abort();if(a.thumb)URL.revokeObjectURL(a.thumb);attUI();if(msg)toast(msg)}
@@ -928,7 +928,7 @@ function attach(files){if(!cur||!(cur.pane||cur.via||cur.aiva))return;const av=!
  x.upload.onprogress=e=>{const c=$('att').querySelector(`[data-id="${a.id}"]`);if(!e.lengthComputable||!c||!c.querySelector('b'))return;a.pct=Math.round(e.loaded*100/e.total);c.querySelector('b').textContent=a.pct+'%';c.querySelector('i').style.width=a.pct+'%'};
  x.onload=()=>{let r={};try{r=JSON.parse(x.responseText)}catch(e){}if(x.status==200&&r.path){a.path=r.path;a.size=r.size;attUI()}else unattach(a,r.error||name+': upload failed ('+x.status+').')};
  x.onerror=()=>unattach(a,name+': upload failed. Check the connection.');x.send(f)}attUI()}
-const FIA=$('fi').accept;$('clip').onclick=()=>{$('fi').accept=cur&&cur.aiva?AVA.accept:FIA;$('fi').click()};$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
+const FIA=$('fi').accept;$('clip').onclick=()=>{$('fi').accept=cur&&cur.aiva?'':FIA;$('fi').click()};$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
 $('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
 $('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
 // files dragged in from the computer, dropped on the messages or the box, attach as the paperclip does; a file dropped anywhere else

@@ -1457,6 +1457,7 @@ IMG = {"png", "jpg", "gif", "webp"}  # what Claude Code turns into an [Image #N]
 TXT = {"txt", "csv", "tsv", "json", "md", "log", "xml", "html", "yaml", "yml", "py", "js", "ts", "sql", "sh", "swift", "qif", "ofx"}
 # aiva-intake: what Aiva's chat may attach (HEIC is saved as a JPEG), and its caps; Aiva checks them all again
 AIVA_KINDS, AIVA_MAX, AIVA_FILES, AIVA_TOTAL = {"pdf", "png", "jpg", "gif", "webp", "heic", "csv", "txt", "qif", "ofx"}, 10 << 20, 5, 25 << 20
+AIVA_UP = {}  # aiva-intake: the last 50 uploads made with aiva=1 (resolved path -> True), the only files a send to Aiva may carry
 
 def sniff(b, name):
     """Extension for an upload from its first bytes; the name only picks between text types. None = not allowed."""
@@ -1801,9 +1802,10 @@ def aiva_api(h, path, body=None):
         return aiva_forward(h, "/thread-mode", json.dumps({"mode": body["mode"]}).encode(), "1" if h.via_ts() and h.session() else "0")
     if isinstance(body, dict) and path == "/api/aiva/messages" and body.get("files"):  # the page sends upload paths; Aiva gets each file's name and bytes
         raw, fs = body["files"], attached(body["files"])
-        if fs is None: return h.send(400, {"error": "Those files aren't on the Mac any more. Attach them again."}) or True
+        if fs is None or any(str(p) not in AIVA_UP for p in fs): return h.send(400, {"error": "Those files aren't on the Mac any more. Attach them again."}) or True
         if len(fs) > AIVA_FILES: return h.send(400, {"error": f"Up to {AIVA_FILES} files at a time."}) or True
         names = [NAMES.get(str(r)) or NAMES.get(str(p)) or p.name for r, p in zip(raw, fs)]
+        names = [n if Path(n).suffix.lower() == p.suffix else Path(n).stem + p.suffix for n, p in zip(names, fs)]  # the saved type's extension: HEIC saved as .jpg, a pasted image
         big = next((n for n, p in zip(names, fs) if p.stat().st_size > AIVA_MAX), None)
         if big or sum(p.stat().st_size for p in fs) > AIVA_TOTAL: return h.send(413, {"error": f"{big} is over 10 MB." if big else "That's over 25 MB in all."}) or True
         b = {"text": str(body.get("text") or "").strip(), "device": body.get("device") if body.get("device") in ("phone", "laptop") else "unknown",
@@ -2829,7 +2831,8 @@ class H(BaseHTTPRequestHandler):
         if not c and not term and not av: return self.send(400, {"error": "This chat isn't running any more."})
         rh = (term or c or {}).get("host")  # a remote chat's go through the chat filter, then on to its server
         try: n = int(self.headers["Content-Length"])
-        except Exception: return self.send(411, {"error": "The upload had no size."})
+        except Exception: n = -1
+        if n < 0: return self.send(411, {"error": "The upload had no size."})
         if n > UP_MAX: return self.send(413, {"error": "Files over 1 GB can't be attached. Move them with Syncthing instead."})
         name = re.sub(r"[\x00-\x1f()/\\]", "", q.get("name", [""])[0]).strip()[:120] or "file"
         if av and n > AIVA_MAX: return self.send(413, {"error": f"{name} is over 10 MB, the most Aiva takes."})  # aiva-intake
@@ -2860,6 +2863,7 @@ class H(BaseHTTPRequestHandler):
         except Exception:
             tmp.unlink(missing_ok=True); return self.send(400, {"error": f"{name}: the upload failed."})
         out = {"path": str(p), "kind": "image" if ext in IMG else "file", "name": name, "size": p.stat().st_size}
+        if av: AIVA_UP[str(p.resolve())] = True; [AIVA_UP.pop(k) for k in list(AIVA_UP)[:-50]]  # aiva-intake
         if not rh: NAMES[str(p)] = name; return self.send(200, out)
         try:
             sp = ssh_put(ssh_host(rh) or {}, p, name if term else f"{Path(name).stem}.{ext}")  # its type's extension, so Claude on the server sees an image as one

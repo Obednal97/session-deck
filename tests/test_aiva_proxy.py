@@ -276,6 +276,7 @@ class AivaIntake(unittest.TestCase):
     def saved(self, name, data, on_phone=None):
         d = self.upl / "2026-01-01"; d.mkdir(exist_ok=True); f = d / name; f.write_bytes(data)
         if on_phone: server.NAMES[str(f)] = on_phone
+        server.AIVA_UP[str(f.resolve())] = True  # as an aiva=1 upload records it
         return str(f)
 
     def test_files_forwarded_as_base64_with_names(self):
@@ -290,6 +291,14 @@ class AivaIntake(unittest.TestCase):
         self.verify(g, "0")
         h, g = self.post("/api/aiva/messages", {"text": "", "files": [a]}, ts=True, se=("me@example.com", "sid"))  # no text is fine with files
         self.assertEqual((json.loads(g["body"])["text"], json.loads(g["body"])["device"]), ("", "unknown")); self.verify(g, "1")
+
+    def test_only_aivas_uploads_and_names_get_the_saved_extension(self):
+        jpg, png = self.saved("h1.jpg", b"\xff\xd8\xff\xe0" + bytes(32), "IMG_0001.HEIC"), self.saved("p1.png", b"\x89PNG\r\n\x1a\n", "pasted image")
+        pdf = self.saved("d1.pdf", b"%PDF-1.4\n", "Notice.PDF")
+        h, g = self.post("/api/aiva/messages", {"files": [jpg, png, pdf]})
+        self.assertEqual([f["name"] for f in json.loads(g["body"])["files"]], ["IMG_0001.jpg", "pasted image.png", "Notice.PDF"])
+        other = self.saved("s1.pdf", b"%PDF-1.4\n"); server.AIVA_UP.pop(str(Path(other).resolve()))  # a session chat's upload: in the folder, not Aiva's
+        n = len(GOT); h = Stub("/x"); server.aiva_api(h, "/api/aiva/messages", {"files": [pdf, other]}); self.assertEqual((h.out[0], len(GOT)), (400, n))
 
     def test_path_outside_uploads_400(self):
         out = Path(tempfile.mkdtemp(), "x.pdf"); out.write_bytes(b"%PDF-1.4\n")
@@ -338,6 +347,10 @@ class AivaIntake(unittest.TestCase):
             code, r = self.upload("aiva=1&name=" + name, body); self.assertEqual(code, 415, name); self.assertIn(name, r["error"])
         code, r = self.upload("aiva=1&name=huge.pdf", b"", length=(10 << 20) + 1); self.assertEqual((code, r["error"]), (413, "huge.pdf is over 10 MB, the most Aiva takes."))
         self.assertEqual(self.upload("name=bill.pdf", b"%PDF-1.4\n")[0], 400)  # neither a chat nor Aiva
+        self.assertEqual(self.upload("aiva=1&name=bill.pdf", b"", length=-5)[0], 411)
+        self.assertIn(str(Path(self.upload("aiva=1&name=x.pdf", b"%PDF-1.4\n")[1]["path"]).resolve()), server.AIVA_UP)  # recorded for the send
+        for i in range(55): self.upload(f"aiva=1&name=t{i}.txt", b"hello %d" % i)
+        self.assertEqual(len(server.AIVA_UP), 50)  # only the last 50 are kept
         self.assertEqual(GOT, [])  # an upload never reaches Aiva by itself
 
     def test_page_blocks(self):
@@ -347,6 +360,8 @@ class AivaIntake(unittest.TestCase):
         for f in ("innerHTML", "outerHTML", "insertAdjacentHTML", "template"): self.assertNotIn(f, tm)  # the thread mode bar is DOM nodes only
         self.assertIn(".aiva #clip{display:grid!important}", src)  # the shared hide rule stays as it is; the block shows the paperclip again
         self.assertIn("dropOk=e=>!inSplit&&cur&&(cur.pane||cur.via||cur.aiva)", src)
+        self.assertIn("if(!cur.menu&&ATT.some(a=>a.av))return toast(", src)  # a session chat won't send files attached in Aiva's chat
+        self.assertIn("$('fi').accept=cur&&cur.aiva?'':FIA", src)
 
     def test_attached_lines_are_escaped_chips(self):
         import shutil, subprocess
