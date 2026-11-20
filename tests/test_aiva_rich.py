@@ -130,6 +130,32 @@ class RichHelpersInNode(unittest.TestCase):
             "2 | Bad | unknown", "and 1 more.", "Trip", "Seat: 12A", "Window", "Book: https://b.example/", "Spend: Jan £12.50, Feb -£3"])
 
 
+    # chief of staff mode: each run of the team's own posts folds into one line, tool-call group style (the thread-mode block, after the renderer's avEl)
+    def test_chief_view_folds_team_runs(self):
+        s = (ROOT / "index.html").read_text(); i = s.index("const TM=")
+        tm = s[i:s.index("// aiva-intake:end", i)]
+        js = r"""(()=>{const blk=x=>({x,h:'k'+x.id,mk:()=>[avEl('div','a',x.text)]}),T=(id,persona,text)=>({id,role:'aiva',via:'team',persona,text});
+          const M=[{id:1,role:'ollie',text:'hi'},T(2,'household','Aiva · Household: Boiler service booked\nFor Tuesday'),T(3,'finance','Aiva · Finance: Card bill paid\nAll of it'),
+            {id:4,role:'ollie',text:'ok'},T(5,'household','Aiva · Household: Bins out tonight'),{id:6,role:'aiva',via:'',text:'Aiva: All quiet'}],B=M.map(blk);
+          const hd=b=>{const g=b.mk()[0];return[g.className,g.dataset.g,g.kids[0].className,g.kids[0].kids[0].text,g.kids[0].kids[1].text,g.kids[1].className,g.kids[1].hidden,g.kids[1].kids.map(k=>k.text)]};
+          TM.mode='all';const all=avFold(B)===B;TM.mode=null;const none=avFold(B)===B;TM.mode='chief-of-staff';
+          const F=avFold(B),old=F[1].h;B[2].h='k3b';const moved=avFold(B)[1].h!=old;
+          const three=avFold([T(7,'household','Aiva · Household: a'),T(8,'finance','Aiva · Finance: b'),T(9,'travel','c\nd'),T(10,'household','Aiva · Household: e')].map(blk))[0];
+          const old6=avFold(M.map(x=>({...x,via:undefined})).map(blk)).length;
+          return[all,none,F.length,F[0]===B[0]&&F[2]===B[3]&&F[4]===B[5],hd(F[1]),hd(F[3]),F[1].h.startsWith('avf:'),moved,hd(three).slice(3,5),old6]})()"""
+        r = subprocess.run(["node"], input="globalThis.setInterval=()=>0;" + FAKE_DOM + rich_block() + tm + "\nconsole.log(JSON.stringify(" + js + "))",
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        all_, none, n, kept, f1, f2, key, moved, three, old6 = json.loads(r.stdout)
+        self.assertTrue(all_); self.assertTrue(none)  # everyone mode, or the mode not known yet: nothing folds
+        self.assertEqual(n, 5); self.assertTrue(kept)  # Ollie's own message splits the team's posts into two folds
+        self.assertEqual(f1, ["tg avf", "av2", "tgh", "2 messages from Household and Finance", "Card bill paid", "tgb", True,
+                              ["Aiva · Household: Boiler service booked\nFor Tuesday", "Aiva · Finance: Card bill paid\nAll of it"]])
+        self.assertEqual(f2[1], "av5"); self.assertEqual(f2[3:5], ["1 message from Household", "Bins out tonight"])
+        self.assertTrue(key); self.assertTrue(moved)  # a folded message that changes redraws its fold
+        self.assertEqual(three, ["4 messages from Household, Finance and Travel", "e"])  # no label: the persona's name
+        self.assertEqual(old6, 6)  # an older Aiva sends no via: never folds
+
     # the approvals panel (a bottom sheet): one card per approval, kept by id between polls
     def test_approval_card_in_full(self):
         got = self.run_js(r"""AV.m=[{id:812,role:'aiva',text:'x'}];const c=avApCard(AP0),t=c.querySelectorAll('textarea')[0],l=c.querySelectorAll('a')[0];

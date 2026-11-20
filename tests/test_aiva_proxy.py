@@ -357,7 +357,13 @@ class AivaIntake(unittest.TestCase):
         src = (Path(__file__).resolve().parent.parent / "index.html").read_text()
         self.assertEqual(src.count("aiva-intake:start"), src.count("aiva-intake:end"))
         tm = src[src.index("const TM="):src.index("// aiva-intake:end", src.index("const TM="))]
-        for f in ("innerHTML", "outerHTML", "insertAdjacentHTML", "template"): self.assertNotIn(f, tm)  # the thread mode bar is DOM nodes only
+        for f in ("innerHTML", "outerHTML", "insertAdjacentHTML", "template"): self.assertNotIn(f, tm)  # the thread mode code and the folds are DOM nodes only
+        self.assertIn("function avFold(", tm)
+        self.assertNotIn("avtm", src); self.assertNotIn("$('main').before(", src)  # no bar above Aiva's chat: the switch lives in Settings
+        st = src[src.index("function settings()"):src.index("$('set').onclick")]
+        self.assertIn("id=stm", st[st.index("<div class=lbl>Aiva</div>"):st.index("<div class=lbl>Notifications</div>")])
+        self.assertIn("t.closest('#stm [data-m]')", src)  # a tap in Settings goes to avTmSet
+        self.assertIn("const B=avFold(AV.m.map(avItem))", src)
         self.assertIn(".aiva #clip{display:grid!important}", src)  # the shared hide rule stays as it is; the block shows the paperclip again
         self.assertIn("dropOk=e=>!inSplit&&cur&&(cur.pane||cur.via||cur.aiva)", src)
         self.assertIn("if(!cur.menu&&ATT.some(a=>a.av))return toast(", src)  # a session chat won't send files attached in Aiva's chat
