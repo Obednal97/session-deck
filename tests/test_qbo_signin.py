@@ -87,7 +87,8 @@ class View(unittest.TestCase):
     def test_hash_opens_it(self):
         s = (ROOT / "index.html").read_text()
         self.assertIn("location.hash=='#qbo-signin'", s); self.assertIn("if(rc)rcOpen()", s); self.assertIn('id=rc hidden', s)
-        self.assertIn("Aiva never answers the robot check: you do. After it, Aiva finishes the sign-in itself.", view_block())
+        self.assertIn("Aiva\\'s sign-in tab, live. Tap the picture to tap the page, type in the box to type where the cursor is, and use the keys for Enter, Backspace and Tab. After you act, Aiva takes the sign-in on again.", view_block())
+        self.assertIn("'QuickBooks sign-in'", view_block()); self.assertNotIn("robot check'", view_block())
 
 # The view in node, with a tiny DOM, fake timers and a fake api()
 FAKE = r"""
@@ -129,6 +130,22 @@ class ViewInNode(unittest.TestCase):
         self.assertEqual(c, ["data:image/jpeg;base64,QUJD", 700])  # a malformed frame keeps the last picture
         self.assertEqual(d, [0, True, False, "QuickBooks is signed in", None])
         self.assertEqual((e, left, hidden), (1, 1, True))  # hidden page or closed view: no fetch
+
+    def test_reason_shown_and_wait_polls_again_then_comes_back_live(self):
+        out = self.run_js("""
+          Q=[{active:true,frame:'QUJD',reason:'Intuit wants the robot check.'}];rcOpen();await flush();const a=[RC.msg.textContent,RC.msg.className,T.slice()];
+          Q=[{active:false,wait:true,reason:'Aiva is signing in.'}];T.length=0;rcPoll(RC.n);await flush();const b=[RC.idle.hidden,RC.live.hidden,RC.ttl.textContent,RC.why.textContent,T.slice(),RC.img.src];
+          Q=[{active:true,frame:'QUJD',reason:'Intuit is showing a screen I do not recognise.'}];T.length=0;rcPoll(RC.n);await flush();const c=[RC.live.hidden,RC.idle.hidden,RC.msg.textContent,T.slice()];
+          Q=[{active:false,reason:'Signed in.'}];T.length=0;rcPoll(RC.n);await flush();const d=[RC.ttl.textContent,RC.why.textContent,T.length];
+          Q=[{active:true,frame:'QUJD'}];rcPoll(RC.n);await flush();const e=RC.msg.textContent;
+          Q=[{active:false,wait:true}];rcPoll(RC.n);await flush();const f=RC.why.textContent;
+          return[a,b,c,d,e,f]""")
+        a, b, c, d, e, f = out
+        self.assertEqual(a, ["Intuit wants the robot check.", "rcm", [700]])
+        self.assertEqual(b, [False, True, "Aiva is on it", "Aiva is signing in.", [2000], None])
+        self.assertEqual(c, [False, True, "Intuit is showing a screen I do not recognise.", [700]])
+        self.assertEqual(d, ["Nothing to do", "Signed in.", 0])
+        self.assertEqual((e, f), ("", ""))
 
     def test_inputs_sent_in_aivas_shape(self):
         out = self.run_js("""
