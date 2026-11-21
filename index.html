@@ -182,7 +182,7 @@ pre a,.cmdout a{color:var(--c)}
 .rph{display:flex;align-items:baseline;gap:8px;padding:14px 14px 4px}.rph h3{margin:0;font-size:18px}.rph small{flex:1;color:var(--m);font-size:12.5px}.rph .ic{align-self:center;font-size:15px;color:var(--m)}
 .agc2{padding:4px 8px}.agc2 .agr{border-bottom:0}
 .sab{position:relative;margin-right:2px}.sbn{position:absolute;top:-3px;right:-7px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--g);color:#0e1118;font:700 10.5px/16px system-ui,sans-serif;text-align:center}
-.lbx{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;opacity:0;transition:opacity .18s;cursor:zoom-out;padding:24px}.lbx.on{opacity:1}
+.lbx{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.82);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;opacity:0;transition:opacity .18s;cursor:zoom-out;padding:24px}.lbx.on{opacity:1}.avfile{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
 .lbx img{max-width:100%;max-height:calc(100% - 30px);object-fit:contain;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.5);transform:scale(.96);transition:transform .22s var(--ez,ease)}.lbx.on img{transform:none}.lbx small{color:#ddd;font-size:13px}
 #main img{cursor:zoom-in}
 .empty{height:100%;display:flex;flex-direction:column;justify-content:center;gap:10px;padding:24px;max-width:360px;margin:auto;text-align:center;color:var(--m)}
@@ -1461,7 +1461,7 @@ const avFnv=s=>{let h=2166136261;for(let i=0;i<s.length;i++)h=Math.imul(h^s.char
 const avItem=x=>{if(x.role=='ollie')return{x,h:`<div class=u>${ub(x.text)}</div>`};// only Aiva's messages carry offers and approvals
  const p=x.approval_id&&AV.ap.find(a=>a.id==x.approval_id),lock=p&&+p.tier>=3&&!TS,o=x.offer_id&&AV.of[x.offer_id],w=(x.text||'').match(/^(Aiva(?: · [^:\n]{1,60})?):\s*/),
   k=x._k||(x._k='\u0001'+x.id+':'+avFnv(JSON.stringify([x.role,x.text,x.parts])));
- return{x,h:k+JSON.stringify([o&&o.status,AV.cf&&AV.cf.id==x.offer_id&&AV.cf.a,p&&p.id,lock]),mk:()=>{let a;try{a=avRich(w?x.text.slice(w[0].length):x.text,x.parts,w&&w[1])}catch(e){a=document.createElement('div');a.className='a';a.textContent=x.text||''}
+ return{x,h:k+JSON.stringify([o&&o.status,AV.cf&&AV.cf.id==x.offer_id&&AV.cf.a,p&&p.id,lock]),mk:()=>{let a;try{a=avRich(w?x.text.slice(w[0].length):x.text,x.parts,w&&w[1])}catch(e){a=document.createElement('div');a.className='a';a.textContent=x.text||''}avFileLinks(a);
   if(x.approval_id&&!p)a.querySelectorAll('.avca').forEach(n=>n.remove());// its approval is decided: buttons tied to it would answer nothing
   return[a,...avOffer(x.offer_id),...!p?[]:[lock?avEl('div','note avn','Needs a passkey sign-in'):avRow('pga',{ap:p.id},avBtn('go','Approve',{d:'approve'}),avBtn('pick red','Reject',{d:'reject'}))]]}}};
 function avPaint(){const m=$('main');if(AV.on==null&&!AV.down&&!AV.m.length)return;// still loading
@@ -1545,6 +1545,13 @@ setInterval(()=>{const o=cur&&cur.aiva;if(started&&$('lock').hidden&&(!COL||o)&&
 // aiva-intake:start
 // The owner's messages in Aiva's chat: each "Attached: name (2.1 MB)" line is drawn as the file chip session chats use (ub calls this; everything escaped)
 function avAtt(t,fs){return!(cur&&cur.aiva)?t:t.replace(/^Attached: ([^\n]+?) \(([\d.]+ [KM]B)\)$/gm,(m,n,z)=>{fs.push(`<span class=fch title="${esc(n)}">${FILE}<b>${esc(n)}</b><small>${esc(z)}</small></span>`);return''})}
+// "file id f_1a2b3c4d" in Aiva's text (a file she saved for the owner, such as a form's confirmation screenshot): the id becomes a button that opens it
+function avFileLinks(el){const w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),ns=[],re=/\bf_[0-9a-f]{8}\b/g;while(w.nextNode()){const n=w.currentNode;if(/\bf_[0-9a-f]{8}\b/.test(n.data)&&!n.parentNode.closest('a,button,pre,code'))ns.push(n)}
+ for(const n of ns){const f=document.createDocumentFragment();let i=0;n.data.replace(re,(m,o)=>{f.append(n.data.slice(i,o));const b=document.createElement('button');b.className='avfile';b.dataset.file=m;b.textContent=m;f.append(b);i=o+m.length});f.append(n.data.slice(i));n.replaceWith(f)}}
+$('main').addEventListener('click',async e=>{const b=e.target.closest('.avfile');if(!b||!(cur&&cur.aiva)||b.dataset.busy)return;b.dataset.busy=1;
+ try{const r=await api('/api/aiva/files/'+b.dataset.file,undefined,6e4),bin=Uint8Array.from(atob(r.data),c=>c.charCodeAt(0)),mime={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp',pdf:'application/pdf'}[r.kind]||'application/octet-stream',u=URL.createObjectURL(new Blob([bin],{type:mime}));
+  if(mime.startsWith('image/'))lbShow([u],0);else{const a=document.createElement('a');a.href=u;a.download=r.name||b.dataset.file;a.click()}}
+ catch(x){toast(x.reason||'Couldn\'t open that file.')}delete b.dataset.busy});
 function avSize(n){n=+n||0;return n>=1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB'}
 // the thread mode, Everyone or Chief of staff, set in Settings (Who talks to you) and by chat commands: read from Aiva when the chat opens, every 30 s while
 // it's open, a second after a send and when Settings opens; unknown (nothing folds) until Aiva first answers it, then kept through failed reads.

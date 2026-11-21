@@ -110,6 +110,15 @@ class AivaProxy(unittest.TestCase):
         n = len(GOT); h = Stub("/api/aiva/offers?status=bad"); self.assertTrue(server.aiva_api(h, "/api/aiva/offers")); self.assertEqual((h.out[0], len(GOT)), (400, n))
         h = Stub("/api/aiva/offers"); server.aiva_api(h, "/api/aiva/offers"); self.assertEqual(GOT[-1]["path"], "/offers")
 
+    def test_output_file_get_forwarded_only_by_its_id(self):  # a file Aiva saved (a form's screenshot): GET only, id f_ + 8 hex
+        h = Stub("/api/aiva/files/f_1a2b3c4d"); self.assertTrue(server.aiva_api(h, "/api/aiva/files/f_1a2b3c4d"))
+        self.assertEqual(GOT[-1]["path"], "/files/f_1a2b3c4d")
+        n = len(GOT)
+        for bad in ("/api/aiva/files/f_1A2B3C4D", "/api/aiva/files/f_1a2b3c4", "/api/aiva/files/../aiva.db", "/api/aiva/files/f_1a2b3c4d/x"):
+            self.assertFalse(server.aiva_api(Stub(bad), bad))
+        self.assertFalse(server.aiva_api(Stub("/x"), "/api/aiva/files/f_1a2b3c4d", {"x": 1}))  # never a POST
+        self.assertEqual(len(GOT), n)
+
     def test_other_paths_not_ours(self):
         self.assertFalse(server.aiva_api(Stub("/api/sessions"), "/api/sessions"))
 

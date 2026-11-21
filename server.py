@@ -1834,6 +1834,7 @@ def aiva_api(h, path, body=None):
         b = qbo_input(body)
         if b is None: return h.send(400, {"error": "Send one tap, up to 200 characters, or Enter, Backspace or Tab."}) or True
         ap, data = "/qbo-signin", json.dumps(b).encode()
+    elif body is None and re.fullmatch(r"/api/aiva/files/f_[0-9a-f]{8}", path, re.A): ap = path[9:]  # a file Aiva saved for the owner (a form's confirmation screenshot); Aiva serves only her own outputs
     else: return False
     return aiva_forward(h, ap, data, strong)
 
