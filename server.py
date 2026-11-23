@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Session Deck: shows live tmux Claude Code sessions as chats and types into them.
 Binds 127.0.0.1 (and DECK_SOCKET) only. Needs the token from <DECK_SECRETS>/session-deck.json for every local /api call."""
-import html, http.client, json, os, re, secrets, shlex, shutil, socket, stat, subprocess, sys, threading, time, urllib.parse, uuid
+import html, http.client, json, os, plistlib, re, secrets, shlex, shutil, socket, stat, subprocess, sys, tempfile, threading, time, urllib.parse, uuid
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -656,6 +656,37 @@ def claude_args(engine, perm, model, effort, name, resume, fork, sid=None):
     if name: a.append("--name=" + name)
     return a
 
+LAUNCHCTL = "launchctl"
+def tmux_new(sock, *args):
+    """`tmux -L sock new-session ... -P`, its output. When that server isn't running yet, it starts through launchd: macOS holds the app
+    that started a process responsible for its privacy grants, and started from here that's this deck's python3, which has none, so every
+    chat in the server would lack Full Disk Access (and could freeze on a prompt nobody sees). Started by launchd it's tmux's own, which
+    has them. With the deck's environment and folder, as if run from here; if launchd can't run it (no login session), it runs from here."""
+    _socks.pop(sock, None)
+    if sock not in sockets():
+        out = tmux_launchd(sock, args)
+        if out is not None: return out
+    return run("tmux", "-L", sock, *args)
+
+def tmux_launchd(sock, args, wait=8):
+    """Runs tmux as a one-off launchd job and returns what it printed, or None if launchd wouldn't take the job (so it never ran)."""
+    exe, d = shutil.which("tmux"), tempfile.mkdtemp(prefix="deck-tmux.")
+    if not exe: return None
+    label, out, job = f"local.deck-tmux.{sock}.{os.getpid()}.{time.time_ns()}", Path(d, "out"), Path(d, "job.plist")
+    try:
+        job.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [exe, "-L", sock, *args], "RunAtLoad": True, "AbandonProcessGroup": True,
+            "EnvironmentVariables": {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")}, "WorkingDirectory": os.getcwd(),
+            "StandardOutPath": str(out), "StandardErrorPath": str(out)}))
+        dom = next((x for x in (f"gui/{os.getuid()}", f"user/{os.getuid()}")
+                    if subprocess.run([LAUNCHCTL, "bootstrap", x, str(job)], capture_output=True, timeout=8).returncode == 0), None)
+        if not dom: return None
+        end = time.time() + wait  # done once -P has printed the pane (or an error) and the client has exited, so a chain after it has run too
+        while time.time() < end and not (out.exists() and out.read_text().endswith("\n") and
+                                         "state = running" not in run(LAUNCHCTL, "print", f"{dom}/{label}")): time.sleep(0.05)
+        subprocess.run([LAUNCHCTL, "bootout", f"{dom}/{label}"], capture_output=True, timeout=8)  # the job only; tmux's server has left its process group
+        return out.read_text() if out.exists() else ""
+    finally: shutil.rmtree(d, ignore_errors=True)
+
 def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=None, name=None, worktree=False, account=None, system=None):
     cwd = os.path.realpath(cwd)
     if not os.path.isdir(cwd) or not cwd.startswith(str(HOME) + "/"): return None
@@ -675,7 +706,7 @@ def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=Non
     sock = next((s for s in TMUX_SOCKS if s in sockets()), TMUX_SOCKS[-1])  # the first running server; a new one only if none is
     target = os.environ.get("DECK_TMUX_SESSION", "work")  # new chats become windows in this session
     if subprocess.run(["tmux", "-L", sock, "has-session", "-t", f"={target}"], capture_output=True).returncode:
-        r = run("tmux", "-L", sock, "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", target, "-c", cwd, "-n", name, *full)
+        r = tmux_new(sock, "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", target, "-c", cwd, "-n", name, *full)
     else:
         r = run("tmux", "-L", sock, "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", f"={target}:", "-c", cwd, "-n", name, *full)
     _live[0] = _rch[0] = 0; _socks.pop(sock, None)  # the chat may have started a new tmux server
@@ -2106,7 +2137,7 @@ def ssh_open(hid, password=None, rcmd=None, opts=None):
         names = set(run("tmux", "-L", sock, "list-sessions", "-F", "#{session_name}").split())
         s = next(f"ssh-{hid}-{n}" for n in range(1, 10000) if f"ssh-{hid}-{n}" not in names)
         # one tmux call, so the session is marked and kept on exit before an ssh that fails at once can end it
-        r = run("tmux", "-L", sock, "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", s, "-x", "120", "-y", "40", "-n", h.get("name") or h["host"], *argv,
+        r = tmux_new(sock, "new-session", "-d", "-P", "-F", "#{pane_id}", "-s", s, "-x", "120", "-y", "40", "-n", h.get("name") or h["host"], *argv,
                 ";", "set-option", "-t", f"={s}:", "@deck_ssh", hid, ";", "set-option", "-t", f"={s}:", "status", "off", ";", "set-option", "-w", "-t", f"={s}:", "remain-on-exit", "on",
                 *([";", "set-option", "-t", f"={s}:", "@deck_ssh_host", json.dumps({k: h.get(k) for k in ("name", "host", "user", "port", "auth")})] if h.get("temp") else []),
                 *[x for k, v in (opts or {}).items() for x in (";", "set-option", "-t", f"={s}:", f"@{k}", str(v))])
