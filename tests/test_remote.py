@@ -931,4 +931,20 @@ class Login(unittest.TestCase):
         self.assertIsNone(server.login_screen(METHOD))
 
 
+# Claude Code 2.1.330's /model picker, as the pane shows it
+MODEL = ("\u2594" * 40 + "\n  Select model\n  Your pick is the default for new sessions. For other models, use --model.\n\n"
+         "    1.  Default (recommended)  Opus 5.5 \u00b7 Best for everyday, complex tasks\n  \u276f 2.  Opus 5.5 \u2714             For complex work and everyday tasks\n"
+         "    3.  Fable 5.2              For your toughest challenges\n    4.  Sonnet 5.5             Most efficient for simpler tasks\n"
+         "    5.  Haiku 5.5              Fastest for quick answers\n    \u25b8   More models\n\n  \u25cf High effort \u2190/\u2192 to adjust\n\n"
+         "  Use /fast to turn on fast mode (Opus 5.5).\n\n  s to use this session only \u00b7 Enter to save \u00b7 Esc to cancel\n")
+
+
+class ModelPicker(unittest.TestCase):
+    def test_model_picker_is_a_question(self):
+        m = server.parse_menu(MODEL)
+        self.assertEqual(m["question"], "Select model Your pick is the default for new sessions. For other models, use --model.")
+        self.assertEqual([o["label"].split()[0] for o in m["options"]], ["Default", "Opus", "Fable", "Sonnet", "Haiku", "More"])
+        self.assertEqual(m["selected"], 1)
+
+
 if __name__ == "__main__": unittest.main()

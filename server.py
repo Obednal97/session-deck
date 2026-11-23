@@ -272,7 +272,7 @@ def parse_menu(plain):
     # a question's key hints; viewers (background shells and agents, the resume list) end "Esc to close" and aren't questions
     # The hints sit on one of the last lines (chat text above can quote them) and start the line.
     tail = [i for i, l in enumerate(L) if l.strip()][-3:]
-    F = max((i for i in tail if re.match(r"\s*(Enter to|Esc to|Tab|\u2191|\u2190|Press )", L[i])
+    F = max((i for i in tail if re.match(r"\s*(Enter to|Esc to|Tab|\u2191|\u2190|Press |\w to )", L[i])  # /model's starts "s to use this session only"
              and re.search(r"Enter to (confirm|select|submit)|to navigate|Esc to cancel", L[i])
              and not re.search(r"(?i)esc to close|enter to view", L[i])), default=-1)
     if F < 0:  # "Ready to submit your answers?" has no key hints: a numbered ❯ list at the bottom, under a line ending "?"
@@ -297,13 +297,13 @@ def parse_menu(plain):
                     opts.append({"label": l.strip().lstrip("\u276f").strip(), "desc": ""})
                 elif is_opt(l):
                     if l[:tc].strip() == "\u276f": sel = len(opts)
-                    opts.append({"label": re.sub(r"^\d+\.\s+", "", l[tc:].strip()), "desc": ""})
+                    opts.append({"label": re.sub(r"^(\d+\.|\u25b8)\s+", "", l[tc:].strip()), "desc": ""})
                 elif opts and is_desc(l) and l.strip():
                     opts[-1]["desc"] = (opts[-1]["desc"] + " " + l.strip()).strip()
             j = s - 1
             while j >= 0 and not L[j].strip(): j -= 1
             ql = []
-            while j >= 0 and L[j].strip() and not set(L[j].strip()) <= set("\u2500\u2501\u254c-") and not L[j].lstrip().startswith("\u2190") and len(ql) < 12:
+            while j >= 0 and L[j].strip() and not set(L[j].strip()) <= set("\u2500\u2501\u254c\u2594-") and not L[j].lstrip().startswith("\u2190") and len(ql) < 12:
                 ql.insert(0, re.sub(r"^[\u2502\u2503|]\s?", "", L[j].strip())); j -= 1  # a question is drawn with a bar down its left
             q = " ".join(ql)
             amend = "Tab to amend" in L[F]
