@@ -931,7 +931,10 @@ function attach(files){if(!cur||!(cur.pane||cur.via||cur.aiva))return;const av=!
  x.onerror=()=>unattach(a,name+': upload failed. Check the connection.');x.send(f)}attUI()}
 const FIA=$('fi').accept;$('clip').onclick=()=>{$('fi').accept=cur&&cur.aiva?'':FIA;$('fi').click()};$('fi').onchange=()=>{(cur&&cur.ssh?sshAttach:attach)([...$('fi').files]);$('fi').value=''};
 $('att').onclick=e=>{const b=e.target.closest('button'),a=b&&ATT.find(x=>x.id==b.parentNode.dataset.id);if(a)unattach(a)};
-$('ta').addEventListener('paste',e=>{const fs=[...(e.clipboardData||{}).items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean);if(!fs.length)return;if(!e.clipboardData.types.includes('text/plain'))e.preventDefault();attach(fs)});
+// pasted text goes in as plain text: iOS otherwise pastes text that reads as a URL ("Context: ..." has the scheme context:)
+// as that URL, lowercased and %-encoded. Files paste as attachments
+$('ta').addEventListener('paste',e=>{const d=e.clipboardData;if(!d)return;const fs=[...d.items||[]].filter(i=>i.kind=='file').map(i=>i.getAsFile()).filter(Boolean),s=d.getData('text/plain');if(fs.length)attach(fs);if(!s){if(fs.length)e.preventDefault();return}
+ e.preventDefault();const t=e.target;if(!document.execCommand('insertText',false,s)){t.setRangeText(s,t.selectionStart,t.selectionEnd,'end');t.dispatchEvent(new Event('input'))}});
 // files dragged in from the computer, dropped on the messages or the box, attach as the paperclip does; a file dropped anywhere else
 // is ignored rather than opened in place of the deck. Drags that start on the page (an image in a reply) are left alone
 let ownDrag=0,dropT;addEventListener('dragstart',()=>ownDrag=1);addEventListener('dragend',()=>ownDrag=0);
