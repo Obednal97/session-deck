@@ -863,7 +863,7 @@ class StartArgs(unittest.TestCase):
         ]
         for kw, argv, name in table:
             runs.clear(); self.assertEqual(server.start(str(cwd), **kw), "decktest.7", kw)
-            a = runs[-1]; self.assertEqual(a[-3:-1], ("zsh", "-lc"), kw); self.assertEqual(shlex.split(a[-1]), argv, kw); self.assertEqual(a[a.index("-n") + 1], name, kw)
+            a = runs[-1]; self.assertEqual(a[-3:-1], ("zsh", "-lc"), kw); self.assertEqual(shlex.split(a[-1]), ["cd", "--", str(cwd), "&&", *argv], kw); self.assertEqual(a[a.index("-n") + 1], name, kw)
         for kw in (dict(engine="claude", resume="nope"), dict(engine="claude", resume=None, perm="root"), dict(engine="claude", resume=None, model="gpt"),
                    dict(engine="claude", resume=None, effort="huge"), dict(engine="claude", resume=None, account="a1"), dict(engine="rotate", resume=None, account="zz"), dict(engine="other", resume=None)):
             runs.clear(); self.assertIsNone(server.start(str(cwd), **kw), kw); self.assertEqual(runs, [], kw)

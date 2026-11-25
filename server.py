@@ -675,7 +675,7 @@ def tmux_launchd(sock, args, wait=8):
     label, out, job = f"local.deck-tmux.{sock}.{os.getpid()}.{time.time_ns()}", Path(d, "out"), Path(d, "job.plist")
     try:
         job.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [exe, "-L", sock, *args], "RunAtLoad": True, "AbandonProcessGroup": True,
-            "EnvironmentVariables": {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")}, "WorkingDirectory": os.getcwd(),
+            "EnvironmentVariables": {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")}, "WorkingDirectory": str(HOME),  # not the deck's folder: a deploy replaces it, and a server whose folder is gone starts every new window in it
             "StandardOutPath": str(out), "StandardErrorPath": str(out)}))
         dom = next((x for x in (f"gui/{os.getuid()}", f"user/{os.getuid()}")
                     if subprocess.run([LAUNCHCTL, "bootstrap", x, str(job)], capture_output=True, timeout=8).returncode == 0), None)
@@ -701,7 +701,7 @@ def start(cwd, engine, resume, fork=False, perm="bypass", model=None, effort=Non
     if worktree and not resume and is_git(cwd): cmd.append("--worktree")
     if system: cmd += ["--append-system-prompt", system]
     if os.environ.get("DECK_DRYRUN"): cmd = ["bash", "-c", "exec -a claude cat"]
-    full = ["zsh", "-lc", shlex.join(cmd)]
+    full = ["zsh", "-lc", f"cd -- {shlex.quote(cwd)} && {shlex.join(cmd)}"]  # tmux's -c is ignored while its server's own folder is gone
     name = name or os.path.basename(cwd) + (" (local)" if engine == "local" else "")
     sock = next((s for s in TMUX_SOCKS if s in sockets()), TMUX_SOCKS[-1])  # the first running server; a new one only if none is
     target = os.environ.get("DECK_TMUX_SESSION", "work")  # new chats become windows in this session
