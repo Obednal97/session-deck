@@ -984,7 +984,11 @@ const pfClick=async e=>{const b=e.target.closest('[data-n]');if(!b)return;
  if(b.dataset.n=='t')return pushUI(await pushAll().catch(x=>'Could not send: '+x.message));
  const R=await SWR,s=R&&await R.pushManager.getSubscription();if(s){await api('/api/push/unsubscribe',{endpoint:s.endpoint}).catch(()=>{});await s.unsubscribe()}pushUI('')};
 if(!COL)pushUI();
-if(navigator.serviceWorker&&!COL)navigator.serviceWorker.addEventListener('message',e=>{const p=e.data&&e.data.pane;if(p)list().then(()=>{const s=chatOf(p);if(s){closeMenu();hideSheet();stack=[];open_(s)}})});
+// a tapped notification opens its chat: the service worker's message, or (that lost while the app woke or loaded) the pane it left in the cache
+async function navPending(){try{const k=await caches.open('deck-nav'),r=await k.match('pending');if(!r)return null;await k.delete('pending');const d=await r.json();return Date.now()-d.t<12e4?d.pane:null}catch(e){return null}}
+const goPane=p=>list().then(()=>{const s=chatOf(p);if(s){closeMenu();hideSheet();stack=[];open_(s)}});
+if(navigator.serviceWorker&&!COL){navigator.serviceWorker.addEventListener('message',e=>{const p=e.data&&e.data.pane;if(p){navPending();goPane(p)}});
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)[0,1500].forEach(t=>setTimeout(()=>navPending().then(p=>p&&goPane(p)),t))})}
 const qp=new URLSearchParams(location.search).get('pane');if(qp){try{localStorage.setItem('last',qp)}catch(e){}history.replaceState(null,'',location.pathname)}
 setInterval(()=>{if(cur)tick(draw);if(!cur||cur.ro||cur.ssh)tick(list)},2500);
 /* passkeys: Face ID sign-in on the Tailscale route; direct local use keeps the token */
@@ -1028,7 +1032,7 @@ const siriPrompt=()=>`Create a shortcut named exactly "${SIRI.name}" (not "Ask $
 sb.addEventListener('click',async e=>{const c=e.target.closest('[data-cp]');if(c&&SIRI)return copyText(c.dataset.cp=='prompt'?siriPrompt():SIRI[c.dataset.cp]);
  if(e.target.id=='sirinew'&&confirm('Make a new key? The shortcut stops working until you paste the new address into it.')){const d=await tell('/api/siri/key',{});if(d&&d.url){SIRI.url=d.url;copyText(d.url)}}});
 sb.addEventListener('change',async e=>{if(e.target.id!='sirn')return;const d=await tell('/api/siri/name',{name:e.target.value});if(d&&d.name){SIRI.name=d.name;siri(0)}});
-async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(()=>{if(avHash())return;const l=localStorage.getItem('last'),s=chatOf(l);if(s)open_(s);else if(SSH.terms.some(t=>t.pane==l))sshOpen(l);else openMenu()},()=>avHash())}
+async function start(){try{CFG=await api('/api/config')}catch(e){}home();list().then(async()=>{if(avHash())return;const l=(!COL&&await navPending())||localStorage.getItem('last'),s=chatOf(l);if(!COL)setTimeout(()=>navPending().then(p=>p&&goPane(p)),1500);if(s)open_(s);else if(SSH.terms.some(t=>t.pane==l))sshOpen(l);else openMenu()},()=>avHash())}
 async function boot(){const r=await fetch('api/auth/state'),s=await r.json().catch(()=>({}));TS=!!s.ts||r.status==403;
  if(!TS){if(!TOK){TOK=clean(prompt('Token'));localStorage.setItem('deck',TOK)}started=true;return start()}
  try{localStorage.removeItem('deck')}catch(e){}TOK='';

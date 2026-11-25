@@ -9,6 +9,8 @@ self.addEventListener('push', e => {
 self.addEventListener('notificationclick', e => {
   e.notification.close(); const p = e.notification.data && e.notification.data.pane;
   e.waitUntil((async () => {
+    // left for the page as well: on iPhone the message below can be lost while the app wakes or loads (it then reads this)
+    if (p) await caches.open('deck-nav').then(k => k.put('pending', new Response(JSON.stringify({ pane: p, t: Date.now() })))).catch(() => {});
     const c = (await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).find(c => c.url.startsWith(self.registration.scope) && c.frameType != 'nested');  // not a split-view column
     if (c) { if (p) c.postMessage({ pane: p }); return c.focus() }
     return self.clients.openWindow(self.registration.scope + (p ? '?pane=' + encodeURIComponent(p) : ''));
