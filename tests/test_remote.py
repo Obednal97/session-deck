@@ -854,6 +854,52 @@ class Chats(unittest.TestCase):
         self.assertTrue(all(time.time() - server._RSCAN[h][0] < 1 for h in (self.hid, h2["id"])))
 
 
+class InstallTmux(unittest.TestCase):
+    """Install tmux on a server: RTMUX_SH with stand-in package managers on a PATH of their own (this Mac's login PATH has tmux)."""
+    def setUp(self):
+        self.b = Path(tempfile.mkdtemp()); self.log = self.b / "log"
+        for t in ("/usr/bin/env", "/bin/chmod"): os.symlink(t, self.b / Path(t).name)  # what the stand-ins themselves use
+
+    def tool(self, name, body):
+        (self.b / name).write_text("#!/bin/sh\n" + body + "\n"); (self.b / name).chmod(0o755)
+
+    def run_sh(self, uid=0, sudo=None):
+        self.tool("id", f"echo {uid}")
+        if sudo is not None: self.tool("sudo", f'[ "$1 $2" = "-n true" ] && exit {0 if sudo else 1}; echo "sudo $*" >> "{self.log}"; shift; exec "$@"')
+        r = subprocess.run(["/bin/sh", "-c", server.RTMUX_SH], capture_output=True, text=True, env={"PATH": str(self.b)})
+        return r.returncode, r.stderr.strip().splitlines()[-1:] , self.log.read_text().splitlines() if self.log.exists() else []
+
+    def apt(self, ok=True):
+        self.tool("apt-get", f'echo "apt-get $* $DEBIAN_FRONTEND" >> "{self.log}"; [ "$1" = install ] || exit 0; '
+                  + (f'printf "#!/bin/sh\\n" > "{self.b}/tmux"; chmod +x "{self.b}/tmux"' if ok else 'echo "W: a warning" >&2; echo "E: Unable to locate package tmux" >&2; exit 100'))
+
+    def test_root_apt(self):
+        self.apt(); self.assertEqual(self.run_sh(), (0, [], ["apt-get update -qq noninteractive", "apt-get install -y -qq tmux noninteractive"]))
+
+    def test_sudo_without_password(self):
+        self.apt(); code, err, log = self.run_sh(uid=1000, sudo=True)
+        self.assertEqual((code, log[0], log[-1]), (0, "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq", "apt-get install -y -qq tmux noninteractive"))
+
+    def test_needs_a_password(self):
+        self.apt()
+        for sudo in (False, None):  # sudo that asks, or no sudo at all
+            self.assertEqual(self.run_sh(uid=1000, sudo=sudo), (3, ["Installing tmux needs root, and sudo here asks for a password: install it in a terminal."], []))
+
+    def test_no_package_manager(self):
+        self.assertEqual(self.run_sh()[:2], (4, ["This server has no package manager the deck knows (apt, dnf, yum, apk, pacman, zypper, brew)."]))
+
+    def test_failure_says_why(self):  # the package manager's last line, not its first warning, reaches the page
+        self.apt(ok=False); self.assertEqual(self.run_sh()[:2], (100, ["E: Unable to locate package tmux"]))
+        ssh_run = server.ssh_run; self.addCleanup(setattr, server, "ssh_run", ssh_run)
+        for rc, err, want in ((100, b"W: a warning\nE: Unable to locate package tmux\n", "E: Unable to locate package tmux"), (255, b"", "Open a terminal to this host first: the deck needs its connection.")):
+            server.ssh_run = lambda *a, **k: subprocess.CompletedProcess([], rc, b"", err)
+            with self.assertRaises(RuntimeError) as e: server.ssh_install_tmux({"id": "x"})
+            self.assertEqual(str(e.exception), want)
+
+    def test_already_there(self):
+        self.tool("tmux", ""); self.assertEqual(self.run_sh(), (0, [], []))
+
+
 class StartArgs(unittest.TestCase):
     """claude_args is start()'s own checks and flags, factored out: a local chat's argv is exactly what it was."""
     def test_claude_args_same(self):

@@ -2270,6 +2270,28 @@ def ssh_install_key(host):
     if not ok: return "The key was added but the server didn't accept it."
     with _ssh_lock: ssh_hosts_write([{**x, "auth": "key"} if x.get("id") == host["id"] else x for x in ssh_hosts()])
 
+RTMUX_SH = r"""command -v tmux >/dev/null && exit 0
+if [ "$(id -u)" = 0 ]; then S=; elif command -v sudo >/dev/null && sudo -n true 2>/dev/null; then S="sudo -n"; else S=none; fi
+need() { [ "$S" != none ] || { echo "Installing tmux needs root, and sudo here asks for a password: install it in a terminal." >&2; exit 3; }; }
+if command -v apt-get >/dev/null; then need; $S env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1; $S env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tmux >/dev/null
+elif command -v dnf >/dev/null; then need; $S dnf install -y -q tmux
+elif command -v yum >/dev/null; then need; $S yum install -y -q tmux
+elif command -v apk >/dev/null; then need; $S apk add -q tmux
+elif command -v pacman >/dev/null; then need; $S pacman -S --noconfirm --needed tmux >/dev/null
+elif command -v zypper >/dev/null; then need; $S zypper -q -n install tmux
+elif command -v brew >/dev/null; then brew install -q tmux >/dev/null
+else echo "This server has no package manager the deck knows (apt, dnf, yum, apk, pacman, zypper, brew)." >&2; exit 4; fi || exit
+command -v tmux >/dev/null || { echo "The install ran but tmux still isn't on the PATH." >&2; exit 5; }"""
+
+def ssh_install_tmux(host):
+    """Installs tmux on the server with its own package manager (as root, or with sudo that needs no password), so its new chats outlive a
+    dropped link: its fresh rinfo. Runs in a login shell (brew's PATH), the script itself in sh. Raises RuntimeError with what to tell the page."""
+    r = ssh_run(host, RLOGIN + shlex.quote("sh -c " + shlex.quote(RTMUX_SH)), timeout=600)
+    if r.returncode:
+        l = r.stderr.decode(errors="replace").strip().splitlines()  # a package manager's last line says why; the first is often a warning
+        raise RuntimeError(ssh_err(r) if r.returncode == 255 or not l else l[-1][:200])
+    _RINFO.pop(host["id"], None); return rinfo(host)
+
 def ssh_forget_key(host):
     """Removes the host's keys from known_hosts, so the next connect asks about its fingerprint again: how many lines went."""
     ssh_argv(host)  # refuses a tampered address
@@ -3054,7 +3076,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, {"ok": True})
             except ValueError: return self.send(400, {"error": "That host's address isn't valid."})
             except OSError as e: return self.send(500, {"error": f"Couldn't start ssh: {e}"})
-        if self.path in ("/api/ssh/type", "/api/ssh/get", "/api/ssh/installkey", "/api/ssh/forgetkey"):  # SSH remote commands: a terminal (valid_term) or a host
+        if self.path in ("/api/ssh/type", "/api/ssh/get", "/api/ssh/installkey", "/api/ssh/installtmux", "/api/ssh/forgetkey"):  # SSH remote commands: a terminal (valid_term) or a host
             term = next((x for x in ssh_terms() if x["pane"] == body.get("pane")), None)
             h = ssh_host(term["host"]) if term and self.path in ("/api/ssh/type", "/api/ssh/get") else None if self.path == "/api/ssh/type" else ssh_host(body.get("host"))  # get: a terminal's, or a reply's file chip's host
             if not h: return self.send(400, {"error": "That terminal or host has gone."})
@@ -3067,6 +3089,7 @@ class H(BaseHTTPRequestHandler):
                 if self.path == "/api/ssh/get": return self.send(200, out_files([str(ssh_get(h, body.get("path")))])[0])
                 if self.path == "/api/ssh/installkey":
                     err = ssh_install_key(h); return self.send(400, {"error": err}) if err else self.send(200, {"ok": True})
+                if self.path == "/api/ssh/installtmux": return self.send(200, ssh_install_tmux(h))
                 return self.send(200, {"removed": ssh_forget_key(h)})
             except RuntimeError as e: return self.send(400, {"error": str(e)})
             except ValueError: return self.send(400, {"error": "That path or address isn't valid."})

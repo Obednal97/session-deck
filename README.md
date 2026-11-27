@@ -119,6 +119,7 @@ Session Deck can type into your terminals, so anyone who gets into it can run an
 - Host keys are never accepted for you. OpenSSH asks its own fingerprint question in the terminal, and a changed key is refused. "Remove old host key" on the host page clears the Mac's record so you can check the new one.
 - The terminal's WebSocket checks the same sign-in as the rest of the deck, and the page's origin.
 - Install key adds the Mac's `~/.ssh/id_ed25519.pub` to the server's `authorized_keys`. It switches the host to key sign-in only after a test sign-in with the key alone works. That test runs as its own launchd job, since macOS's Local Network privacy keeps the deck's python3 off the LAN.
+- Install tmux shows on a host's page only when the server has no tmux. It uses the server's own package manager (apt, dnf, yum, apk, pacman, zypper or brew) as root, or with sudo only when sudo needs no password; otherwise it says to install it in a terminal. New chats there then start in tmux; chats already open keep their kind.
 
 ## Licence
 
