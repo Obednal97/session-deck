@@ -664,26 +664,26 @@ def tmux_new(sock, *args):
     has them. With the deck's environment and folder, as if run from here; if launchd can't run it (no login session), it runs from here."""
     _socks.pop(sock, None)
     if sock not in sockets():
-        out = tmux_launchd(sock, args)
+        exe = shutil.which("tmux"); out = exe and launchd_run([exe, "-L", sock, *args])
         if out is not None: return out
     return run("tmux", "-L", sock, *args)
 
-def tmux_launchd(sock, args, wait=8):
-    """Runs tmux as a one-off launchd job and returns what it printed, or None if launchd wouldn't take the job (so it never ran)."""
-    exe, d = shutil.which("tmux"), tempfile.mkdtemp(prefix="deck-tmux.")
-    if not exe: return None
-    label, out, job = f"local.deck-tmux.{sock}.{os.getpid()}.{time.time_ns()}", Path(d, "out"), Path(d, "job.plist")
+def launchd_run(argv, wait=8):
+    """Runs argv as a one-off launchd job, so its program, not this python3, is responsible for its privacy grants: what it printed, or None
+    if launchd wouldn't take the job (so it never ran). Done once its output ends a line and the job has stopped; ended after wait seconds."""
+    d = tempfile.mkdtemp(prefix="deck-job.")
+    label, out, job = f"local.deck-job.{os.getpid()}.{time.time_ns()}", Path(d, "out"), Path(d, "job.plist")
     try:
-        job.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [exe, "-L", sock, *args], "RunAtLoad": True, "AbandonProcessGroup": True,
+        job.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": list(argv), "RunAtLoad": True, "AbandonProcessGroup": True,
             "EnvironmentVariables": {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")}, "WorkingDirectory": str(HOME),  # not the deck's folder: a deploy replaces it, and a server whose folder is gone starts every new window in it
             "StandardOutPath": str(out), "StandardErrorPath": str(out)}))
         dom = next((x for x in (f"gui/{os.getuid()}", f"user/{os.getuid()}")
                     if subprocess.run([LAUNCHCTL, "bootstrap", x, str(job)], capture_output=True, timeout=8).returncode == 0), None)
         if not dom: return None
-        end = time.time() + wait  # done once -P has printed the pane (or an error) and the client has exited, so a chain after it has run too
+        end = time.time() + wait  # for tmux: once -P has printed the pane (or an error) and the client has exited, so a chain after it has run too
         while time.time() < end and not (out.exists() and out.read_text().endswith("\n") and
                                          "state = running" not in run(LAUNCHCTL, "print", f"{dom}/{label}")): time.sleep(0.05)
-        subprocess.run([LAUNCHCTL, "bootout", f"{dom}/{label}"], capture_output=True, timeout=8)  # the job only; tmux's server has left its process group
+        subprocess.run([LAUNCHCTL, "bootout", f"{dom}/{label}"], capture_output=True, timeout=8)  # the job only; a tmux server it started has left its process group
         return out.read_text() if out.exists() else ""
     finally: shutil.rmtree(d, ignore_errors=True)
 
@@ -2261,9 +2261,12 @@ def ssh_install_key(host):
     r = ssh_run(host, """umask 077; mkdir -p ~/.ssh; k=$(cat); f=~/.ssh/authorized_keys; grep -qxF "$k" "$f" 2>/dev/null ||
         { if [ -s "$f" ] && [ -n "$(tail -c 1 "$f")" ]; then echo >> "$f"; fi; printf '%s\\n' "$k" >> "$f"; }""", pub, 30)  # a last line with no newline mustn't swallow the key
     if r.returncode: return ssh_err(r)
-    a = ssh_argv({**host, "auth": "key"}, ["true"], batch=True); a[a.index(f"ControlPath={SSH_CM}/%C")] = "ControlPath=none"  # a fresh sign-in with only the key, not through the master
-    try: ok = subprocess.run(a, stdin=subprocess.DEVNULL, capture_output=True, timeout=30).returncode == 0
-    except subprocess.TimeoutExpired: ok = False
+    a = ssh_argv({**host, "auth": "key"}, ["echo", "deck-key-ok"], batch=True); a[a.index(f"ControlPath={SSH_CM}/%C")] = "ControlPath=none"  # a fresh sign-in with only the key, not through the master
+    out = launchd_run(a, 30)  # ssh's own, not this python3's: macOS's Local Network privacy refuses python3 the LAN ("No route to host")
+    if out is None:
+        try: out = subprocess.run(a, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30).stdout
+        except subprocess.TimeoutExpired: out = ""
+    ok = "deck-key-ok" in out.splitlines()
     if not ok: return "The key was added but the server didn't accept it."
     with _ssh_lock: ssh_hosts_write([{**x, "auth": "key"} if x.get("id") == host["id"] else x for x in ssh_hosts()])
 
@@ -2522,7 +2525,8 @@ def rcmd(cwd, argv, rt=None):
     keys: the key bar's Ctrl-B is Claude's (background a task), and as the server tmux's prefix it would swallow the next key (a choice's Down)."""
     r = argv[argv.index("--resume") + 1] if "--resume" in argv and "--fork-session" not in argv else None  # a fork may copy a running session
     g = "sh -c " + shlex.quote(RGUARD % r) + " && " if r else ""  # r: claude_args or SID_RE has checked it; sh, as the login shell may not be POSIX
-    login = RLOGIN + shlex.quote(f"{'' if rt else g}cd -- {rpath(cwd)} && exec " + shlex.join(argv))
+    sb = "export IS_SANDBOX=1 && " if "--dangerously-skip-permissions" in argv else ""  # Claude refuses bypass as root (a Proxmox host signs in as root) unless told it's sandboxed
+    login = RLOGIN + shlex.quote(f"{'' if rt else g}{sb}cd -- {rpath(cwd)} && exec " + shlex.join(argv))
     if not rt: return login
     return (f"tmux has-session -t '={rt}' 2>/dev/null || {g}" if g else "") + f"tmux -u new-session -A -s {shlex.quote(rt)} -c {rpath(cwd)} {shlex.quote(login)} \\; set-option -t {shlex.quote(rt)} status off \\; set-option -t {shlex.quote(rt)} prefix None \\; set-option -t {shlex.quote(rt)} prefix2 None"
 

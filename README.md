@@ -118,7 +118,7 @@ Session Deck can type into your terminals, so anyone who gets into it can run an
 - The deck types a saved password only into OpenSSH's own password prompt for that host (never a jump host's), once per connection, and never when a shared connection is already up. A wrong password isn't retried, and the password never goes on a command line or into a log.
 - Host keys are never accepted for you. OpenSSH asks its own fingerprint question in the terminal, and a changed key is refused. "Remove old host key" on the host page clears the Mac's record so you can check the new one.
 - The terminal's WebSocket checks the same sign-in as the rest of the deck, and the page's origin.
-- Install key adds the Mac's `~/.ssh/id_ed25519.pub` to the server's `authorized_keys`. It switches the host to key sign-in only after a test sign-in with the key alone works.
+- Install key adds the Mac's `~/.ssh/id_ed25519.pub` to the server's `authorized_keys`. It switches the host to key sign-in only after a test sign-in with the key alone works. That test runs as its own launchd job, since macOS's Local Network privacy keeps the deck's python3 off the LAN.
 
 ## Licence
 

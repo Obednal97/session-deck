@@ -764,6 +764,18 @@ class Chats(unittest.TestCase):
         real = server.tm; server.tm = lambda key, *a, **k: cmd + "\n" if "#{@deck_rcmd}" in a else real(key, *a, **k); self.addCleanup(setattr, server, "tm", real)
         self.assertEqual(server.rresume({"pane": "decktest.1", "claude": u, "rkind": "tmux", "rtmux": rt, "rcwd": "/root/x"}), cmd)  # read back for a reconnect
 
+    def test_bypass_sandboxed(self):  # Claude refuses bypass as root unless IS_SANDBOX is set: a bypass chat sets it, a resume keeps it, others never do
+        u = str(uuid.uuid4())
+        cmd = server.rcmd("/root/x", ["claude", "--dangerously-skip-permissions", "--resume", u])
+        self.assertIn(" && export IS_SANDBOX=1 && cd -- /root/x && exec claude ", shlex.split(cmd)[3])
+        self.assertNotIn("IS_SANDBOX", server.rcmd("/root/x", ["claude", "--permission-mode", "default", "--resume", u]))
+        b = self.home / "bin"; b.mkdir(exist_ok=True); (b / "claude").write_text('#!/bin/sh\necho "SANDBOX=$IS_SANDBOX"\n'); (b / "claude").chmod(0o755)
+        r = subprocess.run(["sh", "-c", shlex.split(server.rcmd("~", ["claude", "--dangerously-skip-permissions"]))[3]], capture_output=True, text=True,
+                           env={**os.environ, "HOME": str(self.home), "PATH": f"{b}:{os.environ['PATH']}"})
+        self.assertEqual(r.stdout, "SANDBOX=1\n")
+        real = server.tm; server.tm = lambda key, *a, **k: cmd + "\n" if "#{@deck_rcmd}" in a else real(key, *a, **k); self.addCleanup(setattr, server, "tm", real)
+        self.assertEqual(server.rresume({"pane": "decktest.1", "claude": u, "rkind": "plain", "rtmux": "", "rcwd": "/root/x"}), cmd)
+
     def test_resume_open_refused(self):  # a session already in a deck terminal (live or dropped) never gets a second Claude from New chat
         self.info(False); R = str(uuid.uuid4())
         pane, err = server.rstart(self.hid, "/root/x", "claude", resume=R); self.assertIsNone(err)

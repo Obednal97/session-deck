@@ -12,7 +12,7 @@ import server
 SOCK, TCC = "deckfdatest", "/Library/Application Support/com.apple.TCC/TCC.db"
 def T(*a, sock=SOCK): return subprocess.run(["tmux", "-L", sock, *a], capture_output=True, text=True).stdout.strip()
 def readable(sock=SOCK): return T("run-shell", f"head -c1 '{TCC}' >/dev/null 2>&1 && echo yes || echo no", sock=sock) == "yes"
-def jobs(): return [l for l in subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout.splitlines() if "local.deck-tmux." in l]
+def jobs(): return [l for l in subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout.splitlines() if "local.deck-job." in l]
 
 def tmux_has_grant():
     """Whether tmux itself has Full Disk Access on this Mac: a tmux server launchd starts directly is tmux's own."""
